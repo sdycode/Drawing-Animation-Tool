@@ -1,0 +1,12 @@
+{
+    "userProfile": {
+        "userName": "myUserName",
+        "password": "myPassword",
+        "projects": [
+            "Project_0",
+            "Project_1",
+            "Project_2"
+        ]
+    }
+}
+

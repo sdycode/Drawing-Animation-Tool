@@ -1,0 +1,41 @@
+{
+    "SingleFrameModel": {
+        "frameNo": 0,
+        "boxSize": {
+            "width": 100,
+            "height": 100
+        },
+        "hoverPoint": {
+            "x": 0.0,
+            "y": 0.0
+        },
+        "controlPointAdjecntPair": {
+            "preIndex": 0,
+            "nextIndex": 1
+        },
+        "controlMidPoints": {
+            "0": {
+                "x": 0.0,
+                "y": 0.0
+            },
+            "1": {
+                "x": 0.0,
+                "y": 0.0
+            }
+        },
+        "points": [
+            {
+                "x": 0.0,
+                "y": 0.0
+            },
+            {
+                "x": 0.0,
+                "y": 0.0
+            },
+            {
+                "x": 0.0,
+                "y": 0.0
+            }
+        ]
+    }
+}

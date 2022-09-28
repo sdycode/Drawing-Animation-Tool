@@ -1,0 +1,197 @@
+{
+    "userProfile": {
+        "userName": "myUserName",
+        "password": "myPassword",
+        "projects": [
+            {
+                "projectId": "shubham0",
+                "projectName": "AnimatedIconProjectshubham0",
+                "iconSections": [
+                  {
+                            "iconSectionNo": 0,
+                            "iconSectionName": "iconSectionName0",
+                            "frames": [
+                                {
+                                    "frameNo": 0,
+                                    "SingleFrameModel": {
+                                        "frameNo": 0,
+                                        "boxSize": {
+                                            "width": 100,
+                                            "height": 100
+                                        },
+                                        "hoverPoint": {
+                                            "x": 0.0,
+                                            "y": 0.0
+                                        },
+                                        "controlPointAdjecntPair": {
+                                            "preIndex": 0,
+                                            "nextIndex": 1
+                                        },
+                                        "controlMidPoints": {
+                                            "0": {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            "1": {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            }
+                                        },
+                                        "points": [
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "frameNo": 1,
+                                    "SingleFrameModel": {
+                                        "frameNo": 1,
+                                        "boxSize": {
+                                            "width": 100,
+                                            "height": 100
+                                        },
+                                        "hoverPoint": {
+                                            "x": 0.0,
+                                            "y": 0.0
+                                        },
+                                        "controlPointAdjecntPair": {
+                                            "preIndex": 0,
+                                            "nextIndex": 1
+                                        },
+                                        "controlMidPoints": {
+                                            "0": {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            "1": {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            }
+                                        },
+                                        "points": [
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "iconSectionNo": 1,
+                            "iconSectionName": "iconSectionName1",
+                            "frames": [
+                                {
+                                    "frameNo": 0,
+                                    "SingleFrameModel": {
+                                        "frameNo": 0,
+                                        "boxSize": {
+                                            "width": 100,
+                                            "height": 100
+                                        },
+                                        "hoverPoint": {
+                                            "x": 0.0,
+                                            "y": 0.0
+                                        },
+                                        "controlPointAdjecntPair": {
+                                            "preIndex": 0,
+                                            "nextIndex": 1
+                                        },
+                                        "controlMidPoints": {
+                                            "0": {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            "1": {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            }
+                                        },
+                                        "points": [
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "frameNo": 1,
+                                    "SingleFrameModel": {
+                                        "frameNo": 1,
+                                        "boxSize": {
+                                            "width": 100,
+                                            "height": 100
+                                        },
+                                        "hoverPoint": {
+                                            "x": 0.0,
+                                            "y": 0.0
+                                        },
+                                        "controlPointAdjecntPair": {
+                                            "preIndex": 0,
+                                            "nextIndex": 1
+                                        },
+                                        "controlMidPoints": {
+                                            "0": {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            "1": {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            }
+                                        },
+                                        "points": [
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            },
+                                            {
+                                                "x": 0.0,
+                                                "y": 0.0
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                        
+                    
+                   
+                ]
+            }
+        ]
+    }
+}
