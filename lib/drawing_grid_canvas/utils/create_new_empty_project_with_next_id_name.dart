@@ -1,5 +1,6 @@
 import 'dart:developer';
 
+import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_updated_user_profile_added_with_new_project.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/update_project_no_list.dart';
@@ -25,11 +26,13 @@ createNewProjectWithNo(int projectNo,
     
     Project(
           projectId: "Project_$projectNo",
-          projectName: projectName + '_' + "$projectNo",
+          projectName: projectName + '_' + "$projectNo",   width: defaultProjectWidth,
+      height: defaultProjectHeight,
           iconSections: [
             IconSection(
                 iconSectionNo: 0,
-                iconSectionName: "iconSectionName_0",
+                iconSectionName: "Polyline_0",
+                position: Point.zero,
                 frames: [
                   Frame(
                       frameNo: 0,
@@ -40,7 +43,7 @@ createNewProjectWithNo(int projectNo,
                 ]),
             IconSection(
                 iconSectionNo: 1,
-                iconSectionName: "iconSectionName_1",
+                iconSectionName: "Polyline_1",  position: Point.zero,
                 frames: [
                   Frame(
                       frameNo: 0,
@@ -51,7 +54,7 @@ createNewProjectWithNo(int projectNo,
                 ]),
             IconSection(
                 iconSectionNo: 2,
-                iconSectionName: "iconSectionName_2",
+                iconSectionName: "Polyline_2",  position: Point.zero,
                 frames: [
                   Frame(
                       frameNo: 0,

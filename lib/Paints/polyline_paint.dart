@@ -1,13 +1,16 @@
 import 'dart:developer';
 
+import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
+import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:flutter/material.dart';
 
-import 'drawing_grid_canvas.dart';
-import 'drawing_grid_canvas_fields.dart';
+
 
 class PointsLinePaint extends CustomPainter {
   List<Offset> _p;
-  PointsLinePaint(this._p);
+  int iconsecIndex;
+  PointsLinePaint(this._p,  {this.iconsecIndex = 0});
   @override
   void paint(Canvas canvas, Size size) {
     // log("paintsize in PointsLinePaint ${size}");
@@ -16,7 +19,9 @@ class PointsLinePaint extends CustomPainter {
 
     paint
       ..style = PaintingStyle.fill
-      ..color = Colors.red
+      ..color =
+      // myColors[cu]
+       Colors.red
       ..strokeWidth = 1;
     Paint pointpaint = Paint();
     Paint hoverPointpaint = Paint();
@@ -32,7 +37,7 @@ class PointsLinePaint extends CustomPainter {
     switch (drawingType) {
       case DrawingType.points:
         for (Offset e in _p) {
-          canvas.drawCircle(e, 2, pointpaint);
+          canvas.drawCircle(e, 3, pointpaint);
         }
         break;
       case DrawingType.linepaths:
@@ -43,7 +48,7 @@ class PointsLinePaint extends CustomPainter {
         break;
       case DrawingType.pointsAndLines:
         for (Offset e in _p) {
-          canvas.drawCircle(e, 2, pointpaint);
+          canvas.drawCircle(e, 3, pointpaint);
         }
         for (var i = 1; i < _p.length; i++) {
           canvas.drawLine(_p[i - 1], _p[i], paint);
@@ -70,13 +75,17 @@ class PointsLinePaint extends CustomPainter {
             canvas.drawLine(_p[i], _p[i + 1], paint);
           }
         }
+        
         break;
       case DrawingType.closedCustomPath:
         Path curvePath = Path();
         Paint curvepaint = Paint();
         curvepaint
           ..style = PaintingStyle.fill
-          ..color = Colors.deepPurple
+          ..color =
+          
+          myColors[iconsecIndex].withAlpha(120)
+          //  Colors.deepPurple
           ..strokeWidth = 4;
         // Only Straight line
           curvePath.moveTo(_p[0].dx, _p[0].dy);
@@ -101,6 +110,9 @@ class PointsLinePaint extends CustomPainter {
         curvePath.close();
         canvas.drawPath(curvePath, curvepaint);
         // curvePath.
+        for (Offset e in _p) {
+          canvas.drawCircle(e, 3, pointpaint);
+        }
         break;
       default:
     }

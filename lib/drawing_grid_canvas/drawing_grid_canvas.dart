@@ -1,11 +1,12 @@
 import 'dart:developer';
 
-import 'package:animated_icon_demo/drawing_grid_canvas/hover_paint.dart';
+
 import 'package:animated_icon_demo/drawing_grid_canvas/models/converted_songle_frame_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/add_new_frame.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/add_new_iconsection.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/add_new_project.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_frame.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_iconsection.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_project.dart';
+
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/check_if_hoverpoint_inside_boundarybox.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/check_is_there_any_project_or_not.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/create_new_empty_project_with_next_id_name.dart';
@@ -14,41 +15,35 @@ import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_current_project
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_interpolated_point.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_updated_user_profile_added_with_new_project.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/load_project_to_current.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/pan_update.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/points_to_offsets.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/utils/set_animating_points_for_multisections_with2_frames.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/set_points_for_2_frames_for_animation.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/updateProject.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/update_all_projects.dart';
+import 'package:animated_icon_demo/enums/enums.dart';
+import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/screens/username_page.dart';
 import 'package:animated_icon_demo/service/firebase_service.dart';
 import 'package:animated_icon_demo/shared/shared.dart';
 import 'package:animated_icon_demo/widgets/animated_paint.dart';
+import 'package:animated_icon_demo/widgets/animation_showing_box_widget.dart';
 import 'package:animated_icon_demo/widgets/control_point_widget.dart';
+import 'package:animated_icon_demo/Landscape%20Widgets/drawing_plane_widget.dart';
+import 'package:animated_icon_demo/widgets/multi_section_animating_box.dart';
 import 'package:animated_icon_demo/widgets/point_box.dart';
 import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/widgets/temp_paint.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'models/pair_model.dart';
-import 'polyline_paint.dart';
+
 import 'utils/add_control_point.dart';
 import 'utils/check_this_point_is_inside_given_point_box.dart';
 import 'utils/getIndexForHoveredPointFromListofAddedPoints.dart';
 import 'utils/get_lower_value_from_pair.dart';
-import 'utils/on_tap_up.dart';
 
-enum DrawingType {
-  points,
-  linepaths,
-  pointsAndLines,
-  curvePaths,
-  closedCustomPath
-}
-
-enum PointType { endPoint, middlePoint }
-
-enum MidpointStatus { selectEndPoints, AddMiddlePoint }
 
 Map<int, int> pointRoundedValuesofX = {};
 Map<int, int> pointRoundedValuesofY = {};
@@ -62,8 +57,7 @@ List<String> drawingTypeNames = [
   'curvePaths',
   'closedCustomPath'
 ];
-DrawingType drawingType = DrawingType.points;
-int drawingtypindex = 0;
+
 
 class DrawGridCanvase extends StatefulWidget {
   DrawGridCanvase({Key? key}) : super(key: key);
@@ -90,17 +84,13 @@ void resetControlPointAdjecntPair() {
 
 class _DrawGridCanvaseState extends State<DrawGridCanvase>
     with TickerProviderStateMixin {
-  late AnimationController animationController;
+  // late AnimationController animationController;
 
   ScrollController iconSectionScrollController = ScrollController();
   ScrollController framesScrollController = ScrollController();
   ScrollController pointsScrollController = ScrollController();
   ScrollController projectsListScrollController = ScrollController();
-  List<Offset> points = pointsToOffsets(projectList[currentProjectNo]
-      .iconSections[currentIconSectionNo]
-      .frames[currentFrameNo]
-      .singleFrameModel
-      .points);
+
   StateSetter hoverState = (d) {};
   StateSetter pointsLinePaintState = (d) {};
   String currntString = 'nodata';
@@ -108,13 +98,16 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
   void initState() {
     // TODO: implement initState
     super.initState();
-    animationController = AnimationController(
-        vsync: this, duration: Duration(milliseconds: 3000));
+    // animationController = AnimationController(
+    //     vsync: this, duration: const Duration(milliseconds: 3000));
     // .animateTo(1.0, duration: Duration(seconds: 3));
   }
 
+  bool isLandscape = true;
   @override
   Widget build(BuildContext context) {
+    ProvData provData = Provider.of(context);
+    isLandscape = 10.sw(context) > 10.sh(context);
     if (selectedPointIndex >=
         projectList[currentProjectNo]
             .iconSections[currentIconSectionNo]
@@ -130,6 +123,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
               .length -
           1;
     }
+
     if (selectedPointIndex < 0) {
       selectedPointIndex = 0;
     }
@@ -138,6 +132,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
 
     // log(" paintsize  /  /$currentIconSectionNo / $currentFrameNo /${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points.length}");
     return Scaffold(
+      // backgroundColor:Theme.of(context).backgroundColor,
         body:
 
             // FutureBuilder(
@@ -152,142 +147,24 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
             Shared.getUserName(),
             style: Theme.of(context).textTheme.bodyLarge,
           ),
-          Container(
-            width: biggerSize.width.truncate().toDouble(),
-            height: biggerSize.height.truncate().toDouble(),
-            color: Colors.purple.shade100.withAlpha(60),
-            child: MouseRegion(
-              cursor: SystemMouseCursors.help,
-              onHover: (event) {
-                hoverPoint = event.position;
-                // hoverState(() {
-                //   hoverPoint = event.position;
-                // },);
-                hoverState(
-                  () {},
-                );
-              },
-              child: GestureDetector(
-                onTapUp: (d) {
-                  on_tap_up(d);
-                  selectedPointIndex = projectList[currentProjectNo]
-                          .iconSections[currentIconSectionNo]
-                          .frames[currentFrameNo]
-                          .singleFrameModel
-                          .points
-                          .length -
-                      1;
-                  setState(() {});
-                },
-                onPanStart: (d) {
-                  panPointIndex = getIndexForHoveredPointFromListofAddedPoints(
-                      d.localPosition);
-                  log("panPointIndex onPanStart ${d.localPosition}");
-                },
-                onPanUpdate: (d) {
-                  log("panPointIndex before ${d.localPosition}");
-                  pan_Update(d);
-
-                  setState(() {});
-                },
-                onPanEnd: (d) {
-                  panPointIndex = -1;
-                },
-                child: Stack(children: [
-                  projectList[currentProjectNo]
-                          .iconSections[currentIconSectionNo]
-                          .frames[currentFrameNo]
-                          .singleFrameModel
-                          .points
-                          .isNotEmpty
-                      ? Positioned(
-                          left:
-                              // (100.sw(context) -
-                              //             biggerSize.width.truncate().toDouble()) *
-                              //         0.5 -
-                              //     5 +
-                              projectList[currentProjectNo]
-                                      .iconSections[currentIconSectionNo]
-                                      .frames[currentFrameNo]
-                                      .singleFrameModel
-                                      .points[selectedPointIndex]
-                                      .x -
-                                  5,
-                          top: projectList[currentProjectNo]
-                                  .iconSections[currentIconSectionNo]
-                                  .frames[currentFrameNo]
-                                  .singleFrameModel
-                                  .points[selectedPointIndex]
-                                  .y -
-                              5,
-                          child: BoxPoint(
-                            isHovered: true,
-                            // isPointHoverPointisInsideBoundryBox(e),
-                            isSelected: false,
-                            // (pIndex == controlPointAdjecntPair.preIndex) ||
-                            //     (pIndex == controlPointAdjecntPair.nextIndex),
-                            child: Container(),
-                          ))
-                      : Container(),
-                  StatefulBuilder(builder: (BuildContext context,
-                      StateSetter _pointsLinePaintState) {
-                    pointsLinePaintState = _pointsLinePaintState;
-
-                    return CustomPaint(
-                      size: Size(
-                        biggerSize.width.truncate().toDouble(),
-                        biggerSize.height.truncate().toDouble(),
-                      ),
-                      painter: PointsLinePaint(pointsToOffsets(
-                          projectList[currentProjectNo]
-                              .iconSections[currentIconSectionNo]
-                              .frames[currentFrameNo]
-                              .singleFrameModel
-                              .points
-                          // currentIconSectionsList[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points
-                          )),
-                    );
-                  }),
-                  StatefulBuilder(
-                      builder: (BuildContext context, StateSetter _hoverState) {
-                    // log(" paintsize in _hoverState  build buld ${100.sw(context).truncate().toDouble()}, //  ${70.sh(context).truncate().toDouble()}");
-
-                    hoverState = _hoverState;
-                    return CustomPaint(
-                      size: Size(
-                        biggerSize.width.truncate().toDouble(),
-                        biggerSize.height.truncate().toDouble(),
-                      ),
-                      painter: HoverPaint(),
-                    );
-                  }),
-
-                  // ...(List.generate(points.length, (pIndex) {
-                  //   Offset e = points[pIndex];
-                  //   return Positioned(
-                  //       left: e.dx - 5,
-                  //       top: e.dy - 5,
-                  //       child: BoxPoint(
-                  //         isHovered: isPointHoverPointisInsideBoundryBox(e),
-                  //         isSelected:
-                  //             (pIndex == controlPointAdjecntPair.preIndex) ||
-                  //                 (pIndex == controlPointAdjecntPair.nextIndex),
-                  //         child: Container(),
-                  //       ));
-                  // })),
-                  if (controlMidPoints.isNotEmpty)
-                    ControlBoxPoint(
-                        controlMidPoints[controlPointAdjecntPair.preIndex] ??
-                            const Offset(-50, -50))
-                ]),
-              ),
-            ),
-          ),
+          isLandscape
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    DrawingPlaneWidget(),
+                    MultiSectionAnimationShowingBoxWidget(),
+                    if (!showAnimationPanel && animatingFramePoints.length > 1)
+                      AnimationShowingBoxWidget()
+                  ],
+                )
+              : const DrawingPlaneWidget(),
+          Text("${animatePointsModels.length}"),
           TextButton(
               onPressed: () {
                 setState(() {
                   showAnimationPanel = !showAnimationPanel;
                   framePointsSetForAnimation = false;
+                  framePointsForMultiSectionsAreSetForAnimation = false;
                 });
               },
               child: Text(showAnimationPanel
@@ -301,68 +178,20 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                           ? Colors.purple
                           : Colors.red)),
               onPressed: () {
-                setPointsFor2FramesForAnimation();
-                animationController.reset();
-                animationController.forward();
-                setState(() {});
+                // setPointsFor2FramesForAnimation();
+                setAnimatingPointsForMultisectionsWith2frames();
+                // animationController.reset();
+                // animationController.forward();
+                multianimationController.reset();
+                multianimationController.forward();
+                // setState(() {});
               },
             ),
-          if (!showAnimationPanel && animatingFramePoints.length > 1)
-            StatefulBuilder(
-                builder: (BuildContext context, StateSetter animState) {
-              animationController.addListener(() {
-                for (var i = 0; i < animatingFramePoints.length; i++) {
-                  Point interPoint = getInterPolatedPoint(
-                      animationController.value,
-                      frame1Points[i],
-                      frame2Points[i]);
-                  animatingFramePoints[i] = interPoint;
-                }
-                if (mounted) {
-                  setState(() {
-                    
-                  });
-                //      animState(
-                //   () {
-                //     // log("interpoint @ ${animationController.value} : ${interPoint} ");
-                //   },
-                // );
-                }
-             
-              });
-              return Container(
-                width: biggerSize.width,
-                height: biggerSize.height,
-                color: Colors.green.shade100,
-                child: Stack(children: [
-                           ...(List.generate(animatingFramePoints.length, (int i) {
-                    return Positioned(
-                        left: animatingFramePoints[i].x,
-                        top: animatingFramePoints[i].y,
-                        child: Container(
-                          width: 5,
-                          height: 5,
-                          color: Colors.pink,
-                        ));
-                  })),
-                  AnimatedMyPaint(
-                    width: biggerSize.width,
-                    height: biggerSize.height,
-                    animPoints: pointsToOffsets(animatingFramePoints),
-                  ),
-                  // ...(List.generate(animatingFramePoints.length, (int i) {
-                  //   return Positioned(
-                  //       left: animatingFramePoints[i].x,
-                  //       top: animatingFramePoints[i].y,
-                  //       child: Container(
-                  //         width: 5,
-                  //         height: 5,
-                  //         color: Colors.pink,
-                  //       ));
-                  // }))
-                ]),
-              );
-            }),
+          //
+          if (!showAnimationPanel &&
+              animatingFramePoints.length > 1 &&
+              !isLandscape)
+            AnimationShowingBoxWidget(),
           if (showAnimationPanel)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -401,7 +230,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                       color: pointType == PointType.endPoint
                           ? Colors.pink.shade200
                           : null,
-                      child: Text("EndPoint")),
+                      child: const Text("EndPoint")),
                 ),
                 InkWell(
                   onTap: () {
@@ -409,7 +238,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                       clearAll();
                     });
                   },
-                  child: Text("Clear"),
+                  child: const Text("Clear"),
                 ),
                 InkWell(
                   onTap: () {
@@ -420,7 +249,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                       color: pointType == PointType.middlePoint
                           ? Colors.pink.shade200
                           : null,
-                      child: Text("MidPoint")),
+                      child: const Text("MidPoint")),
                 ),
               ],
             ),
@@ -433,20 +262,20 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                     await loadAllProjectsFromServer();
                     setState(() {});
                   },
-                  child: Text("Load all projects"),
+                  child: const Text("Load all projects"),
                 ),
                 InkWell(
                     onTap: () async {
                       updateAllProjects();
                       // updateProjectData();
                     },
-                    child: Text("save data")),
+                    child: const Text("save data")),
                 const SizedBox(
                   height: 10,
                 ),
               ],
             ),
-          Divider(),
+          const Divider(),
           if (showAnimationPanel)
             Container(
               height: 40,
@@ -464,7 +293,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                     scrollDirection: Axis.horizontal,
                     itemBuilder: (c, i) {
                       return Padding(
-                        padding: EdgeInsets.all(4),
+                        padding: const EdgeInsets.all(4),
                         child: InkWell(
                           onTap: () {
                             setState(() {
@@ -478,7 +307,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                                 : Colors.orange,
                             child: Text(
                               i.toString(),
-                              style: TextStyle(color: Colors.white),
+                              style: const TextStyle(color: Colors.white),
                             ),
                           ),
                         ),
@@ -497,18 +326,18 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                       .removeAt(selectedPointIndex);
                   setState(() {});
                 },
-                icon: Icon(
+                icon: const Icon(
                   Icons.delete,
                   color: Colors.red,
                 ),
-                label: Text(
+                label: const Text(
                   "Delete Point",
                   style: TextStyle(
                     color: Colors.red,
                   ),
                 )),
-          Divider(),
-          if (showAnimationPanel) Text("Projects"),
+          const Divider(),
+          if (showAnimationPanel) const Text("Projects"),
           if (showAnimationPanel)
             Container(
                 height: 30 + 20,
@@ -534,7 +363,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                                 child: i == 0
                                     ? Container()
                                     : Container(
-                                        margin: EdgeInsets.all(10),
+                                        margin: const EdgeInsets.all(10),
                                         height: 40,
                                         decoration: BoxDecoration(
                                           border: i == currentProjectNo
@@ -557,14 +386,14 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                         loadDataOfSelectedProject();
                         setState(() {});
                       },
-                      icon: Icon(Icons.add),
+                      icon: const Icon(Icons.add),
                     )
                   ],
                 )),
-          if (showAnimationPanel) Text("Icon Secations"),
+          if (showAnimationPanel) const Text("Icon Secations"),
           if (showAnimationPanel)
             Container(
-                height: 30 + 20,
+                height: 30 + 20 + 30,
                 width: double.infinity,
                 child: Row(
                   children: [
@@ -587,16 +416,40 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                                   });
                                 },
                                 child: Container(
-                                  margin: EdgeInsets.all(10),
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    border: i == currentIconSectionNo
-                                        ? Border.all()
-                                        : null,
-                                    color: Colors.pink.shade100.withAlpha(150),
-                                  ),
-                                  child: Text("IconSection $i"),
-                                ),
+                                    margin: const EdgeInsets.all(10),
+                                    height: 70,
+                                    decoration: BoxDecoration(
+                                      border: i == currentIconSectionNo
+                                          ? Border.all()
+                                          : null,
+                                      color:
+                                          Colors.pink.shade100.withAlpha(150),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Text("IconSection $i"),
+                                        IconButton(
+                                            onPressed: () {
+                                              if (iconSectionNosIncludedInAnimation
+                                                  .contains(i)) {
+                                                try {
+                                                  iconSectionNosIncludedInAnimation
+                                                      .remove(i);
+                                                } catch (e) {}
+                                              } else {
+                                                iconSectionNosIncludedInAnimation
+                                                    .add(i);
+                                              }
+                                              setState(() {});
+                                            },
+                                            icon: Icon(
+                                                iconSectionNosIncludedInAnimation
+                                                        .contains(i)
+                                                    ? Icons.check_box
+                                                    : Icons
+                                                        .check_box_outline_blank))
+                                      ],
+                                    )),
                               );
                             }),
                       ),
@@ -607,12 +460,12 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                         addNewIconSection();
                         setState(() {});
                       },
-                      icon: Icon(Icons.add),
+                      icon: const Icon(Icons.add),
                     )
                   ],
                 )),
           //  projectList[currentProjectNo].iconSections[currentIconSectionNo]
-          if (showAnimationPanel || true) Text("Frames"),
+          if (showAnimationPanel || true) const Text("Frames"),
           if (showAnimationPanel || true)
             Container(
                 height: 150 + 20,
@@ -639,7 +492,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                                   // reInitiliaseFramePoints(); clearAll();
                                 },
                                 child: Container(
-                                    margin: EdgeInsets.all(10),
+                                    margin: const EdgeInsets.all(10),
                                     height: 150,
                                     width: 150,
                                     decoration: BoxDecoration(
@@ -654,6 +507,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                                         TempPaint(
                                             height: 300,
                                             width: 300,
+                                            frameNo: i,
                                             frame: projectList[currentProjectNo]
                                                 .iconSections[
                                                     currentIconSectionNo]
@@ -668,7 +522,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                                         Align(
                                           alignment: Alignment.topCenter,
                                           child: Text(
-                                              "${currentIconSectionNo}_${i} / ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points.length}"),
+                                              "${currentIconSectionNo}_${i} / ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[i].singleFrameModel.points.length}"),
                                         )
                                       ],
                                     )
@@ -683,10 +537,10 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                     ),
                     IconButton(
                       onPressed: () {
-                        addNewFrame();
+                        addNewFrame(0.0);
                         setState(() {});
                       },
-                      icon: Icon(Icons.add),
+                      icon: const Icon(Icons.add),
                     )
                   ],
                 )),
@@ -698,11 +552,11 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
   Future loadDataOfSelectedProject() async {
     currentIconSectionNo = 0;
     currentFrameNo = 0;
-    log("list before $currentProjectNo /  ${projectList[currentProjectNo].iconSections.length}");
+    // log("list before $currentProjectNo /  ${projectList[currentProjectNo].iconSections.length}");
     // projectList[currentProjectNo].iconSections = [
     //   IconSection(
     //       iconSectionNo: 0,
-    //       iconSectionName: "iconSectionName_0",
+    //       iconSectionName: "Polyline_0",
     //       frames: [
     //         Frame(frameNo: 0, singleFrameModel: SingleFrameModel(frameNo: 0))
     //       ])

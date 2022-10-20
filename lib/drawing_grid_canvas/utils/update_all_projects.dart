@@ -2,6 +2,7 @@
 
 import 'dart:developer';
 
+import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/service/firebase_service.dart';
@@ -17,10 +18,13 @@ Future updateAllProjects() async {
         .usersInstance
         .doc(Shared.getUserName())
         .collection("${projectId}");
+    // if(currentProjectNo == prno){}
+    pr.width = drawingBoardSize.width;
+    pr.height = drawingBoardSize.height;
+    pr.position = Point.fromOffset(drawingBoardPosition) ;
     await colref.doc("${projectId}").set(pr.toMap());
     log("prlist ${projectList.length} done for $prno");
     prno++;
-     projectId = "Project_$prno";
-     
+    projectId = "Project_$prno";
   });
 }

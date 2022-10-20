@@ -1,22 +1,29 @@
 import 'package:animated_icon_demo/Animated/my_animated_icons.dart';
+import 'package:animated_icon_demo/providers/edit_pallet_provider.dart';
+import 'package:animated_icon_demo/screens/landscape_layout.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/firebase_options.dart';
 import 'package:animated_icon_demo/playpause.dart';
+import 'package:animated_icon_demo/providers/animation_sheet_provider.dart';
+import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/screens/username_page.dart';
 import 'package:animated_icon_demo/service/firebase_service.dart';
 import 'package:animated_icon_demo/shared/shared.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'dart:ui' as ui show Paint, Path, Canvas;
 
 import 'mypaint.dart';
+import 'providers/drawing_board_provider.dart';
 
+late BuildContext mainContext;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
- await Shared.init();
+  await Shared.init();
   // DataService().usersInstance.add({
   //   "shubham": {'projects': [
 
@@ -30,13 +37,38 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: UserNamePage(),
-    );
+    return MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (context) => ProvData()),
+          ChangeNotifierProvider(create: (context) => AnimSheetProvider()),
+          ChangeNotifierProvider(create: (context) => EditPalletProvider()),
+          ChangeNotifierProvider(create: (context) => DrawingBoardProvider()),
+        ],
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          themeMode: ThemeMode.dark,
+          title: 'Flutter Demo',
+          theme: ThemeData.dark(
+
+                  // primarySwatch: Colors.blue,
+                  // backgroundColor: B
+                  )
+              .copyWith(
+                  primaryColorLight: Colors.white,
+                  textTheme: TextTheme(
+                      displayMedium: TextStyle(color: Colors.grey.shade200)),
+                  primaryColorDark: Color.fromARGB(255, 38, 37, 37),
+                  primaryColor: Colors.black87),
+          home: Builder(
+            builder: (context) {
+              mainContext = context;
+              return UserNamePage();
+              // LandscapeLayoutScreen();
+            },
+
+            //  UserNamePage(),
+          ),
+        ));
   }
 }
 

@@ -2,6 +2,7 @@
 //
 //     final userModel = userModelFromMap(jsonString);
 
+import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/pair_model.dart';
 import 'package:flutter/material.dart';
 import 'package:meta/meta.dart';
@@ -62,63 +63,82 @@ class UserProfile {
 }
 
 class Project {
-  Project({
-    required this.projectId,
-    required this.projectName,
-    required this.iconSections,
-  });
+  Project(
+      {required this.projectId,
+      required this.projectName,
+      required this.iconSections,
+      required this.width,
+      required this.height,
+      this.position = Point.zero});
 
   String projectId;
   String projectName;
   List<IconSection> iconSections;
+  double width;
+  double height;
+  Point position;
 
   factory Project.fromJson(String str) => Project.fromMap(json.decode(str));
 
   String toJson() => json.encode(toMap());
 
   factory Project.fromMap(Map<String, dynamic> json) => Project(
-        projectId: json["projectId"],
-        projectName: json["projectName"],
-        iconSections: List<IconSection>.from(
-            json["iconSections"].map((x) => IconSection.fromMap(x))),
-      );
+      projectId: json["projectId"],
+      projectName: json["projectName"],
+      iconSections: List<IconSection>.from(
+          json["iconSections"].map((x) => IconSection.fromMap(x))),
+      width: json['width'] ?? defaultProjectWidth,
+      height: json['height'] ?? defaultProjectHeight,
+      position: json["position"] == null
+          ? Point.zero
+          : Point.fromMap(json["position"]));
 
   Map<String, dynamic> toMap() => {
         "projectId": projectId,
         "projectName": projectName,
         "iconSections":
             List<Map<String, dynamic>>.from(iconSections.map((x) => x.toMap())),
+        "width": width,
+        "height": height,
+        "position": position.toMap()
       };
 }
 
 class IconSection {
-  IconSection({
-    required this.iconSectionNo,
-    required this.iconSectionName,
-    required this.frames,
-  });
+  IconSection(
+      {required this.iconSectionNo,
+      required this.iconSectionName,
+      required this.frames,
+      required this.position,
+      this.drawingObjectType = "polyline"});
 
   int iconSectionNo;
   String iconSectionName;
   List<Frame> frames;
-
+  Point position;
+  String drawingObjectType;
   factory IconSection.fromJson(String str) =>
       IconSection.fromMap(json.decode(str));
 
   String toJson() => json.encode(toMap());
 
   factory IconSection.fromMap(Map<String, dynamic> json) => IconSection(
-        iconSectionNo: json["iconSectionNo"] ?? 0,
-        iconSectionName: json["iconSectionName"] ?? "iconSectionName_0",
-        frames: json["frames"] == null
-            ? []
-            : List<Frame>.from(json["frames"].map((x) => Frame.fromMap(x))),
-      );
+      iconSectionNo: json["iconSectionNo"] ?? 0,
+      iconSectionName: json["iconSectionName"] ?? "Polyline_0",
+      frames: json["frames"] == null
+          ? []
+          : List<Frame>.from(json["frames"].map((x) => Frame.fromMap(x))),
+      position: json["position"] == null
+          ? Point.zero
+          : Point.fromMap(json["position"]),
+      drawingObjectType: json["drawingObjectType"] ?? "polyline");
 
   Map<String, dynamic> toMap() => {
         "iconSectionNo": iconSectionNo,
         "iconSectionName": iconSectionName,
         "frames": List<Map<String, dynamic>>.from(frames.map((x) => x.toMap())),
+        "position": position.toMap(),
+        "drawingObjectType": drawingObjectType
       };
 }
 
@@ -129,6 +149,7 @@ class Frame {
   });
 
   int frameNo;
+
   SingleFrameModel singleFrameModel;
 
   factory Frame.fromJson(String str) => Frame.fromMap(json.decode(str));
@@ -149,15 +170,21 @@ class Frame {
 }
 
 class SingleFrameModel {
-  SingleFrameModel({
-    required this.frameNo,
-    this.boxSize = const BoxSize(),
-    this.hoverPoint = const Point(x: 0, y: 0),
-    this.controlPointAdjecntPair,
-    this.controlMidPoints = const {},
-    this.points = const [],
-    this.panPointIndex =-1
-  });
+  SingleFrameModel(
+      {required this.frameNo,
+      this.boxSize = const BoxSize(),
+      this.hoverPoint = const Point(x: 0, y: 0),
+      this.controlPointAdjecntPair,
+      this.controlMidPoints = const {},
+      this.points = const [],
+      this.cornerBoxPoints = const [
+        Point.zero,
+        Point.zero,
+        Point.zero,
+        Point.zero
+      ],
+      this.panPointIndex = -1,
+      this.framePosition = 0.0});
 
   int frameNo;
   BoxSize boxSize;
@@ -165,42 +192,59 @@ class SingleFrameModel {
   ControlPointAdjecntPair? controlPointAdjecntPair;
   Map<String, Point> controlMidPoints;
   List<Point> points;
+  List<Point> cornerBoxPoints;
   int panPointIndex = -1;
-
+  double framePosition;
+  factory SingleFrameModel.withAllPointsButNOtFrameNo(
+      SingleFrameModel model, int frmno) {
+    SingleFrameModel newModel = SingleFrameModel.fromModel(model);
+    newModel.frameNo = frmno;
+    return newModel;
+  }
   factory SingleFrameModel.fromJson(String str) =>
       SingleFrameModel.fromMap(json.decode(str));
 
   String toJson() => json.encode(toMap());
-
+  factory SingleFrameModel.fromModel(SingleFrameModel model) {
+    return model;
+  }
   factory SingleFrameModel.fromMap(Map<String, dynamic> json) =>
       SingleFrameModel(
-        frameNo: json["frameNo"] ?? 0,
-        boxSize: json["boxSize"] == null
-            ? const BoxSize()
-            : BoxSize.fromMap(json["boxSize"]),
-        hoverPoint: json["hoverPoint"] == null
-            ? Point(x: 0.0, y: 0.0)
-            : Point.fromMap(json["hoverPoint"]),
-        controlPointAdjecntPair: json["controlPointAdjecntPair"] == null
-            ? ControlPointAdjecntPair()
-            : ControlPointAdjecntPair.fromMap(json["controlPointAdjecntPair"]),
-        controlMidPoints: json["controlMidPoints"] == null
-            ? {}
-            : Map.from(json["controlMidPoints"])
-                .map((k, v) => MapEntry<String, Point>(k, Point.fromMap(v))),
-        points: json["points"] == null
-            ? []
-            : List<Point>.from(json["points"].map((x) => Point.fromMap(x))),
-      );
+          frameNo: json["frameNo"] ?? 0,
+          framePosition: json["framePosition"] ?? 0.0,
+          boxSize: json["boxSize"] == null
+              ? const BoxSize()
+              : BoxSize.fromMap(json["boxSize"]),
+          hoverPoint: json["hoverPoint"] == null
+              ? Point(x: 0.0, y: 0.0)
+              : Point.fromMap(json["hoverPoint"]),
+          controlPointAdjecntPair: json["controlPointAdjecntPair"] == null
+              ? ControlPointAdjecntPair()
+              : ControlPointAdjecntPair.fromMap(
+                  json["controlPointAdjecntPair"]),
+          controlMidPoints: json["controlMidPoints"] == null
+              ? {}
+              : Map.from(json["controlMidPoints"])
+                  .map((k, v) => MapEntry<String, Point>(k, Point.fromMap(v))),
+          points: json["points"] == null
+              ? []
+              : List<Point>.from(json["points"].map((x) => Point.fromMap(x))),
+          cornerBoxPoints: json["cornerBoxPoints"] == null
+              ? [Point.zero, Point.zero, Point.zero, Point.zero]
+              : List<Point>.from(
+                  json["cornerBoxPoints"].map((x) => Point.fromMap(x))));
 
   Map<String, dynamic> toMap() => {
         "frameNo": frameNo,
+        "framePosition": framePosition,
         "boxSize": boxSize.toMap(),
         "hoverPoint": hoverPoint.toMap(),
         "controlPointAdjecntPair": controlPointAdjecntPair?.toMap(),
         "controlMidPoints": Map.from(controlMidPoints)
             .map((k, v) => MapEntry<String, dynamic>(k, v.toMap())),
         "points": List<Map<String, dynamic>>.from(points.map((x) => x.toMap())),
+        "cornerBoxPoints": List<Map<String, dynamic>>.from(
+            cornerBoxPoints.map((x) => x.toMap()))
       };
 }
 
@@ -234,8 +278,8 @@ class Point {
     required this.y,
   });
 
-  final x;
-  final y;
+  final double x;
+  final double y;
 
   factory Point.fromJson(String str) => Point.fromMap(json.decode(str));
 
@@ -248,6 +292,8 @@ class Point {
         y: json["y"] ?? 0,
       );
 
+  factory Point.fromPoint(Point p) => Point(x: p.x, y: p.y);
+  static const Point zero = Point(x: 0, y: 0);
   Map<String, dynamic> toMap() => {
         "x": x,
         "y": y,

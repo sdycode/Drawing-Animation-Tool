@@ -5,43 +5,47 @@ import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_field
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/pair_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/cast_control_points.dart';
+import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:flutter/material.dart';
 
 class TempPaint extends StatelessWidget {
   final width;
   final height;
+  final int frameNo;
   final Frame frame;
   const TempPaint(
       {Key? key,
       required this.width,
       required this.height,
+      this.frameNo = 0,
       required this.frame})
       : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     Size size = Size(width, height);
-    int cnt = 0;
+    // int cnt = 0;
     // log("pointt @ $cnt : ${frame.singleFrameModel.points.length}");
-    List<Offset> _p = frame.singleFrameModel.points.map((e) {
-      Offset of = Offset(e.x * (size.width / biggerSize.width),
-          e.y * (size.height / biggerSize.height));
-      // log("pointt @ $cnt : $of");
-      cnt++;
-      return of;
-    }).toList();
+    // List<Offset> _p = frame.singleFrameModel.points.map((e) {
+    //   Offset of = Offset(e.x * (size.width / biggerSize.width),
+    //       e.y * (size.height / biggerSize.height));
+    //   // log("pointt @ $cnt : $of");
+    //   cnt++;
+    //   return of;
+    // }).toList();
     return Container(
       height: height,
       width: width,
-      child:
-          CustomPaint(size: Size(width, height), painter: _TempPainter(frame)),
+      child: CustomPaint(
+          size: Size(width, height), painter: _TempPainter(frame, frameNo)),
     );
   }
 }
 
 class _TempPainter extends CustomPainter {
   Frame frame;
-  _TempPainter(this.frame);
+  int frameNo;
+  _TempPainter(this.frame, this.frameNo);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -64,8 +68,8 @@ class _TempPainter extends CustomPainter {
 
     paint
       ..style = PaintingStyle.fill
-      ..color = Colors.red
-      ..strokeWidth = 1;
+      ..color = myColors[frameNo].withAlpha(160)
+      ..strokeWidth = 0.7;
     Paint pointpaint = Paint();
     Paint hoverPointpaint = Paint();
     // hoverPointpaint
@@ -91,6 +95,7 @@ class _TempPainter extends CustomPainter {
         for (var i = 1; i < _p.length; i++) {
           canvas.drawLine(_p[i - 1], _p[i], paint);
         }
+      canvas.drawLine(_p.last, _p.first, paint);
 
         break;
       case DrawingType.pointsAndLines:
@@ -99,7 +104,7 @@ class _TempPainter extends CustomPainter {
         }
         for (var i = 1; i < _p.length; i++) {
           canvas.drawLine(_p[i - 1], _p[i], paint);
-        }
+        } canvas.drawLine(_p.last, _p.first, paint);
         break;
       case DrawingType.curvePaths:
         for (var i = 0; i < _p.length - 1; i++) {
@@ -128,7 +133,7 @@ class _TempPainter extends CustomPainter {
         Paint curvepaint = Paint();
         curvepaint
           ..style = PaintingStyle.fill
-          ..color = Colors.deepPurple
+          ..color = myColors[frameNo]
           ..strokeWidth = 4;
         // Only Straight line
         curvePath.moveTo(_p[0].dx, _p[0].dy);

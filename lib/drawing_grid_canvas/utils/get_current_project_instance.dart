@@ -1,5 +1,6 @@
 import 'dart:developer';
 
+import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/service/firebase_service.dart';
@@ -22,7 +23,11 @@ Future<Project?> getCurrentProjectInstance() async {
   } catch (e) {
     log("map for project err ${e}");
   }
-  return Project(projectId: "Project_$currentProjectNo", projectName: currentProjectName+"_$currentProjectNo", iconSections: []);
+  return Project(projectId: "Project_$currentProjectNo", projectName: currentProjectName+"_$currentProjectNo", iconSections: [],
+  
+     width: defaultProjectWidth,
+      height: defaultProjectHeight,
+  );
   return null;
   // Pro
 }

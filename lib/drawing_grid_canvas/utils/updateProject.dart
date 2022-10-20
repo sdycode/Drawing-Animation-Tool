@@ -1,5 +1,6 @@
 import 'dart:developer';
 
+import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/create_new_empty_project_with_next_id_name.dart';
@@ -20,7 +21,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
     if (curProject != null) {
       Project updatingProject = Project(
           projectId: curProject.projectId,
-          projectName: curProject.projectName,
+          projectName: curProject.projectName,   width: defaultProjectWidth,
+      height: defaultProjectHeight,
           iconSections: projectList[currentProjectNo].iconSections);
       curProject = currentProject;
       // getNewPorjectNo();

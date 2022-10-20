@@ -3,11 +3,16 @@
 import 'dart:convert';
 import 'dart:developer';
 
+import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
+import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/add_new_project.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_project.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/utils/geometric%20functions/get_startpoint_for_polygon_withcenter_side_and_no.dart';
+
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_updated_user_profile_added_with_new_project.dart';
+import 'package:animated_icon_demo/screens/landscape_layout.dart';
 import 'package:animated_icon_demo/service/firebase_service.dart';
 import 'package:animated_icon_demo/shared/shared.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -25,7 +30,7 @@ class UserNamePage extends StatefulWidget {
 
 class _UserNamePageState extends State<UserNamePage> {
   TextEditingController textEditingController =
-      TextEditingController(text: "shu223");
+      TextEditingController(text: "shubham22");
   @override
   Widget build(BuildContext context) {
     if (Shared.getUserName().isNotEmpty) {}
@@ -35,15 +40,23 @@ class _UserNamePageState extends State<UserNamePage> {
     // }
 
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             TextField(
               controller: textEditingController,
+              style: TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                  hintText: "Please enter your username",
+                  hintStyle: TextStyle(color: Colors.white.withAlpha(180)),
+                  enabledBorder: OutlineInputBorder()),
             ),
             ElevatedButton(
                 onPressed: () async {
+                  // get_startpoint_for_polygon_withcenter_side_and_no( Point(x: 100, y: 100));
+                  // return;
                   if (textEditingController.text.trim().length > 4) {
                     Shared.setUserName(textEditingController.text.trim());
                     serverData = await DataService()
@@ -54,11 +67,29 @@ class _UserNamePageState extends State<UserNamePage> {
                     // } else {
                     //   await getNewProjectName();
                     // }
-                    await getNewProjectName();
+                    try {
+                      await getNewProjectName();
+                    } catch (e) {
+                      log("err in getNewProjectName : $e");
+                    }
+                    if (projectList[currentProjectNo]
+                            .iconSections[0]
+                            .frames
+                            .length <
+                        2) {
+                      projectList[currentProjectNo].iconSections[0].frames.add(
+                          Frame(
+                              frameNo: 1,
+                              singleFrameModel: SingleFrameModel(frameNo: 1)));
+                    }
+                    loadDataBeforeLoadingLandscapePage();
                     Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
-                            builder: (context) => DrawGridCanvase()));
+                            builder: (context) => LandscapeLayoutScreen()
+                            // DrawGridCanvase()
+
+                            ));
                   }
                 },
                 child: Text("Go"))
@@ -80,25 +111,39 @@ class _UserNamePageState extends State<UserNamePage> {
     String newProjectName = Shared.getUserName() + newProjectSuffix;
 
     await setUserProfile(newProjectName);
-    projectList.add(Project(
-        projectId: "Project_0",
-        projectName: currentProjectName + "_0",
-        iconSections: [
-          IconSection(
-              iconSectionNo: 0,
-              iconSectionName: "iconSectionName_0",
-              frames: [
-                Frame(
-                    frameNo: 0, singleFrameModel: SingleFrameModel(frameNo: 0))
-              ])
-        ]));
-    await DataService()
-        .usersInstance
-        .doc(Shared.getUserName())
-        .collection("Project_0")
-        .doc("Project_0")
-        .set(projectList.first.toMap());
-    await loadAllProjectsFromServer();
+    try {
+      projectList.add(Project(
+          projectId: "Project_0",
+          projectName: currentProjectName + "_0",
+          width: defaultProjectWidth,
+          height: defaultProjectHeight,
+          iconSections: [
+            IconSection(
+                iconSectionNo: 0,
+                iconSectionName: "Polyline_0",
+                frames: [
+                  Frame(
+                      frameNo: 0,
+                      singleFrameModel: SingleFrameModel(frameNo: 0)),
+                  Frame(
+                      frameNo: 1,
+                      singleFrameModel: SingleFrameModel(frameNo: 1))
+                ],
+                position: Point(x: 0, y: 0))
+          ]));
+    } catch (e) {}
+    try {
+      await DataService()
+          .usersInstance
+          .doc(Shared.getUserName())
+          .collection("Project_0")
+          .doc("Project_0")
+          .set(projectList.first.toMap());
+    } catch (e) {}
+
+    try {
+      await loadAllProjectsFromServer();
+    } catch (e) {}
 
     return "${Shared.getUserName()}_0";
   }
@@ -151,6 +196,24 @@ class _UserNamePageState extends State<UserNamePage> {
               .toMap());
     }
   }
+
+  void loadDataBeforeLoadingLandscapePage() {
+    for (var i = 0;
+        i < projectList[currentProjectNo].iconSections.length;
+        i++) {
+      log("framebefore $i : ${getFramePosForthisIconSection(projectList[currentProjectNo].iconSections[i])} ");
+      framePosPercentListForAllIconSections[i] = getFramePosForthisIconSection(
+          projectList[currentProjectNo].iconSections[i]);
+    }
+  }
+}
+
+List<double> getFramePosForthisIconSection(IconSection iconSection) {
+  return [
+    ...(iconSection.frames.map((e) {
+      return e.singleFrameModel.framePosition;
+    }))
+  ];
 }
 
 Future loadAllProjectsFromServer() async {
