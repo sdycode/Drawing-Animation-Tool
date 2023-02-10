@@ -12,7 +12,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 Future updateAllProjects() async {
   int prno = 0;
   String projectId = "Project_$prno";
-  log("prlist ${projectList.length}");
+  // log("prlist ${projectList.length}");
   await Future.forEach(projectList, (Project pr) async {
     CollectionReference<Map<String, dynamic>> colref = DataService()
         .usersInstance
@@ -23,7 +23,7 @@ Future updateAllProjects() async {
     pr.height = drawingBoardSize.height;
     pr.position = Point.fromOffset(drawingBoardPosition) ;
     await colref.doc("${projectId}").set(pr.toMap());
-    log("prlist ${projectList.length} done for $prno");
+    // log("prlist ${projectList.length} done for $prno");
     prno++;
     projectId = "Project_$prno";
   });

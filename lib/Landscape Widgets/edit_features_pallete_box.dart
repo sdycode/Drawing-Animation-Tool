@@ -5,6 +5,7 @@ import 'package:animated_icon_demo/controllers/text_controllers/text_controllers
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/frame%20methods/set_polygon_no_to_current_iconsection.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/utils/paint%20methods/showColorPicker.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/providers/drawing_board_provider.dart';
@@ -163,7 +164,27 @@ class EditPalletForDrawingShape extends StatelessWidget {
                       : Icons.check_box_outline_blank))
             ],
           ),
-          RotateEditFieldWidget(),
+          // RotateEditFieldWidget(),
+
+          Container(
+              width: double.infinity,
+              margin: EdgeInsets.all(8),
+              child: ElevatedButton(
+                  style: ButtonStyle(
+                      backgroundColor: MaterialStateProperty.all(Color(int.parse(
+                          "0x${projectList[currentProjectNo].iconSections[currentIconSectionNo].color}")))),
+                  onPressed: () {
+                    showColorPicker(
+                        context,
+                        (Color d) {
+                          projectList[currentProjectNo].iconSections[currentIconSectionNo].color = d.toString().replaceAll(')', '').split('x')[1];
+                  editPalletProvider.updateUI();
+                    drawingBoardProvider.updateUI();;
+                  },
+                        Color(int.parse(
+                            "0x${projectList[currentProjectNo].iconSections[currentIconSectionNo].color}")));
+                  },
+                  child: Text(""))),
           if (drawingObjectType == DrawingObjectType.polygon)
             PolygonNoEditWidget()
           // TextWithStyle1(
@@ -274,7 +295,7 @@ class PolygonNoEditWidget extends StatelessWidget {
         textFieldTitle: "Sides",
         onTapUp: () {
           noOfSidesOfPolygon++;
- set_polygon_no_to_current_iconsection();
+          set_polygon_no_to_current_iconsection();
           TextControllers.polygon_no_Controller.text =
               noOfSidesOfPolygon.toString();
           editPalletProvider.updateUI();
@@ -285,7 +306,7 @@ class PolygonNoEditWidget extends StatelessWidget {
           if (noOfSidesOfPolygon < 3) {
             noOfSidesOfPolygon = 3;
           }
- set_polygon_no_to_current_iconsection();
+          set_polygon_no_to_current_iconsection();
           TextControllers.polygon_no_Controller.text =
               noOfSidesOfPolygon.toString();
           ;
@@ -297,55 +318,55 @@ class PolygonNoEditWidget extends StatelessWidget {
   }
 }
 
-class RotateEditFieldWidget extends StatelessWidget {
-  const RotateEditFieldWidget({Key? key}) : super(key: key);
+// class RotateEditFieldWidget extends StatelessWidget {
+//   const RotateEditFieldWidget({Key? key}) : super(key: key);
 
-  @override
-  Widget build(BuildContext context) {
-    EditPalletProvider editPalletProvider =
-        Provider.of<EditPalletProvider>(context);
+//   @override
+//   Widget build(BuildContext context) {
+//     EditPalletProvider editPalletProvider =
+//         Provider.of<EditPalletProvider>(context);
 
-    DrawingBoardProvider drawingBoardProvider =
-        Provider.of<DrawingBoardProvider>(context, listen: true);
-    return GestureDetector(
-      onTap: () {
-        log("tapped ");
-      },
-      onPanUpdate: (d) {
-        // log("onPanUpdate width ${d.delta} / ${TextControllers.drawingaBoard_width_Controller.text}");
-        finalAngle += 0.02 * (d.delta.dy.sign);
+//     DrawingBoardProvider drawingBoardProvider =
+//         Provider.of<DrawingBoardProvider>(context, listen: true);
+//     return GestureDetector(
+//       onTap: () {
+//         log("tapped ");
+//       },
+//       onPanUpdate: (d) {
+//         // log("onPanUpdate width ${d.delta} / ${TextControllers.drawingaBoard_width_Controller.text}");
+//         finalAngle += 0.02 * (d.delta.dy.sign);
 
-        TextControllers.shape_angle_Controller.text =
-            finalAngle.toStringAsFixed(2);
+//         TextControllers.shape_angle_Controller.text =
+//             finalAngle.toStringAsFixed(2);
 
-        editPalletProvider.updateUI();
-        drawingBoardProvider.updateUI();
-      },
-      child: TextWithTextField(
-        controller: TextControllers.shape_angle_Controller,
-        textFieldTitle: "Angle",
-        onTapUp: () {
-          finalAngle += 0.1;
+//         editPalletProvider.updateUI();
+//         drawingBoardProvider.updateUI();
+//       },
+//       child: TextWithTextField(
+//         controller: TextControllers.shape_angle_Controller,
+//         textFieldTitle: "Angle",
+//         onTapUp: () {
+//           finalAngle += 0.1;
 
-          TextControllers.shape_angle_Controller.text =
-              finalAngle.toStringAsFixed(2);
-          editPalletProvider.updateUI();
-          drawingBoardProvider.updateUI();
-        },
-        onTapDown: () {
-          finalAngle -= 0.1;
+//           TextControllers.shape_angle_Controller.text =
+//               finalAngle.toStringAsFixed(2);
+//           editPalletProvider.updateUI();
+//           drawingBoardProvider.updateUI();
+//         },
+//         onTapDown: () {
+//           finalAngle -= 0.1;
 
-          TextControllers.shape_angle_Controller.text =
-              finalAngle.toStringAsFixed(2);
-          editPalletProvider.updateUI();
-          drawingBoardProvider.updateUI();
-          editPalletProvider.updateUI();
-          drawingBoardProvider.updateUI();
-        },
-      ),
-    );
-  }
-}
+//           TextControllers.shape_angle_Controller.text =
+//               finalAngle.toStringAsFixed(2);
+//           editPalletProvider.updateUI();
+//           drawingBoardProvider.updateUI();
+//           editPalletProvider.updateUI();
+//           drawingBoardProvider.updateUI();
+//         },
+//       ),
+//     );
+//   }
+// }
 
 class DrawingBoardSizeWidgetsRow extends StatelessWidget {
   const DrawingBoardSizeWidgetsRow({Key? key}) : super(key: key);

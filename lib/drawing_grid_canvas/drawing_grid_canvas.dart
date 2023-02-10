@@ -267,7 +267,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                 InkWell(
                     onTap: () async {
                       updateAllProjects();
-                      // updateProjectData();
+                     
                     },
                     child: const Text("save data")),
                 const SizedBox(
@@ -410,7 +410,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                               return InkWell(
                                 onTap: () {
                                   setState(() {
-                                    reInitiliaseFramePoints();
+                                    // reInitiliaseFramePoints();
                                     currentIconSectionNo = i;
                                     currentFrameNo = 0;
                                   });
@@ -431,7 +431,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                                         IconButton(
                                             onPressed: () {
                                               if (iconSectionNosIncludedInAnimation
-                                                  .contains(i)) {
+                                                  .contains(i) && iconSectionNosIncludedInAnimation.length>1) {
                                                 try {
                                                   iconSectionNosIncludedInAnimation
                                                       .remove(i);

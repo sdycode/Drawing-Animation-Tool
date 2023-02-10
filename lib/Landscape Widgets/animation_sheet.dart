@@ -1,13 +1,63 @@
 import 'dart:developer';
 
+import 'package:animated_icon_demo/Landscape%20Widgets/Anim_sheet_widgets/addFrameButtonsColumnInAnimMainBox.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/Anim_sheet_widgets/animsheet_main_box.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/Anim_sheet_widgets/icon_sections_tree_in_animsheet.dart';
+import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/providers/animation_sheet_provider.dart';
+import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+class SyncScrollController {
+  List<ScrollController> _registeredScrollControllers = [];
+
+  ScrollController? _scrollingController;
+  bool _scrollingActive = false;
+
+  SyncScrollController(List<ScrollController> controllers) {
+    controllers.forEach((controller) => registerScrollController(controller));
+  }
+
+  void registerScrollController(ScrollController controller) {
+    _registeredScrollControllers.add(controller);
+  }
+
+  void processNotification(
+      ScrollNotification notification, ScrollController sender) {
+    if (notification is ScrollStartNotification && !_scrollingActive) {
+      _scrollingController = sender;
+      _scrollingActive = true;
+      return;
+    }
+
+    if (identical(sender, _scrollingController) && _scrollingActive) {
+      if (notification is ScrollEndNotification) {
+        _scrollingController = null;
+        _scrollingActive = false;
+        return;
+      }
+
+      if (notification is ScrollUpdateNotification) {
+        _registeredScrollControllers.forEach((controller) => {
+              if (!identical(_scrollingController, controller))
+                controller..jumpTo(_scrollingController!.offset)
+            });
+        return;
+      }
+    }
+  }
+}
+
+ScrollController firstScroller = ScrollController();
+ScrollController secondScroller = ScrollController();
+ScrollController thirdScroller = ScrollController();
+
+SyncScrollController syncScroller =
+    SyncScrollController([firstScroller, secondScroller, thirdScroller]);
+double iconSectionBarHeightInAnimationSheet = 34;
 double animaBarH = 10;
 double animSheetHeightFactor = 75;
 double animIconSectionTreeWidthFactor = 20;
@@ -17,9 +67,10 @@ double timelineBarH = 1;
 double timeLinePointerXPosition = 0;
 double xSpanForTime = 74;
 double animFrameAddbtnHeight = 4;
-List<int> iconSectionIndexesToIncludeInAnimationList = [];
-Map<int,List<double>> framePosPercentListForAllIconSections = {
-  0:[0,100]
+List<int> iconSectionIndexesToIncludeInAnimationList = [0];
+double iconsectionsTreeinAnimSheetScrollPosition = 0;
+Map<int, List<double>> framePosPercentListForAllIconSections = {
+  0: [0, 100]
 };
 List<double> currntframePosPercentList = [0, 100];
 
@@ -34,35 +85,40 @@ late AnimSheetProvider animSheetProvider;
 
 class _AnimationSheetWidgetState extends State<AnimationSheetWidget> {
   @override
+  void initState() {
+    syncScroller =
+        SyncScrollController([firstScroller, secondScroller, thirdScroller]);
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     animSheetProvider = Provider.of<AnimSheetProvider>(context);
     // animaBarH = animSheetProvider.animationSheetFromTop;
+    debugLog(
+        "animSheetHeightFactor.sh(context)  ${animSheetHeightFactor.sh(context)} /  ${100.sh(context) - topbarHeight - animSheetProvider.animationSheetFromTop}");
     return Positioned(
       top: animSheetProvider.animationSheetFromTop,
       child: Container(
         width: 100.sw(context),
-        height: animSheetHeightFactor.sh(context),
+        height: 100.sh(context) -
+            topbarHeight -
+            animSheetProvider.animationSheetFromTop +
+            35 +
+            10,
+        //  animSheetHeightFactor.sh(context),
         color: Colors.pink.shade100.withAlpha(255),
         child: Column(
           children: [
-            Transform.scale(
-              scaleY: 1,
-              child: GestureDetector(
-                child: Transform.scale(
-                    scaleY: 1,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _animBar(),
-                        Row(
-                          children: [
-                            IconsectionsTreeinAnimSheet(),
-                            AnimSheetMainBox()
-                          ],
-                        )
-                      ],
-                    )),
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                _animBar(),
+                Row(
+                  children: [IconsectionsTreeinAnimSheet(), AnimSheetMainBox()],
+                )
+              ],
             )
           ],
         ),

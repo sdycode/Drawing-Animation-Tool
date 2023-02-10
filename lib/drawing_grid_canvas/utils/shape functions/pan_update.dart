@@ -1,22 +1,17 @@
 import 'dart:developer' as dev;
-import 'dart:math';
 
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/add_two_points.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/create_polygon_points_from_corner_points.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/get_box_corner_points_for_numerousPoints.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/frame%20methods/check_to_copy_last_frame_as_first.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/geometric%20functions/get_startpoint_for_polygon_withcenter_side_and_no.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_lower_value_from_pair.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/points_to_offsets.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/check_weather_youare_drawing_shape_first_time.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/set_boxcorner_points.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
-import 'package:animated_icon_demo/widgets/error/error_dialog.dart';
+import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/src/gestures/drag_details.dart';
 
 void pan_Update(DragUpdateDetails d) {
   dev.log("update pan called normal");
@@ -175,6 +170,8 @@ void updateRectangle(DragUpdateDetails d) {
 }
 
 void updatePolygon(DragUpdateDetails d) {
+  debugLog(
+      "framesinpolygon ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames.length}");
   int c = 0;
   projectList[currentProjectNo]
       .iconSections[currentIconSectionNo]
@@ -275,6 +272,8 @@ void updatePolygon(DragUpdateDetails d) {
 }
 
 translateShapeWithPanUpdate(DragUpdateDetails d) {
+  debugLog(
+      "translateShapeWithPanUpdate called ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames.length}");
   for (var i = 0;
       i <
           projectList[currentProjectNo]

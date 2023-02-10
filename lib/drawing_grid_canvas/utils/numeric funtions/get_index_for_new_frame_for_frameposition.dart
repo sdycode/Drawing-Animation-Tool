@@ -14,16 +14,18 @@ int get_index_for_new_frame_for_frameposition(
 }
 
 int getIndexForPreFrameForProgressPercentValue(
-    double progressValue, int iconSecNo) {
+    double progressValue, int iconSecNo) { 
+      //  log("framePosPercentListForAllIconSections ${framePosPercentListForAllIconSections.keys}::  $iconSecNo : ${framePosPercentListForAllIconSections.length} : $progressValue :  ${framePosPercentListForAllIconSections}");
+
   if (!framePosPercentListForAllIconSections.containsKey(iconSecNo)) {
     return 0;
-  }
+  } 
     if (framePosPercentListForAllIconSections[iconSecNo]!.isEmpty) {
     return 0;
   }
   for (int i = framePosPercentListForAllIconSections[iconSecNo]!.length - 1; i > -1; i--) {
     if (i > -1 && i < framePosPercentListForAllIconSections[iconSecNo]!.length) {
-      log("inin $i and $framePosPercentListForAllIconSections[iconSecNo]!");
+      // log("inin $i and $framePosPercentListForAllIconSections[iconSecNo]!");
       if (progressValue > framePosPercentListForAllIconSections[iconSecNo]![i]) {
         return i;
       }
@@ -34,7 +36,7 @@ int getIndexForPreFrameForProgressPercentValue(
   }
   for (int i = currntframePosPercentList.length - 1; i > -1; i--) {
     if (i > -1 && i < currntframePosPercentList.length) {
-      log("inin $i and $currntframePosPercentList");
+      // log("inin $i and $currntframePosPercentList");
       if (progressValue > currntframePosPercentList[i]) {
         return i;
       }

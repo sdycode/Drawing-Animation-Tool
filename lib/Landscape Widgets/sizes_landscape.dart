@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 const double topbarHeight = 40;
 const double drawingComponentsTreeBoxWidth = 200;
- double editFeaturesPalleteBoxWidth = 400;
+ double editFeaturesPalleteBoxWidth = 260;
 const double borderMargin = 2;
 const double textFieldBoxHeight = 40;
 const double defaultProjectWidth = 400;

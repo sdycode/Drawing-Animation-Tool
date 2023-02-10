@@ -84,12 +84,12 @@ class _DrawingBoardWidgetState extends State<DrawingBoardWidget> {
                 angle: finalAngle * 0,
                 origin: getCurrentBoxOrigin(),
                 child: DrawingPlaneWidget()),
-            Positioned(
-              right: 50,
-              top: 60,
-              child: Text(
-                  "  ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.cornerBoxPoints.length}"),
-            ),
+            // Positioned(
+            //   right: 50,
+            //   top: 60,
+            //   child: Text(
+            //       "  ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.cornerBoxPoints.length}"),
+            // ),
             // Here we can show / hide this box using enum
             if (showOuterBox == ShowOuterBox.show)
               Transform.rotate(

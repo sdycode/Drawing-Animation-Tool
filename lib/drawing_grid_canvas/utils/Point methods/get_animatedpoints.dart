@@ -21,20 +21,22 @@ getAnimatedPoints(BuildContext context) {
     showErrorDialog(
         context, "Error ininterValue getAnimatedPoints interValue  $e");
   }
+  log("interValue ${interValue.toStringAsFixed(2)} :  currentProjectNo  $currentProjectNo / ${projectList[currentProjectNo].iconSections.length} / $iconSectionIndexesToIncludeInAnimationList");
 
   for (int iconNo = 0;
       iconNo < projectList[currentProjectNo].iconSections.length;
       iconNo++) {
-    log("iconSectionIndexesToIncludeInAnimationList [$iconNo] : ${iconSectionIndexesToIncludeInAnimationList}");
+    // log("iconSectionIndexesToIncludeInAnimationList [$iconNo] : ${iconSectionIndexesToIncludeInAnimationList}");
     if (!iconSectionIndexesToIncludeInAnimationList.contains(iconNo)) {
       continue;
     }
-    log("iconSectionIndexesToIncludeInAnimationList  [$iconNo] :show ani  ${iconSectionIndexesToIncludeInAnimationList}");
-    log("inin with icon $iconNo and $currntframePosPercentList");
+    log("iconSectionIndexesToIncludeInAnimationList  [$iconNo] :show ani  $iconSectionIndexesToIncludeInAnimationList");
+    // log("inin with icon $iconNo and $currntframePosPercentList");
     List<Point> animatedPoints = [];
     int preFrameNo = 0;
     try {
       preFrameNo = getIndexForPreFrameForProgressPercentValue(interValue, iconNo);
+       log("preFrameNo after get $preFrameNo");
     } catch (e) {
       log("Error in getAnimatedPoints preFrameNo $preFrameNo:   $e");
 
@@ -44,7 +46,8 @@ getAnimatedPoints(BuildContext context) {
 
     double modifiedPercentValue =
         get_modified_percentvalue_for_preframeno(preFrameNo, interValue, iconNo);
-    log("$preFrameNo /${projectList[currentProjectNo].iconSections[iconNo].frames.length} / for iconno $iconNo :  / ${modifiedPercentValue} :  $interValue and // preframe  stick $timeLinePointerXPosition");
+
+    log("$iconNo :  preFrameNo $preFrameNo /${projectList[currentProjectNo].iconSections[iconNo].frames.length} / for iconno $iconNo :  / $modifiedPercentValue :  $interValue and // preframe  stick $timeLinePointerXPosition");
     for (var i = 0;
         i <
             projectList[currentProjectNo]
@@ -58,7 +61,7 @@ getAnimatedPoints(BuildContext context) {
         if (projectList[currentProjectNo].iconSections[iconNo].frames.length >
             preFrameNo + 1) {
           try {
-            log("icon $iconNo :  indexi $i : - ${preFrameNo} - ${preFrameNo + 1} ::: ${projectList[currentProjectNo].iconSections[iconNo].frames[preFrameNo].singleFrameModel.points.length} :: ${projectList[currentProjectNo].iconSections[iconNo].frames[preFrameNo + 1].singleFrameModel.points.length}  ");
+            // log("icon $iconNo :  indexi $i : - ${preFrameNo} - ${preFrameNo + 1} ::: ${projectList[currentProjectNo].iconSections[iconNo].frames[preFrameNo].singleFrameModel.points.length} :: ${projectList[currentProjectNo].iconSections[iconNo].frames[preFrameNo + 1].singleFrameModel.points.length}  ");
           } catch (e) {
             log("indexi errr $e");
           }

@@ -11,7 +11,8 @@ void insertNewFrameAtPosition(int i, double framePos) {
 //
   });
 
-  if (!framePosPercentListForAllIconSections.containsKey(currentIconSectionNo)) {
+  if (!framePosPercentListForAllIconSections
+      .containsKey(currentIconSectionNo)) {
     return;
   }
   framePosPercentListForAllIconSections[currentIconSectionNo]!
@@ -38,6 +39,40 @@ void insertNewFrameAtPosition(int i, double framePos) {
                       .iconSections[currentIconSectionNo]
                       .frames
                       .length)));
+
+  currentFrameNo = i;
+}
+
+void insertNewFrameAtPositionInThisIconsection(
+    int i, int iconNo, double framePos) {
+  currentIconSectionNo = iconNo;
+  framePosPercentListForAllIconSections.forEach((key, value) {
+    log("insernew $key / $value / ${iconNo}");
+    // log("in insertn  $framePosPercentListForAllIconSections and $currentIconSectionNo :: ${framePosPercentListForAllIconSections.containsKey(currentIconSection)}");
+//
+  });
+
+  if (!framePosPercentListForAllIconSections.containsKey(iconNo)) {
+    return;
+  }
+  framePosPercentListForAllIconSections[iconNo]!.insert(i, framePos);
+  currntframePosPercentList.insert(i, framePos);
+  projectList[currentProjectNo].iconSections[iconNo].frames.insert(
+      i,
+      Frame(
+          frameNo:
+              projectList[currentProjectNo].iconSections[iconNo].frames.length,
+          singleFrameModel: SingleFrameModel(
+              points: List.from(projectList[currentProjectNo]
+                  .iconSections[iconNo]
+                  .frames[currentFrameNo]
+                  .singleFrameModel
+                  .points),
+              framePosition: framePos,
+              frameNo: projectList[currentProjectNo]
+                  .iconSections[iconNo]
+                  .frames
+                  .length)));
 
   currentFrameNo = i;
 }

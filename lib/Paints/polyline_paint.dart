@@ -5,12 +5,11 @@ import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_field
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:flutter/material.dart';
 
-
-
 class PointsLinePaint extends CustomPainter {
   List<Offset> _p;
   int iconsecIndex;
-  PointsLinePaint(this._p,  {this.iconsecIndex = 0});
+  List<int> indexes;
+  PointsLinePaint(this._p, {this.iconsecIndex = 0, this.indexes = const [0]});
   @override
   void paint(Canvas canvas, Size size) {
     // log("paintsize in PointsLinePaint ${size}");
@@ -20,8 +19,8 @@ class PointsLinePaint extends CustomPainter {
     paint
       ..style = PaintingStyle.fill
       ..color =
-      // myColors[cu]
-       Colors.red
+          // myColors[cu]
+          Colors.red
       ..strokeWidth = 1;
     Paint pointpaint = Paint();
     Paint hoverPointpaint = Paint();
@@ -75,20 +74,20 @@ class PointsLinePaint extends CustomPainter {
             canvas.drawLine(_p[i], _p[i + 1], paint);
           }
         }
-        
+
         break;
       case DrawingType.closedCustomPath:
         Path curvePath = Path();
         Paint curvepaint = Paint();
         curvepaint
           ..style = PaintingStyle.fill
-          ..color =
-          
-          myColors[iconsecIndex].withAlpha(120)
+          ..color = Color(int.parse(
+              "0x${projectList[currentProjectNo].iconSections[indexes[iconsecIndex % indexes.length] % projectList[currentProjectNo].iconSections.length].color}"))
+          // myColors[iconsecIndex].withAlpha(120)
           //  Colors.deepPurple
           ..strokeWidth = 4;
         // Only Straight line
-          curvePath.moveTo(_p[0].dx, _p[0].dy);
+        curvePath.moveTo(_p[0].dx, _p[0].dy);
         // for (var i = 1; i < _p.length ; i++) {
         //    curvePath.lineTo(_p[i].dx, _p[i].dy);
         // }

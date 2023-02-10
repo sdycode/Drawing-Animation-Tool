@@ -26,8 +26,11 @@ enum DrawingType {
   closedCustomPath
 }
 
-DrawingType drawingType = DrawingType.points;
+DrawingType drawingType = DrawingType.closedCustomPath;
 
+enum FileOperationType { New, save, open, export }
+
+FileOperationType fileOperationType = FileOperationType.New;
 int drawingtypindex = 0;
 
 enum DrawingObjectType { polyline, triangle, rectangle, polygon, circle }

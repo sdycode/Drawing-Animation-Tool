@@ -48,7 +48,9 @@ void addNewIconSectionAsRectangle() {
             Frame(
                 frameNo: 1,
                 singleFrameModel: SingleFrameModel(
-                    frameNo: 1, framePosition: 100.0, points:List.from(points) )),
+                    frameNo: 1,
+                    framePosition: 100.0,
+                    points: List.from(points))),
           ]));
   set_drawingobjecttype_when_iconsection_selected();
 }
@@ -88,7 +90,9 @@ void addNewIconSectionPolygon(int i) {
             Frame(
                 frameNo: 1,
                 singleFrameModel: SingleFrameModel(
-                    frameNo: 1, framePosition: 100.0, points:List.from(points))),
+                    frameNo: 1,
+                    framePosition: 100.0,
+                    points: List.from(points))),
           ]));
-  set_drawingobjecttype_when_iconsection_selected();
+  // set_drawingobjecttype_when_iconsection_selected();
 }

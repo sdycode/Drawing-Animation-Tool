@@ -110,6 +110,7 @@ class IconSection {
       required this.iconSectionName,
       required this.frames,
       required this.position,
+      this.color = "FFFFC0CB",
       this.drawingObjectType = "polyline"});
 
   int iconSectionNo;
@@ -117,6 +118,7 @@ class IconSection {
   List<Frame> frames;
   Point position;
   String drawingObjectType;
+  String? color;
   factory IconSection.fromJson(String str) =>
       IconSection.fromMap(json.decode(str));
 
@@ -131,6 +133,8 @@ class IconSection {
       position: json["position"] == null
           ? Point.zero
           : Point.fromMap(json["position"]),
+
+          color: json["color"]??"FFFFC0CB",
       drawingObjectType: json["drawingObjectType"] ?? "polyline");
 
   Map<String, dynamic> toMap() => {
@@ -138,6 +142,7 @@ class IconSection {
         "iconSectionName": iconSectionName,
         "frames": List<Map<String, dynamic>>.from(frames.map((x) => x.toMap())),
         "position": position.toMap(),
+        "color":color,
         "drawingObjectType": drawingObjectType
       };
 }

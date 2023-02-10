@@ -1,4 +1,5 @@
 import 'package:animated_icon_demo/Animated/my_animated_icons.dart';
+import 'package:animated_icon_demo/Global/global.dart';
 import 'package:animated_icon_demo/providers/edit_pallet_provider.dart';
 import 'package:animated_icon_demo/screens/landscape_layout.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
@@ -9,6 +10,7 @@ import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/screens/username_page.dart';
 import 'package:animated_icon_demo/service/firebase_service.dart';
 import 'package:animated_icon_demo/shared/shared.dart';
+import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -20,9 +22,16 @@ import 'providers/drawing_board_provider.dart';
 late BuildContext mainContext;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  debugLog("before firebaseapp");
+  try {
+    FirebaseApp firebaseApp = await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    debugLog("after  firebaseapp app $firebaseApp ");
+  } catch (e) {
+    debugLog("after  firebaseapp err $e ");
+  }
+
   await Shared.init();
   // DataService().usersInstance.add({
   //   "shubham": {'projects': [
@@ -47,7 +56,7 @@ class MyApp extends StatelessWidget {
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           themeMode: ThemeMode.dark,
-          title: 'Flutter Demo',
+          title: 'Animation Tool',
           theme: ThemeData.dark(
 
                   // primarySwatch: Colors.blue,
@@ -61,6 +70,9 @@ class MyApp extends StatelessWidget {
                   primaryColor: Colors.black87),
           home: Builder(
             builder: (context) {
+              w = MediaQuery.of(context).size.width;
+                            h= MediaQuery.of(context).size.height;
+
               mainContext = context;
               return UserNamePage();
               // LandscapeLayoutScreen();

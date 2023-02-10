@@ -4,6 +4,7 @@ import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_field
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/check_weather_youare_drawing_shape_first_time.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
+import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
 import 'package:flutter/material.dart';
 
 void startDrawRectangle(DragStartDetails d) {
@@ -73,7 +74,9 @@ void startDrawTriangle(DragStartDetails d) {
 
 void startDrawPolygon(DragStartDetails d, int n) {
   if (check_weather_youare_drawing_shape_first_time()) {
-    log("firstime polygonpoints $n : ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points.length}");
+    // debugLog("firstime polygonpoints $n : frames ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames.length} :  ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points.length}");
+
+
     //   for (var i = 0;
     //   i <
     //       projectList[currentProjectNo]

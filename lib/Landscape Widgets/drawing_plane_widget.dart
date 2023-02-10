@@ -235,9 +235,14 @@ class _DrawingPlaneWidgetState extends State<DrawingPlaneWidget> {
                           .iconSections[currentIconSectionNo]
                           .frames[currentFrameNo]
                           .singleFrameModel
-                          .points
+                          .points,
+                        
+                          
                       // currentIconSectionsList[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points
-                      )),
+                      ),
+                      iconsecIndex: currentIconSectionNo,
+                      indexes: [currentIconSectionNo]
+                      ),
                 );
               }),
 // ...List.generate(tempShapeEndPoints.length, (ind) { 

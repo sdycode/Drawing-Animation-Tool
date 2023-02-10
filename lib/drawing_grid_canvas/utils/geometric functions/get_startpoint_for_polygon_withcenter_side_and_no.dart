@@ -31,7 +31,8 @@ Point get_startpoint_for_polygon_withcenter_side_and_no(
 
 List<Point> getNthPointFromInitialAngleWithStepAngle(
     double rad, Point center, double width, double height, int n,
-    {double? initAngle}) {
+    {double? initAngle}) 
+    {
   double initialAngle = initAngle ?? 0;
   if (n < 3) {
     return [Point.zero];

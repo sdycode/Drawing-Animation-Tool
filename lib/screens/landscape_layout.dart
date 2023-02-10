@@ -39,7 +39,6 @@ class _LandscapeLayoutScreenState extends State<LandscapeLayoutScreen>
       }
     });
     newanimationController.addListener(() {
-      // log("animcont ${newanimationController.value}");
 
       if (mounted) {
         setState(() {

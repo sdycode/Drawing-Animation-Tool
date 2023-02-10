@@ -21,7 +21,7 @@ double animTotalTime = 2000;
 List<Point> tempShapeEndPoints = [];
 bool firstTimeDraw = true;
 const List<Color> myColors = [...(Colors.primaries)];
-List<int> iconSectionNosIncludedInAnimation = [];
+List<int> iconSectionNosIncludedInAnimation = [1];
 List<AnimatePointsModel> animatePointsModels = [];
 List<Point> frame1Points = [];
 List<Point> frame2Points = [];
@@ -56,10 +56,10 @@ int panPointIndex = -1;
 bool close = false;
 // Project level fields
 SingleFrameModel currentSingleFrameModel = SingleFrameModel(frameNo: 0);
-reInitiliaseFramePoints() {
-  // points = pointsToOffsets(
-  //     framesList[currentIconSectionNo][currentFrameNo].singleFrameModel.points);
-}
+// reInitiliaseFramePoints() {
+//   // points = pointsToOffsets(
+//   //     framesList[currentIconSectionNo][currentFrameNo].singleFrameModel.points);
+// }
 
 reInitSingleModel() {
   currentSingleFrameModel.controlMidPoints =
