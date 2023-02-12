@@ -28,12 +28,13 @@ class _AnimSheetMainBoxState extends State<AnimSheetMainBox> {
       height:
 
           // animSheetHeightFactor.sh(context)
-          100.sh(context) -
-              topbarHeight -
-              animSheetProvider.animationSheetFromTop +
-              35 +
-              10 -
-              animaBarH,
+          (100.sh(context) -
+                  topbarHeight -
+                  animSheetProvider.animationSheetFromTop +
+                  35 +
+                  10 -
+                  animaBarH)
+              .abs(),
       color: Colors.red.shade200,
       padding: EdgeInsets.only(left: 0.5.sw(context)),
       child: Column(
@@ -43,17 +44,31 @@ class _AnimSheetMainBoxState extends State<AnimSheetMainBox> {
             height: 1.sh(context),
           ),
           TimelineBar(),
-          Row(
-            children: [
-              Stack(
-                children: [  
-                  HorizontalTimeLinesOfAllIconsections(),
-                CurrentTimeVerticalStick(),
-                ],
-              ),
-              AddFrameButtonsColumnInAnimMainBox()
-            ],
-          ),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (p0, box) {
+                return Container(
+                  // width: box.maxWidth,
+                  width: animSheetMainBoxWidthFactor.sw(context),
+                  height: box.maxHeight,
+                  child: Row(
+                    children: [
+                      Container(
+                        child: Stack(
+                          // fit: StackFit.passthrough,
+                          children: [
+                            HorizontalTimeLinesOfAllIconsections(),
+                            CurrentTimeVerticalStick(),
+                          ],
+                        ),
+                      ),
+                      AddFrameButtonsColumnInAnimMainBox()
+                    ],
+                  ),
+                );
+              },
+            ),
+          )
         ],
       ),
     );

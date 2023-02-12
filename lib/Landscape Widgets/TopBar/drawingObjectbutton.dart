@@ -21,9 +21,9 @@ Map<String, String> drawingObjectTypesNamesPopupMap = {
   IconsImagesPaths.polygonicon: "polygon",
   // IconsImagesPaths.circleicon: "circle",
 };
-drawingObjectbutton(ProvData provData,GlobalKey<PopupMenuButtonState> _drawingObjectTypeKey ) {
+drawingObjectbutton(ProvData provData,GlobalKey<PopupMenuButtonState> drawingObjectTypeKey ) {
   return PopupMenuButton(
-    key: _drawingObjectTypeKey,
+    key: drawingObjectTypeKey,
     tooltip: "Shapes",
     itemBuilder: (_) => <PopupMenuItem<DrawingObjectType>>[
       ...(drawingObjectTypesPopupMap.entries
@@ -87,10 +87,10 @@ drawingObjectbutton(ProvData provData,GlobalKey<PopupMenuButtonState> _drawingOb
       imagePath: getIconAsPerSelectedObjectType(),
       // IconsImagesPaths.polyCurveicon,
       onTap: () {
-        _drawingObjectTypeKey.currentState!.showButtonMenu();
+        drawingObjectTypeKey.currentState!.showButtonMenu();
       },
-      height: topbarHeight,
-      width: topbarHeight,
+      height: topbarHeight*0.88,
+      width: topbarHeight*0.88,
       padding: EdgeInsets.all(6),
       cornerRadius: 4,
     ),

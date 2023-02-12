@@ -1,3 +1,4 @@
+import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/set_drawingobjecttype_when_iconsection_selected.dart';
@@ -74,7 +75,8 @@ void addNewIconSectionPolygon(int i) {
 
   currentIconSectionNo++;
   List<Point> points = List.generate(i, (index) => Point.zero);
-
+  currentFrameNo = 0;
+  timeLinePointerXPosition = 0;
   projectList[currentProjectNo].iconSections.add(IconSection(
           iconSectionNo: projectList[currentProjectNo].iconSections.length,
           iconSectionName:

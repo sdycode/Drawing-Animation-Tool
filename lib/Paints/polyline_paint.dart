@@ -109,9 +109,12 @@ class PointsLinePaint extends CustomPainter {
         curvePath.close();
         canvas.drawPath(curvePath, curvepaint);
         // curvePath.
-        for (Offset e in _p) {
-          canvas.drawCircle(e, 3, pointpaint);
+        if (showPoints) {
+          for (Offset e in _p) {
+            canvas.drawCircle(e, 3, pointpaint);
+          }
         }
+
         break;
       default:
     }

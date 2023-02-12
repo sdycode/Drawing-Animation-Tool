@@ -146,24 +146,83 @@ class EditPalletForDrawingShape extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              TextWithStyle1(
-                text: "Edit Vertices",
-                fontsize: 16,
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: RawChip(
+              onPressed: () {
+                showPoints = !showPoints;
+                editPalletProvider.updateUI();
+                drawingBoardProvider.updateUI();
+                // provData.updateUI();
+              },
+              label: Text("Show Points"),
+              // onDeleted: (){ toggleShowAnimationBoard();
+              //         provData.updateUI();},
+              avatar: Container(
+                margin: EdgeInsets.only(right: 2, left: 2),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 2, right: 2),
+                  child: TapIcon(
+                      onTap: () {
+                      //  showPoints
+                      },
+                      icon: Icon(
+                      showPoints
+                            ? Icons.check_circle
+                            : Icons.check_circle_outline_outlined,
+                        size: 20,
+                      )),
+                ),
               ),
-              Spacer(),
-              TapIcon(
-                  onTap: () {
-                    toggleEditShapeVerices();
-                    editPalletProvider.updateUI();
-                    drawingBoardProvider.updateUI();
-                  },
-                  icon: Icon(editShapeVertices == EditShapeVertices.shapeVerices
-                      ? Icons.check_box
-                      : Icons.check_box_outline_blank))
-            ],
+            ),
           ),
+
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: RawChip(
+              
+              onPressed: () {
+                 toggleEditShapeVerices();
+                      editPalletProvider.updateUI();
+                      drawingBoardProvider.updateUI();
+              },
+              label: Text("Edit Vertices"),
+              // onDeleted: (){ toggleShowAnimationBoard();
+              //         provData.updateUI();},
+              avatar: Container(
+                margin: EdgeInsets.only(right: 2, left: 2),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 2, right: 2),
+                  child: TapIcon(
+                      onTap: () {
+                      //  showPoints
+                      },
+                      icon: Icon(
+                      editShapeVertices == EditShapeVertices.shapeVerices
+                            ? Icons.check_circle
+                            : Icons.check_circle_outline_outlined,
+                        size: 20,
+                      )),
+                ),
+              ),
+          ),
+            ),
+          // Row(
+          //   children: [
+          //     TextWithStyle1(
+          //       text: "Edit Vertices",
+          //       fontsize: 16,
+          //     ),
+          //     Spacer(),
+          //     TapIcon(
+          //         onTap: () {
+                  
+          //         },
+          //         icon: Icon(editShapeVertices == EditShapeVertices.shapeVerices
+          //             ? Icons.check_box
+          //             : Icons.check_box_outline_blank))
+          //   ],
+          // ),
           // RotateEditFieldWidget(),
 
           Container(
@@ -174,13 +233,15 @@ class EditPalletForDrawingShape extends StatelessWidget {
                       backgroundColor: MaterialStateProperty.all(Color(int.parse(
                           "0x${projectList[currentProjectNo].iconSections[currentIconSectionNo].color}")))),
                   onPressed: () {
-                    showColorPicker(
-                        context,
-                        (Color d) {
-                          projectList[currentProjectNo].iconSections[currentIconSectionNo].color = d.toString().replaceAll(')', '').split('x')[1];
-                  editPalletProvider.updateUI();
-                    drawingBoardProvider.updateUI();;
-                  },
+                    showColorPicker(context, (Color d) {
+                      projectList[currentProjectNo]
+                              .iconSections[currentIconSectionNo]
+                              .color =
+                          d.toString().replaceAll(')', '').split('x')[1];
+                      editPalletProvider.updateUI();
+                      drawingBoardProvider.updateUI();
+                      ;
+                    },
                         Color(int.parse(
                             "0x${projectList[currentProjectNo].iconSections[currentIconSectionNo].color}")));
                   },

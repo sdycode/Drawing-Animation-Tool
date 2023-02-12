@@ -1,4 +1,5 @@
 import 'dart:developer' as dev;
+import 'dart:developer';
 
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
@@ -173,15 +174,15 @@ void updatePolygon(DragUpdateDetails d) {
   debugLog(
       "framesinpolygon ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames.length}");
   int c = 0;
-  projectList[currentProjectNo]
-      .iconSections[currentIconSectionNo]
-      .frames[currentFrameNo]
-      .singleFrameModel
-      .cornerBoxPoints
-      .forEach((element) {
-    dev.log("poins $c :  ${element.toMap()}");
-    c++;
-  });
+  // projectList[currentProjectNo]
+  //     .iconSections[currentIconSectionNo]
+  //     .frames[currentFrameNo]
+  //     .singleFrameModel
+  //     .cornerBoxPoints
+  //     .forEach((element) {
+  //   // dev.log("poins $c :  ${element.toMap()}");
+  //   c++;
+  // });
   List<Point> tempPoints = List.from(projectList[currentProjectNo]
       .iconSections[currentIconSectionNo]
       .frames[currentFrameNo]
@@ -251,6 +252,13 @@ void updatePolygon(DragUpdateDetails d) {
           .singleFrameModel
           .points
           .length);
+
+  log("before  $currentFrameNo checkframeno in update ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[0].singleFrameModel.framePosition.toDouble()} / ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[1].singleFrameModel.framePosition.toDouble()}");
+
+  log("checkk first ${check_to_copy_last_frame_as_first(projectList[currentProjectNo].iconSections[currentIconSectionNo])}");
+
+  // return;
+  log("checkk framePosition ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames.first.singleFrameModel.framePosition} /  ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames.last.singleFrameModel.framePosition}");
   if (check_to_copy_last_frame_as_first(
       projectList[currentProjectNo].iconSections[currentIconSectionNo])) {
     dev.log("copy frame from 1 to other ${currentFrameNo}");
@@ -258,16 +266,113 @@ void updatePolygon(DragUpdateDetails d) {
     if (currentFrameNo == 1) {
       frmeNo = 0;
     }
+    // Approach 2
+    // SingleFrameModel model = projectList[currentProjectNo]
+    //     .iconSections[currentIconSectionNo]
+    //     .frames[(frmeNo + 1) % 2]
+    //     .singleFrameModel;
+    // projectList[currentProjectNo]
+    //         .iconSections[currentIconSectionNo]
+    //         .frames[frmeNo]
+    //         .singleFrameModel =
+    //     SingleFrameModel(frameNo: frmeNo, points: List.from(model.points),
+    //     boxSize: BoxSize.withCopy(model.boxSize) ,
+    //     cornerBoxPoints: model.cornerBoxPoints,
+    //     framePosition: (model.framePosition).toDouble()
+
+    //     );
+
+    // Approach 1
+    // projectList[currentProjectNo]
+    //     .iconSections[currentIconSectionNo]
+    //     .frames[frmeNo]
+    //     .singleFrameModel
+    //     .framePosition = 0;
+
     projectList[currentProjectNo]
             .iconSections[currentIconSectionNo]
             .frames[frmeNo]
             .singleFrameModel =
-        SingleFrameModel.withAllPointsButNOtFrameNo(
-            projectList[currentProjectNo]
-                .iconSections[currentIconSectionNo]
-                .frames[(frmeNo + 1) % 2]
-                .singleFrameModel,
-            frmeNo);
+        // SingleFrameModel.withAllPointsButNOtFrameNo(
+        //     projectList[currentProjectNo]
+        //         .iconSections[currentIconSectionNo]
+        //         .frames[(frmeNo + 1) % 2]
+        //         .singleFrameModel,
+        //     (frmeNo + 1) % 2);
+    SingleFrameModel.fromMap(projectList[currentProjectNo]
+        .iconSections[currentIconSectionNo]
+        .frames[(frmeNo + 1) % 2]
+        .singleFrameModel
+        .toMap());
+
+    //           projectList[currentProjectNo]
+    //     .iconSections[currentIconSectionNo]
+    //     .frames
+    //     .first
+    //     .singleFrameModel
+    //     .framePosition = 0;
+    // projectList[currentProjectNo]
+    //     .iconSections[currentIconSectionNo]
+    //     .frames
+    //     .last
+    //     .singleFrameModel
+    //     .framePosition = 100;
+    // SingleFrameModel.withAllPointsButNOtFrameNo(
+    //   projectList[currentProjectNo]
+    //       .iconSections[currentIconSectionNo]
+    //       .frames[(frmeNo + 1) % 2]
+    //       .singleFrameModel,
+    //   frmeNo,
+    // 100
+    // );
+    // Approach 3
+
+    // log("pointss 0 ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[0].singleFrameModel.points.map((e) => {
+    //       log("${e.toString()}")
+    //     })}");
+    // log("pointss 1 ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[1].singleFrameModel.points.map((e) => {
+    //       log("${e.toString()}")
+    // })}");
+
+    // SingleFrameModel model = projectList[currentProjectNo]
+    //     .iconSections[currentIconSectionNo]
+    //     .frames[(frmeNo + 1) % 2]
+    //     .singleFrameModel;
+    // projectList[currentProjectNo]
+    //         .iconSections[currentIconSectionNo]
+    //         .frames[frmeNo]
+    //         .singleFrameModel =
+    //     SingleFrameModel(
+    //         frameNo: frmeNo,
+    //         boxSize: BoxSize.withCopy(model.boxSize),
+    //         framePosition: model.framePosition.toDouble(),
+
+    //         cornerBoxPoints: List.from(model.cornerBoxPoints));
+    log("frameno in update  $frmeNo  ${(frmeNo + 1) % 2} : ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[0].singleFrameModel.framePosition.toDouble()} / ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[1].singleFrameModel.framePosition.toDouble()}");
+
+    // SingleFrameModel.withoutFramNoAndFramePos(
+    //     projectList[currentProjectNo]
+    //         .iconSections[currentIconSectionNo]
+    //         .frames[(frmeNo + 1) % 2]
+    //         .singleFrameModel,
+    //     frmeNo.toInt(),
+    //     projectList[currentProjectNo]
+    //         .iconSections[currentIconSectionNo]
+    //         .frames[(frmeNo + 1) % 2]
+    //         .singleFrameModel
+    //         .framePosition
+    //         .toDouble());
+
+    // projectList[currentProjectNo]
+    //     .iconSections[currentIconSectionNo]
+    //     .frames[0]
+    //     .singleFrameModel
+    //     .framePosition = 0;
+    //      projectList[currentProjectNo]
+    //     .iconSections[currentIconSectionNo]
+    //     .frames.last
+    //     .singleFrameModel
+    //     .framePosition = 100;
   }
 }
 

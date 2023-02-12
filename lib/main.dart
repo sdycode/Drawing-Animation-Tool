@@ -1,6 +1,7 @@
 import 'package:animated_icon_demo/Animated/my_animated_icons.dart';
 import 'package:animated_icon_demo/Global/global.dart';
 import 'package:animated_icon_demo/providers/edit_pallet_provider.dart';
+import 'package:animated_icon_demo/providers/user_page_provider.dart';
 import 'package:animated_icon_demo/screens/landscape_layout.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/firebase_options.dart';
@@ -52,11 +53,12 @@ class MyApp extends StatelessWidget {
           ChangeNotifierProvider(create: (context) => AnimSheetProvider()),
           ChangeNotifierProvider(create: (context) => EditPalletProvider()),
           ChangeNotifierProvider(create: (context) => DrawingBoardProvider()),
+           ChangeNotifierProvider(create: (context) => UserPageProvider()),
         ],
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           themeMode: ThemeMode.dark,
-          title: 'Animation Tool',
+          title: 'Annimation',
           theme: ThemeData.dark(
 
                   // primarySwatch: Colors.blue,

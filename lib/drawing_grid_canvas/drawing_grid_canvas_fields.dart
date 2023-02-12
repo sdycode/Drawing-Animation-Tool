@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import 'models/pair_model.dart';
 
+bool showPoints = true;
 int noOfSidesOfPolygon = 5;
 Point centerPoint = Point.zero;
 double finalAngle = 0.0;
@@ -45,7 +46,7 @@ IconSection currentIconSection = IconSection(
 Frame currentFrame = Frame(
     frameNo: currentSingleFrameModel.frameNo,
     singleFrameModel: currentSingleFrameModel);
-String currentProjectName = "AnimatedIconProject";
+String currentProjectName = "Annimation";
 TextEditingController userNameController = TextEditingController();
 Offset hoverPoint = Offset.zero;
 Size biggerSize = Size(200, 200);

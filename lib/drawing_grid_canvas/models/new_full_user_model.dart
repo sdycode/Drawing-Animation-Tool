@@ -133,8 +133,7 @@ class IconSection {
       position: json["position"] == null
           ? Point.zero
           : Point.fromMap(json["position"]),
-
-          color: json["color"]??"FFFFC0CB",
+      color: json["color"] ?? "FFFFC0CB",
       drawingObjectType: json["drawingObjectType"] ?? "polyline");
 
   Map<String, dynamic> toMap() => {
@@ -142,7 +141,7 @@ class IconSection {
         "iconSectionName": iconSectionName,
         "frames": List<Map<String, dynamic>>.from(frames.map((x) => x.toMap())),
         "position": position.toMap(),
-        "color":color,
+        "color": color,
         "drawingObjectType": drawingObjectType
       };
 }
@@ -190,7 +189,16 @@ class SingleFrameModel {
       ],
       this.panPointIndex = -1,
       this.framePosition = 0.0});
+SingleFrameModel.withAllData( {
 
+required this. frameNo
+,required this. boxSize
+,required this. hoverPoint
+,required this. controlMidPoints
+,required this. points
+,required this. framePosition
+,required this.cornerBoxPoints
+});
   int frameNo;
   BoxSize boxSize;
   Point hoverPoint;
@@ -204,6 +212,20 @@ class SingleFrameModel {
       SingleFrameModel model, int frmno) {
     SingleFrameModel newModel = SingleFrameModel.fromModel(model);
     newModel.frameNo = frmno;
+    return newModel;
+  }
+  factory SingleFrameModel.withAllPointsButNOtFrameNoAndNoFramePos(
+      SingleFrameModel model, int frmno, double framPos) {
+    SingleFrameModel newModel = SingleFrameModel.fromModel(model);
+    newModel.frameNo = frmno;
+    newModel.framePosition = framPos;
+    return newModel;
+  }
+  factory SingleFrameModel.withoutFramNoAndFramePos(
+      SingleFrameModel model, int frmno, double framePos) {
+    SingleFrameModel newModel = SingleFrameModel.fromModel(model);
+    newModel.frameNo = frmno.toInt();
+    newModel.framePosition = framePos.toDouble();
     return newModel;
   }
   factory SingleFrameModel.fromJson(String str) =>
@@ -263,7 +285,9 @@ class BoxSize {
   final int height;
 
   factory BoxSize.fromJson(String str) => BoxSize.fromMap(json.decode(str));
-
+  factory BoxSize.withCopy(BoxSize boxSize) {
+    return BoxSize(width: boxSize.width, height: boxSize.height);
+  }
   String toJson() => json.encode(toMap());
 
   factory BoxSize.fromMap(Map<String, dynamic> json) => BoxSize(

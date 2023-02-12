@@ -5,6 +5,7 @@ import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_field
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/getActualStickserPositionFromPercentValue.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/set_drawingobjecttype_when_iconsection_selected.dart';
 import 'package:animated_icon_demo/extensions.dart';
+import 'package:animated_icon_demo/providers/animation_sheet_provider.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/screens/landscape_layout.dart';
 import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
@@ -42,10 +43,11 @@ class _IconsectionsTreeinAnimSheetState
   Widget build(BuildContext context) {
     ProvData provData = Provider.of<ProvData>(
       context,
-    );
+    );  animSheetProvider =
+                                Provider.of<AnimSheetProvider>(context);
 
     return Container(
-      width: animIconSectionTreeWidthFactor.sw(context),
+      width: animIconSectionTreeWidthFactor.sw(context) - 50,
       height: 100.sh(context) -
           topbarHeight -
           animSheetProvider.animationSheetFromTop +
@@ -56,7 +58,7 @@ class _IconsectionsTreeinAnimSheetState
           animaBarH,
       // color: Colors.amber.shade200,
       child: Container(
-          width: animIconSectionTreeWidthFactor.sw(context),
+          width: animIconSectionTreeWidthFactor.sw(context) - 50,
           height:
               // animSheetHeightFactor.sh(context) -
               100.sh(context) -
@@ -83,7 +85,8 @@ class _IconsectionsTreeinAnimSheetState
                       TapIcon(
                         icon: Icon(
                           Icons.play_arrow,
-                          size: timelineBarH.sw(context) * 1.2,color: Colors.black,
+                          size: timelineBarH.sw(context) * 1.2,
+                          color: Colors.black,
                         ),
                         onTap: () {
                           newanimationController.forward();
@@ -92,7 +95,8 @@ class _IconsectionsTreeinAnimSheetState
                       TapIcon(
                         icon: Icon(
                           Icons.stop,
-                          size: timelineBarH.sw(context) * 1.2,color: Colors.black,
+                          size: timelineBarH.sw(context) * 1.2,
+                          color: Colors.black,
                         ),
                         onTap: () {
                           newanimationController.reset();
@@ -118,136 +122,41 @@ class _IconsectionsTreeinAnimSheetState
                           projectList[currentProjectNo].iconSections.length,
                       shrinkWrap: true,
                       itemBuilder: (c, i) {
-                        return Container(
-                            // height: animFrameAddbtnHeight.sh(context),
-                            alignment: Alignment.center,
-                            child: Container(
-                              height: iconSectionBarHeightInAnimationSheet,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: Colors.grey.shade100),
-                                color: Color.fromARGB(255, 38, 37, 37),
-                              ),
+                        return InkWell(
+                          onTap: () {
+                          
+                            animSheetProvider.updateUI();
+                          },
+                          child: Container(
+                              // height: animFrameAddbtnHeight.sh(context),
+                              alignment: Alignment.center,
+                              child: Container(
+                                  height: iconSectionBarHeightInAnimationSheet,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(4),
+                                    border:
+                                        Border.all(color: Colors.grey.shade100),
+                                    color: Color.fromARGB(255, 38, 37, 37),
+                                  ),
 
-                              // Colors.primaries[i % Colors.primaries.length],
-                              child: true
-                                  ? Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            projectList[currentProjectNo]
-                                                .iconSections[i]
-                                                .iconSectionName,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12),
-                                          ),
+                                  // Colors.primaries[i % Colors.primaries.length],
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          projectList[currentProjectNo]
+                                              .iconSections[i]
+                                              .iconSectionName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12),
                                         ),
-                                        // Spacer(),
-                                        // TapIcon(
-
-                                        //     onTap: () {
-                                        //       provData.updateUI();
-                                        //       if (!iconSectionIndexesToIncludeInAnimationList
-                                        //           .contains(i)) {
-                                        //         iconSectionIndexesToIncludeInAnimationList
-                                        //             .add(i);
-                                        //       } else {
-                                        //         iconSectionIndexesToIncludeInAnimationList
-                                        //             .remove(i);
-                                        //       }
-                                        //     },
-                                        //     icon: Icon(
-                                        //         iconSectionIndexesToIncludeInAnimationList
-                                        //                 .contains(i)
-                                        //             ? Icons.check_box
-                                        //             : Icons.check_box_outline_blank, size: 15,))
-                                      ],
-                                    )
-                                  : ExpansionTile(
-                                      title: Row(
-                                        children: [
-                                          Text(
-                                            projectList[currentProjectNo]
-                                                .iconSections[i]
-                                                .iconSectionName,
-                                            style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12),
-                                          ),
-                                          Spacer(),
-                                          TapIcon(
-                                              onTap: () {
-                                                provData.updateUI();
-                                                if (!iconSectionIndexesToIncludeInAnimationList
-                                                    .contains(i)) {
-                                                  iconSectionIndexesToIncludeInAnimationList
-                                                      .add(i);
-                                                } else {
-                                                  iconSectionIndexesToIncludeInAnimationList
-                                                      .remove(i);
-                                                }
-                                              },
-                                              icon: Icon(
-                                                iconSectionIndexesToIncludeInAnimationList
-                                                        .contains(i)
-                                                    ? Icons.check_box
-                                                    : Icons
-                                                        .check_box_outline_blank,
-                                                size: 15,
-                                              ))
-                                        ],
                                       ),
-                                      children: [
-                                        Container(
-                                          height:
-                                              animFrameAddbtnHeight.sh(context),
-                                          width: double.infinity,
-                                          child: ListView.builder(
-                                              scrollDirection: Axis.horizontal,
-                                              itemCount:
-                                                  projectList[currentProjectNo]
-                                                      .iconSections[i]
-                                                      .frames
-                                                      .length,
-                                              itemBuilder: (c, fi) {
-                                                return InkWell(
-                                                  onTap: () {
-                                                    currentFrameNo = fi;
-                                                    currentIconSectionNo = i;
-                                                    set_drawingobjecttype_when_iconsection_selected();
-                                                    timeLinePointerXPosition =
-                                                        getActualStickserPositionFromPercentValue(
-                                                            projectList[
-                                                                    currentProjectNo]
-                                                                .iconSections[i]
-                                                                .frames[fi]
-                                                                .singleFrameModel
-                                                                .framePosition,
-                                                            context);
-                                                    provData.updateUI();
-                                                  },
-                                                  child: Container(
-                                                    color: currentFrameNo == fi
-                                                        ? Colors.green.shade100
-                                                            .withAlpha(150)
-                                                        : Colors.transparent,
-                                                    child: Padding(
-                                                      padding:
-                                                          const EdgeInsets.all(
-                                                              8.0),
-                                                      child: Text(
-                                                          "${projectList[currentProjectNo].iconSections[i].frames[fi].singleFrameModel.points.length}"),
-                                                    ),
-                                                  ),
-                                                );
-                                              }),
-                                        )
-                                      ],
-                                    ),
-                            ));
+                                    ],
+                                  ))),
+                        );
                       }),
                 ),
               ),

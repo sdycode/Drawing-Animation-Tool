@@ -9,7 +9,7 @@ import 'package:animated_icon_demo/shared/shared.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 createNewProjectWithNo(int projectNo,
-    {String projectName = "AnimatedIconProject"}) async {
+    {String projectName = "Annimation"}) async {
   List<int> prnoList = await getNewPorjectNo();
   projectNo = prnoList.last + 1;
   // log("newPorjet no ${projectNo}");

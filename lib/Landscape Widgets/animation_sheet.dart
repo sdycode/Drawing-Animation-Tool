@@ -101,11 +101,11 @@ class _AnimationSheetWidgetState extends State<AnimationSheetWidget> {
       top: animSheetProvider.animationSheetFromTop,
       child: Container(
         width: 100.sw(context),
-        height: 100.sh(context) -
+        height:( 100.sh(context) -
             topbarHeight -
             animSheetProvider.animationSheetFromTop +
             35 +
-            10,
+            10).abs(),
         //  animSheetHeightFactor.sh(context),
         color: Colors.pink.shade100.withAlpha(255),
         child: Column(
@@ -116,7 +116,10 @@ class _AnimationSheetWidgetState extends State<AnimationSheetWidget> {
               children: [
                 _animBar(),
                 Row(
-                  children: [IconsectionsTreeinAnimSheet(), AnimSheetMainBox()],
+                  children: [
+                    IconsectionsTreeinAnimSheet(), 
+                  AnimSheetMainBox()
+                  ],
                 )
               ],
             )

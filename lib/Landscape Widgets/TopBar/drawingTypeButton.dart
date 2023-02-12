@@ -6,9 +6,9 @@ import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_image_icon.dart';
 import 'package:flutter/material.dart';
-drawingTypeButton(ProvData provData, GlobalKey<PopupMenuButtonState>_menuKey ) {
+drawingTypeButton(ProvData provData, GlobalKey<PopupMenuButtonState>menuKey ) {
   return PopupMenuButton(
-    key: _menuKey,
+    key: menuKey,
     tooltip: "Drawing Type",
     itemBuilder: (_) => <PopupMenuItem<DrawingType>>[
       ...(drawingTypesPopupMap.entries
@@ -61,10 +61,10 @@ drawingTypeButton(ProvData provData, GlobalKey<PopupMenuButtonState>_menuKey ) {
     child: TapImageIcon(
       imagePath: IconsImagesPaths.closeShapeicon,
       onTap: () {
-        _menuKey.currentState!.showButtonMenu();
+        menuKey.currentState!.showButtonMenu();
       },
-      height: topbarHeight,
-      width: topbarHeight,
+      height: topbarHeight*0.88,
+      width: topbarHeight*0.88,
       padding: EdgeInsets.all(6),
       cornerRadius: 4,
     ),
