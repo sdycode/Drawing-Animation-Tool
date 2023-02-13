@@ -36,14 +36,16 @@ class UserNamePage extends StatefulWidget {
 
 class _UserNamePageState extends State<UserNamePage> {
   bool showLoading = false;
+  bool showError = false;
   TextEditingController textEditingController =
-      TextEditingController(text: "shubham22");
+      TextEditingController(text: Shared.getUserName());
   @override
   Widget build(BuildContext context) {
     double logoHeight = h * 0.3;
     UserPageProvider userPageProvider = Provider.of<UserPageProvider>(context);
 
-    double avalableHeight = h * 0.9 - topbarHeight * 2 - 16 - logoHeight - 20;
+    double avalableHeight =
+        (h * 0.9 - topbarHeight * 2 - 16 - logoHeight - 20).abs();
     return Scaffold(
       backgroundColor: Colors.black,
       body: Center(
@@ -80,12 +82,15 @@ class _UserNamePageState extends State<UserNamePage> {
                   controller: textEditingController,
                   style: TextStyle(color: Colors.white, fontSize: 20),
                   onChanged: (value) {
+                    showError = true;
                     setState(() {});
                   },
                   decoration: InputDecoration(
-                      errorText: textEditingController.text.trim().length < 5
-                          ? 'Minimum 5 Letters'
-                          : null,
+                      errorText:
+                          (textEditingController.text.trim().length < 5) &&
+                                  showError
+                              ? 'Minimum 5 Letters'
+                              : null,
                       hintText: "Please enter your username",
                       hintStyle: TextStyle(color: Colors.white.withAlpha(180)),
                       border: OutlineInputBorder(),
@@ -102,7 +107,12 @@ class _UserNamePageState extends State<UserNamePage> {
                       : Colors.grey.withAlpha(180);
                 })),
                 onPressed: () async {
-                  if (textEditingController.text.trim().length < 5) { setState(() {});
+                  // if (textEditingController.text.trim() == "username") {
+                  //   showMessageToUserToEnterNewUserNameDIffThanDefault(context);
+                  //   return;
+                  // }
+                  if (textEditingController.text.trim().length < 5) {
+                    setState(() {});
                     return;
                   }
                   showLoading = true;
@@ -240,7 +250,9 @@ class _UserNamePageState extends State<UserNamePage> {
 
   Future getProjectsAndShowOnScreen(UserPageProvider userPageProvider) async {
     if (textEditingController.text.trim().length > 4) {
+      
       Shared.setUserName(textEditingController.text.trim());
+      log("username before get data [${Shared.getUserName()}]");
       serverData = await DataService()
           .usersInstance
           .get(const GetOptions(source: Source.server));

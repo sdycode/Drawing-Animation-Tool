@@ -35,15 +35,15 @@ class _AddFrameButtonsColumnInAnimMainBoxState
     //     initialScrollOffset: iconsectionsTreeinAnimSheetScrollPosition);
     return Container(
       width: 2.sw(context),
-      height: 100.sh(context) -
+      height: (100.sh(context) -
           topbarHeight -
           animSheetProvider.animationSheetFromTop +
           35 +
           10 -
-          //  animSheetHeightFactor.sh(context) -
+         
           animaBarH -
           1.sh(context) -
-          timelineBarH.sw(context),
+          timelineBarH.sw(context)).abs(),
       color: Colors.green.shade200,
       child: NotificationListener<ScrollNotification>(  onNotification: (ScrollNotification scrollInfo) {
                     syncScroller.processNotification(scrollInfo, thirdScroller);

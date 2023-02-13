@@ -41,6 +41,7 @@ dependencies:
   flutter_colorpicker: ^1.0.3
   file_saver: ^0.1.1
   url_launcher: ^6.1.9
+  annimation: ^0.0.2
 
 dev_dependencies:
   flutter_test:
@@ -70,6 +71,7 @@ flutter:
     - assets/icons/
     - assets/logos/
     - assets/app_icons/
+    - assets/library/
     
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

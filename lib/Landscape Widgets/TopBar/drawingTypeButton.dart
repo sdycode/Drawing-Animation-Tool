@@ -7,7 +7,8 @@ import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_image_icon.dart';
 import 'package:flutter/material.dart';
 drawingTypeButton(ProvData provData, GlobalKey<PopupMenuButtonState>menuKey ) {
-  return PopupMenuButton(
+  return PopupMenuButton(    offset:const  Offset(5,5),
+    position: PopupMenuPosition.under,
     key: menuKey,
     tooltip: "Drawing Type",
     itemBuilder: (_) => <PopupMenuItem<DrawingType>>[

@@ -22,7 +22,8 @@ Map<String, String> drawingObjectTypesNamesPopupMap = {
   // IconsImagesPaths.circleicon: "circle",
 };
 drawingObjectbutton(ProvData provData,GlobalKey<PopupMenuButtonState> drawingObjectTypeKey ) {
-  return PopupMenuButton(
+  return PopupMenuButton(    offset:const  Offset(5,5),
+    position: PopupMenuPosition.under,
     key: drawingObjectTypeKey,
     tooltip: "Shapes",
     itemBuilder: (_) => <PopupMenuItem<DrawingObjectType>>[

@@ -222,6 +222,9 @@ class AppDrawer extends StatelessWidget {
                         child: Text(
                          "https://github.com/sdycode/Drawing-Animation-Tool",
                           textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.blue
+                          ),
                         ),
                       )
                     ],

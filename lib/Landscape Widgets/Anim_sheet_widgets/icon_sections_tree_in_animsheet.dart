@@ -48,28 +48,27 @@ class _IconsectionsTreeinAnimSheetState
 
     return Container(
       width: animIconSectionTreeWidthFactor.sw(context) - 50,
-      height: 100.sh(context) -
+      height: (100.sh(context) -
           topbarHeight -
           animSheetProvider.animationSheetFromTop +
           35
-          //  animSheetHeightFactor.sh(context)
 
           -
-          animaBarH,
+          animaBarH).abs(),
       // color: Colors.amber.shade200,
       child: Container(
           width: animIconSectionTreeWidthFactor.sw(context) - 50,
           height:
               // animSheetHeightFactor.sh(context) -
-              100.sh(context) -
+              (100.sh(context) -
                   topbarHeight -
                   animSheetProvider.animationSheetFromTop +
                   35 +
 
-                  // Before
+                
                   animaBarH -
                   1.sh(context) -
-                  timelineBarH.sw(context),
+                  timelineBarH.sw(context)).abs(),
           // color: Colors.green.shade200,
           child: Column(
             children: [
@@ -138,7 +137,7 @@ class _IconsectionsTreeinAnimSheetState
                                         Border.all(color: Colors.grey.shade100),
                                     color: Color.fromARGB(255, 38, 37, 37),
                                   ),
-
+                  
                                   // Colors.primaries[i % Colors.primaries.length],
                                   child: Row(
                                     children: [

@@ -221,90 +221,28 @@ class _DrawingPlaneWidgetState extends State<DrawingPlaneWidget> {
                         child: Container(),
                       ))
                   : Container(),
-              StatefulBuilder(builder:
-                  (BuildContext context, StateSetter _pointsLinePaintState) {
-                // pointsLinePaintState = _pointsLinePaintState;
-
-                return CustomPaint(
-                  size: Size(
-                    biggerSize.width.truncate().toDouble(),
-                    biggerSize.height.truncate().toDouble(),
-                  ),
-                  painter: PointsLinePaint(pointsToOffsets(
-                      projectList[currentProjectNo]
-                          .iconSections[currentIconSectionNo]
-                          .frames[currentFrameNo]
-                          .singleFrameModel
-                          .points,
-                        
+           
+               Positioned(
+                 child: CustomPaint(
+                    size: Size(
+                      biggerSize.width.truncate().toDouble(),
+                      biggerSize.height.truncate().toDouble(),
+                    ),
+                    painter: PointsLinePaint(pointsToOffsets(
+                        projectList[currentProjectNo]
+                            .iconSections[currentIconSectionNo]
+                            .frames[currentFrameNo]
+                            .singleFrameModel
+                            .points,
                           
-                      // currentIconSectionsList[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points
-                      ),
-                      iconsecIndex: currentIconSectionNo,
-                      indexes: [currentIconSectionNo]
-                      ),
-                );
-              }),
-// ...List.generate(tempShapeEndPoints.length, (ind) { 
-
-// Point e = tempShapeEndPoints[ind];
-//                 double rad = 16;
-//                 return Positioned(
-//                     left: e.x - rad,
-//                     top: e.y - rad,
-//                     child: CircleAvatar(
-//                       radius: rad,
-//                       backgroundColor: Colors.primaries[ind].withAlpha(80),
-//                       child: FittedBox(child: Text(ind.toString())),
-//                     ));
-// }),
-              // ...tempShapeEndPoints.map((e) {
-               
-              // }),
-              // ...(projectList[currentProjectNo].iconSections.map((e) {
-              //   int ind = projectList[currentProjectNo].iconSections.indexOf(e);
-              //   return IgnorePointer(
-              //     ignoring: true,
-              //     child: TempPaint(
-              //         width: biggerSize.width.truncate().toDouble(),
-              //         height: biggerSize.height.truncate().toDouble(),
-              //         frame:
-              //             projectList[currentProjectNo].iconSections[ind].frames[
-              //                 currentFrameNo %
-              //                     projectList[currentProjectNo]
-              //                         .iconSections[ind]
-              //                         .frames
-              //                         .length],
-              //         frameNo: ind),
-              //   );
-              // }).toList()),
-              // StatefulBuilder(
-              //     builder: (BuildContext context, StateSetter _hoverState) {
-              //   // log(" paintsize in _hoverState  build buld ${100.sw(context).truncate().toDouble()}, //  ${70.sh(context).truncate().toDouble()}");
-
-              //   hoverState = _hoverState;
-              //   return CustomPaint(
-              //     size: Size(
-              //       biggerSize.width.truncate().toDouble(),
-              //       biggerSize.height.truncate().toDouble(),
-              //     ),
-              //     painter: HoverPaint(),
-              //   );
-              // }),
-
-              // ...(List.generate(points.length, (pIndex) {
-              //   Offset e = points[pIndex];
-              //   return Positioned(
-              //       left: e.dx - 5,
-              //       top: e.dy - 5,
-              //       child: BoxPoint(
-              //         isHovered: isPointHoverPointisInsideBoundryBox(e),
-              //         isSelected:
-              //             (pIndex == controlPointAdjecntPair.preIndex) ||
-              //                 (pIndex == controlPointAdjecntPair.nextIndex),
-              //         child: Container(),
-              //       ));
-              // })),
+                            
+                        // currentIconSectionsList[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points
+                        ),
+                        iconsecIndex: currentIconSectionNo,
+                        indexes: [currentIconSectionNo]
+                        ),
+                  ),
+               ),
               if (controlMidPoints.isNotEmpty)
                 ControlBoxPoint(
                     controlMidPoints[controlPointAdjecntPair.preIndex] ??

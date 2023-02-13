@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import 'models/pair_model.dart';
 
+bool showLibrary = false;
 bool showPoints = true;
 int noOfSidesOfPolygon = 5;
 Point centerPoint = Point.zero;

@@ -5,6 +5,7 @@ import 'package:animated_icon_demo/Landscape%20Widgets/drawing_board_background_
 import 'package:animated_icon_demo/Landscape%20Widgets/drawing_board_widget.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/drawing_components_tree_box.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/edit_features_pallete_box.dart';
+import 'package:animated_icon_demo/Landscape%20Widgets/librarySamples.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/top_bar.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
@@ -79,6 +80,7 @@ class _LandscapeLayoutScreenState extends State<LandscapeLayoutScreen>
           DrawingBoardBackgroundBox(),
           EditFeaturesPalleteBox(),
           AnimationSheetWidget(),
+          if(showLibrary)LibrarySamples()
           // Positioned(
           //     left: 250,
           //     top: 150,

@@ -8,9 +8,12 @@ import 'package:animated_icon_demo/drawing_grid_canvas/utils/frame%20methods/set
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/paint%20methods/showColorPicker.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/extensions.dart';
+import 'package:animated_icon_demo/providers/animation_sheet_provider.dart';
 import 'package:animated_icon_demo/providers/drawing_board_provider.dart';
 import 'package:animated_icon_demo/providers/edit_pallet_provider.dart';
+import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/utils/text_field_methods/toggle%20methods/toggleEditShapeVerices.dart';
+import 'package:animated_icon_demo/utils/text_field_methods/toggle%20methods/toggleShowAnimationBoard.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_icon.dart';
 import 'package:animated_icon_demo/widgets/text_widgets/textfield_no.dart';
 import 'package:animated_icon_demo/widgets/text_widgets/textfiledno_with_controller_buttons.dart';
@@ -26,6 +29,9 @@ class EditFeaturesPalleteBox extends StatefulWidget {
 }
 
 class _EditFeaturesPalleteBoxState extends State<EditFeaturesPalleteBox> {
+
+
+  
   @override
   Widget build(BuildContext context) {
     EditPalletProvider editPalletProvider =
@@ -139,6 +145,10 @@ class EditPalletForDrawingShape extends StatelessWidget {
     drawingBoardProvider = Provider.of<DrawingBoardProvider>(
       context,
     );
+    AnimSheetProvider animSheetProvider = Provider.of<AnimSheetProvider>(
+      context,
+    );
+    ProvData provData = Provider.of<ProvData>(context, listen: false);
     return Container(
       width: editFeaturesPalleteBoxWidth,
       margin: EdgeInsets.all(10),
@@ -164,10 +174,10 @@ class EditPalletForDrawingShape extends StatelessWidget {
                   padding: const EdgeInsets.only(left: 2, right: 2),
                   child: TapIcon(
                       onTap: () {
-                      //  showPoints
+                        //  showPoints
                       },
                       icon: Icon(
-                      showPoints
+                        showPoints
                             ? Icons.check_circle
                             : Icons.check_circle_outline_outlined,
                         size: 20,
@@ -177,14 +187,13 @@ class EditPalletForDrawingShape extends StatelessWidget {
             ),
           ),
 
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: RawChip(
-              
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: RawChip(
               onPressed: () {
-                 toggleEditShapeVerices();
-                      editPalletProvider.updateUI();
-                      drawingBoardProvider.updateUI();
+                toggleEditShapeVerices();
+                editPalletProvider.updateUI();
+                drawingBoardProvider.updateUI();
               },
               label: Text("Edit Vertices"),
               // onDeleted: (){ toggleShowAnimationBoard();
@@ -195,18 +204,18 @@ class EditPalletForDrawingShape extends StatelessWidget {
                   padding: const EdgeInsets.only(left: 2, right: 2),
                   child: TapIcon(
                       onTap: () {
-                      //  showPoints
+                        //  showPoints
                       },
                       icon: Icon(
-                      editShapeVertices == EditShapeVertices.shapeVerices
+                        editShapeVertices == EditShapeVertices.shapeVerices
                             ? Icons.check_circle
                             : Icons.check_circle_outline_outlined,
                         size: 20,
                       )),
                 ),
               ),
-          ),
             ),
+          ),
           // Row(
           //   children: [
           //     TextWithStyle1(
@@ -216,7 +225,7 @@ class EditPalletForDrawingShape extends StatelessWidget {
           //     Spacer(),
           //     TapIcon(
           //         onTap: () {
-                  
+
           //         },
           //         icon: Icon(editShapeVertices == EditShapeVertices.shapeVerices
           //             ? Icons.check_box

@@ -18,13 +18,15 @@ import 'package:flutter/material.dart';
 fileButton(ProvData provData, GlobalKey<PopupMenuButtonState> fileButtonMenuKey,
     BuildContext context) {
   return PopupMenuButton(
+    offset:const  Offset(5,5),
+    position: PopupMenuPosition.under,
     key: fileButtonMenuKey,
     tooltip: "Files",
     itemBuilder: (_) => <PopupMenuItem<FileOperationType>>[
       ...(fileOperationTypsPopupMap.entries
           .map((MapEntry<String, FileOperationType> item) {
         return PopupMenuItem<FileOperationType>(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(2),
             value: item.value,
             child: Row(
               children: [

@@ -1,29 +1,31 @@
+// ignore_for_file: avoid_web_libraries_in_flutter
+
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:animated_icon_demo/Images/icons_paths.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/TopBar/drawingObjectbutton.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/TopBar/drawingTypeButton.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/TopBar/fileButton.dart';
+import 'package:animated_icon_demo/Landscape%20Widgets/TopBar/libraryButton.dart';
+import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_iconsection.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/update_all_projects.dart';
+import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/update_framePos_list.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
-import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/providers/animation_sheet_provider.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/screens/landscape_layout.dart';
+import 'package:animated_icon_demo/screens/username_page.dart';
 import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
 import 'package:animated_icon_demo/utils/text_field_methods/toggle%20methods/toggleShowAnimationBoard.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_icon.dart';
-import 'package:animated_icon_demo/widgets/res/Icons/tap_image_icon.dart';
+import 'package:annimation/annimation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_saver/file_saver.dart';
+import 'dart:html' as html;
 
 class TopBar extends StatefulWidget {
   TopBar({Key? key}) : super(key: key);
@@ -62,8 +64,12 @@ class _TopBarState extends State<TopBar> {
         child: Row(
           children: [
             IconButton(
-                onPressed: () {
-                  Navigator.maybePop(context);
+                onPressed: () async {
+                  Navigator.pushReplacement(context, MaterialPageRoute(
+                    builder: (context) {
+                      return UserNamePage();
+                    },
+                  ));
                 },
                 icon: Icon(Icons.arrow_back)),
             if (projectList.length > currentProjectNo)
@@ -150,37 +156,44 @@ class _TopBarState extends State<TopBar> {
               ),
             ),
             const Spacer(),
-            RawChip(
-              onPressed: () {
-                toggleShowAnimationBoard();
-                if (showAnimationBoard == ShowAnimationBoard.show) {
-                  animSheetProvider.animationSheetFromTop = 500;
-                  // animSheetProvider.updateUI();
-                }
 
-                provData.updateUI();
-              },
-              label: const Text("Animation Board"),
-              // onDeleted: (){ toggleShowAnimationBoard();
-              //         provData.updateUI();},
-              avatar: Container(
-                margin: const EdgeInsets.only(right: 2, left: 2),
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 2, right: 2),
-                  child: TapIcon(
-                      onTap: () {
-                        toggleShowAnimationBoard();
-                        provData.updateUI();
-                      },
-                      icon: Icon(
-                        showAnimationBoard == ShowAnimationBoard.show
-                            ? Icons.check_circle
-                            : Icons.check_circle_outline_outlined,
-                        size: 20,
-                      )),
+            libraryButton(context, animSheetProvider, provData),
+            youtubeButton(context),
+            Padding(
+              padding: const EdgeInsets.all(0),
+              child: RawChip(
+                onPressed: () {
+                  toggleShowAnimationBoard();
+                  if (showAnimationBoard == ShowAnimationBoard.show) {
+                    animSheetProvider.animationSheetFromTop = 500;
+                    // animSheetProvider.updateUI();
+                  }
+
+                  provData.updateUI();
+                },
+                label: const Text("Animation Board"),
+                // onDeleted: (){ toggleShowAnimationBoard();
+                //         provData.updateUI();},
+                avatar: Container(
+                  margin: const EdgeInsets.only(right: 2, left: 2),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 2, right: 2),
+                    child: TapIcon(
+                        onTap: () {
+                          toggleShowAnimationBoard();
+                          provData.updateUI();
+                        },
+                        icon: Icon(
+                          showAnimationBoard == ShowAnimationBoard.show
+                              ? Icons.check_circle
+                              : Icons.check_circle_outline_outlined,
+                          size: 20,
+                        )),
+                  ),
                 ),
               ),
             ),
+
             IconButton(
                 padding: EdgeInsets.zero,
                 onPressed: () {
@@ -253,6 +266,36 @@ class _TopBarState extends State<TopBar> {
   }
 }
 
+youtubeButton(BuildContext context) {
+  return Container(
+    margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+    decoration: BoxDecoration(
+      border: Border.all(color: Colors.white),
+      // color:topbarColor,
+      borderRadius: BorderRadius.circular(topbarHeight * 0.5),
+      //  boxShadow: [BoxShadow(color: Colors.blue, spreadRadius: 1, blurRadius: 3, offset: Offset(0,0))]
+    ),
+    child: TextButton.icon(
+        onPressed: () async {
+          html.window.open('https://youtu.be/m_NibA9HXW8', "_blank");
+        },
+        icon: Container(
+            height: topbarHeight * 0.7,
+            child: Image.asset(
+              "assets/icons/youtube.png",
+              fit: BoxFit.contain,
+            )),
+        label: const Text(
+          "Tutorial",
+          style: TextStyle(
+            fontWeight: FontWeight.bold, color: Colors.white,
+            // fontSize: topbarHeight*0.4
+          ),
+        )),
+  );
+}
+
+
 void exportProjectToJson() async {
   String jsonDecodedString = jsonEncode(projectList[currentProjectNo].toMap());
   List<int> list = jsonDecodedString.codeUnits;
@@ -276,30 +319,3 @@ BuildContext? thisContext;
 
 final GlobalKey<PopupMenuButtonState> _drawingObjectTypeKey =
     GlobalKey<PopupMenuButtonState>();
-
-/*
-
-  // Text(componentSelectedTypeInTree.name),
-            // Container(
-            //   height: topbarHeight,
-            //   width: 60.sw(context),
-            //   child: Row(
-            //     mainAxisSize: MainAxisSize.min,
-            //     children: [
-            //       ...(projectList[currentProjectNo]
-            //           .iconSections[currentIconSectionNo]
-            //           .frames[currentFrameNo]
-            //           .singleFrameModel
-            //           .cornerBoxPoints
-            //           .map((Point e) {
-            //         return
-            //             // Text("data");
-            //             Text(
-            //                 "[ ${e.x.toStringAsFixed(2)} / ${e.y.toStringAsFixed(2)} ]");
-            //       }).toList())
-            //     ],
-            //   ),
-            // ),
-
-            // Text(drawingObjectType.toString()),
-            // */

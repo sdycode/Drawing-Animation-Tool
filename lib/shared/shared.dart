@@ -7,7 +7,7 @@ class Shared {
   }
 
   static setUserName(String username) {
-    if (username.trim().length > 5) {
+    if (username.trim().length > 4) {
       pref.setString("username", username);
     }
   }
