@@ -1,7 +1,6 @@
 import 'dart:developer' as d;
 import 'dart:math';
 
-import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/extension/extensions%20on%20number/threshold_extension.dart';
 
@@ -22,8 +21,8 @@ Point get_startpoint_for_polygon_withcenter_side_and_no(
     for (var i = 4; i < 9; i = i + 2) {
       double ang = (2 * pi) * (1 / (i * 2));
       double xdir = boxSide * 0.5 * tan(ang);
-      Point _centrPoint = Point.zero;
-      Point fP = Point(x: -50, y: 25);
+      Point centrPoint = Point.zero;
+      Point fP = const Point(x: -50, y: 25);
     }
   }
   return Point.zero;

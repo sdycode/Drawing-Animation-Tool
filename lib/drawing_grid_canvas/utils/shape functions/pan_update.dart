@@ -261,7 +261,7 @@ void updatePolygon(DragUpdateDetails d) {
   log("checkk framePosition ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames.first.singleFrameModel.framePosition} /  ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames.last.singleFrameModel.framePosition}");
   if (check_to_copy_last_frame_as_first(
       projectList[currentProjectNo].iconSections[currentIconSectionNo])) {
-    dev.log("copy frame from 1 to other ${currentFrameNo}");
+    dev.log("copy frame from 1 to other $currentFrameNo");
     int frmeNo = 1;
     if (currentFrameNo == 1) {
       frmeNo = 0;

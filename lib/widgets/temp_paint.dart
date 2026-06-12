@@ -1,6 +1,4 @@
-import 'dart:developer';
 
-import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/pair_model.dart';
@@ -33,7 +31,7 @@ class TempPaint extends StatelessWidget {
     //   cnt++;
     //   return of;
     // }).toList();
-    return Container(
+    return SizedBox(
       height: height,
       width: width,
       child: CustomPaint(
@@ -51,7 +49,7 @@ class _TempPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     Map<int, Offset> controlMidPoints = {};
 
-    List<Offset> _p = frame.singleFrameModel.points.map((e) {
+    List<Offset> p = frame.singleFrameModel.points.map((e) {
       return Offset(e.x * (size.width / biggerSize.width),
           e.y * (size.height / biggerSize.height));
     }).toList();
@@ -85,36 +83,36 @@ class _TempPainter extends CustomPainter {
       case DrawingType.points:
         int cnt = 0;
 
-        for (Offset e in _p) {
+        for (Offset e in p) {
           // log("message $cnt : $e");
           cnt++;
           canvas.drawCircle(e, 2, pointpaint);
         }
         break;
       case DrawingType.linepaths:
-        for (var i = 1; i < _p.length; i++) {
-          canvas.drawLine(_p[i - 1], _p[i], paint);
+        for (var i = 1; i < p.length; i++) {
+          canvas.drawLine(p[i - 1], p[i], paint);
         }
-      canvas.drawLine(_p.last, _p.first, paint);
+      canvas.drawLine(p.last, p.first, paint);
 
         break;
       case DrawingType.pointsAndLines:
-        for (Offset e in _p) {
+        for (Offset e in p) {
           canvas.drawCircle(e, 2, pointpaint);
         }
-        for (var i = 1; i < _p.length; i++) {
-          canvas.drawLine(_p[i - 1], _p[i], paint);
-        } canvas.drawLine(_p.last, _p.first, paint);
+        for (var i = 1; i < p.length; i++) {
+          canvas.drawLine(p[i - 1], p[i], paint);
+        } canvas.drawLine(p.last, p.first, paint);
         break;
       case DrawingType.curvePaths:
-        for (var i = 0; i < _p.length - 1; i++) {
+        for (var i = 0; i < p.length - 1; i++) {
           if (controlMidPoints.containsKey(i)) {
             Path curvePath = Path();
             Paint curvepaint = Paint();
-            curvePath.moveTo(_p[i].dx, _p[i].dy);
+            curvePath.moveTo(p[i].dx, p[i].dy);
             curvePath.quadraticBezierTo(controlMidPoints[i]!.dx,
-                controlMidPoints[i]!.dy, _p[i + 1].dx, _p[i + 1].dy);
-            curvePath.moveTo(_p[i].dx, _p[i].dy);
+                controlMidPoints[i]!.dy, p[i + 1].dx, p[i + 1].dy);
+            curvePath.moveTo(p[i].dx, p[i].dy);
             curvePath.close();
             bool isThisCurveSelected = controlPointAdjecntPair.preIndex == i;
             curvepaint
@@ -124,7 +122,7 @@ class _TempPainter extends CustomPainter {
             // path.cubicTo(_p[i-2].dx, _p[i-2].dy,_p[i-1].dx, _p[i-1].dy,_p[i].dx, _p[i].dy);
             canvas.drawPath(curvePath, curvepaint);
           } else {
-            canvas.drawLine(_p[i], _p[i + 1], paint);
+            canvas.drawLine(p[i], p[i + 1], paint);
           }
         }
         break;
@@ -136,21 +134,21 @@ class _TempPainter extends CustomPainter {
           ..color = myColors[frameNo]
           ..strokeWidth = 4;
         // Only Straight line
-        curvePath.moveTo(_p[0].dx, _p[0].dy);
+        curvePath.moveTo(p[0].dx, p[0].dy);
         // for (var i = 1; i < _p.length ; i++) {
         //    curvePath.lineTo(_p[i].dx, _p[i].dy);
         // }
 
-        for (var i = 0; i < _p.length - 1; i++) {
+        for (var i = 0; i < p.length - 1; i++) {
           if (controlMidPoints.containsKey(i)) {
             // curvePath.moveTo(_p[i].dx, _p[i].dy);
             curvePath.quadraticBezierTo(controlMidPoints[i]!.dx,
-                controlMidPoints[i]!.dy, _p[i + 1].dx, _p[i + 1].dy);
+                controlMidPoints[i]!.dy, p[i + 1].dx, p[i + 1].dy);
             // curvePath.moveTo(_p[i].dx, _p[i].dy);
           } else {
-            curvePath.lineTo(_p[i].dx, _p[i].dy);
-            if (i == _p.length - 2) {
-              curvePath.lineTo(_p[i + 1].dx, _p[i + 1].dy);
+            curvePath.lineTo(p[i].dx, p[i].dy);
+            if (i == p.length - 2) {
+              curvePath.lineTo(p[i + 1].dx, p[i + 1].dy);
             }
           }
         }

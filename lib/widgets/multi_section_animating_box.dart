@@ -9,7 +9,7 @@ import 'package:animated_icon_demo/widgets/animated_paint.dart';
 import 'package:flutter/material.dart';
 
 class MultiSectionAnimationShowingBoxWidget extends StatefulWidget {
-  MultiSectionAnimationShowingBoxWidget({Key? key}) : super(key: key);
+  const MultiSectionAnimationShowingBoxWidget({Key? key}) : super(key: key);
 
   @override
   State<MultiSectionAnimationShowingBoxWidget> createState() =>
@@ -29,7 +29,7 @@ class _MultiSectionAnimationShowingBoxWidgetState
     super.initState();
   }
 
-  Set set = Set();
+  Set set = {};
   @override
   Widget build(BuildContext context) {
     set.clear();

@@ -18,7 +18,7 @@ class TimelineBar extends StatelessWidget {
         
         color: 
         // Colors.green,
-        Color.fromARGB(255, 34, 0, 11),
+        const Color.fromARGB(255, 34, 0, 11),
         
         
         ),
@@ -27,7 +27,7 @@ class TimelineBar extends StatelessWidget {
           Positioned(
             
             left: timeLinePointerXPosition,
-            child: TriangleDragPointer())
+            child: const TriangleDragPointer())
         ]),
     );
   }

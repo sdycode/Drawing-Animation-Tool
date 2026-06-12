@@ -13,10 +13,10 @@ Future loadDataToCurrentProject() async {
   }
   if (project != null) {
     projectList[currentProjectNo].iconSections = project.iconSections;
-    List<List<Frame>> _newFrameList = [];
-    project.iconSections.forEach((e) {
-      _newFrameList.add(e.frames);
-    });
+    List<List<Frame>> newFrameList = [];
+    for (var e in project.iconSections) {
+      newFrameList.add(e.frames);
+    }
     // framesList = List<List<Frame>>.from(_newFrameList);
   }
 }

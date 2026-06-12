@@ -2,12 +2,10 @@ import 'dart:developer';
 
 import 'package:animated_icon_demo/Global/global.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/points_to_offsets.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/set_boxcorner_points.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/widgets/error/error_dialog.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/src/gestures/drag_details.dart';
 import 'package:flutter/src/gestures/tap.dart';
 
 import '../../drawing_grid_canvas.dart';
@@ -15,7 +13,6 @@ import '../../drawing_grid_canvas_fields.dart';
 import '../../models/pair_model.dart';
 import '../add_control_point.dart';
 import '../getIndexForHoveredPointFromListofAddedPoints.dart';
-import '../get_lower_value_from_pair.dart';
 
 void on_tap_up(TapUpDetails d) {
   // List<Offset> points = pointsToOffsets(projectList[currentProjectNo]
@@ -80,7 +77,7 @@ void on_tap_up(TapUpDetails d) {
         getIndexForHoveredPointFromListofAddedPoints(d.localPosition);
 
     if (tappedIndex != -2) {
-      log("hovedtapindex $tappedIndex /  ${hoverPoint} // ${d.localPosition}");
+      log("hovedtapindex $tappedIndex /  $hoverPoint // ${d.localPosition}");
       if (tappedIndex != controlPointAdjecntPair.preIndex &&
           tappedIndex != controlPointAdjecntPair.nextIndex) {
         if (((controlPointAdjecntPair.preIndex - tappedIndex).abs() > 1) ||

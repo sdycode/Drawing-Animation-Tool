@@ -1,26 +1,21 @@
 import 'dart:developer';
-import 'dart:html' as html;
-import 'package:animated_icon_demo/Images/icons_paths.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_iconsection.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/update_framePos_list.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/reset_proper_selectedpointIndex.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/set_drawingobjecttype_when_iconsection_selected.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
-import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/providers/drawing_board_provider.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_icon.dart';
-import 'package:animated_icon_demo/widgets/res/Icons/tap_image_icon.dart';
 import 'package:animated_icon_demo/widgets/text_widgets/textstyle1.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class DrawingComponentTileWidget extends StatelessWidget {
   final i;
-  DrawingComponentTileWidget(this.i, {Key? key}) : super(key: key);
+  const DrawingComponentTileWidget(this.i, {Key? key}) : super(key: key);
 
   _openMenu(BuildContext context, TapDownDetails event,
       DrawingBoardProvider drawingBoardProvider, i) async {
@@ -118,7 +113,7 @@ class DrawingComponentTileWidget extends StatelessWidget {
         provData.updateUI();
       },
       child: Container(
-          padding: EdgeInsets.all(4),
+          padding: const EdgeInsets.all(4),
           width: drawingComponentsTreeBoxWidth - 80,
           decoration: BoxDecoration(
               color: currentIconSectionNo == i &&
@@ -132,7 +127,7 @@ class DrawingComponentTileWidget extends StatelessWidget {
                 projectList[currentProjectNo].iconSections[i].iconSectionName,
                 style: const TextStyle(color: Colors.white, fontSize: 12),
               ),
-              Spacer(),
+              const Spacer(),
               TapIcon(
                   onTap: () {
                     provData.updateUI();

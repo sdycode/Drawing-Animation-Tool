@@ -1,4 +1,3 @@
-import 'dart:developer';
 
 import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/extensions.dart';

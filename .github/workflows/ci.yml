@@ -1,0 +1,46 @@
+name: CI
+
+# Web-only CI gate for the v2 modernization (branch: version_2).
+# Hard gates today: no analyzer ERRORS, tests pass, web build compiles.
+# Format + warning enforcement are intentionally non-blocking until the
+# Phase-0 cleanup backlog is cleared (see docs/plan_of_action.md), then flip
+# `--no-fatal-warnings` off and make the format step a hard gate.
+
+on:
+  push:
+    branches: [version_2, main]
+  pull_request:
+    branches: [version_2, main]
+
+jobs:
+  build:
+    name: analyze · test · build web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.0
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Informational only for now — the legacy tree isn't formatted yet.
+      # Remove `continue-on-error` after a one-time `dart format .` pass.
+      - name: Format check (non-blocking)
+        continue-on-error: true
+        run: dart format --output=none --set-exit-if-changed .
+
+      # Hard gate: fail on analyzer ERRORS. Warnings/infos are tracked, not
+      # blocking yet — drop these flags once the backlog is triaged.
+      - name: Analyze
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Test
+        run: flutter test
+
+      - name: Build web
+        run: flutter build web --release

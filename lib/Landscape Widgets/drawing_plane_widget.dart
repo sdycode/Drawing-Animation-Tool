@@ -1,19 +1,11 @@
-import 'dart:developer';
-import 'dart:math';
 
 import 'package:animated_icon_demo/Global/global.dart';
-import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/Paints/polyline_paint.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/get_top_right_point.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/point_to_offset.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/geometric%20functions/get_startpoint_for_polygon_withcenter_side_and_no.dart';
 
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/getIndexForHoveredPointFromListofAddedPoints.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/radian_to_degree.dart';
 
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/points_to_offsets.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/on_tap_up.dart';
@@ -25,7 +17,6 @@ import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/widgets/control_point_widget.dart';
 import 'package:animated_icon_demo/widgets/error/error_dialog.dart';
 import 'package:animated_icon_demo/widgets/point_box.dart';
-import 'package:animated_icon_demo/widgets/temp_paint.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 

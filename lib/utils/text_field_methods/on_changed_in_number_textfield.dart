@@ -5,7 +5,6 @@ import 'package:animated_icon_demo/controllers/text_controllers/text_controllers
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/src/widgets/editable_text.dart';
 
 void onChangedInNumberTextfield(String text, TextEditingController controller) {
   log("onChangedInNumberTextfield $text / ${controller.text}");

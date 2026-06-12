@@ -1,8 +1,7 @@
-import 'package:animated_icon_demo/Animated/my_animated_icons.dart' as my;
 import 'package:flutter/material.dart';
 
 class PlayPause extends StatefulWidget {
-  PlayPause({Key? key}) : super(key: key);
+  const PlayPause({Key? key}) : super(key: key);
 
   @override
   State<PlayPause> createState() => _PlayPauseState();

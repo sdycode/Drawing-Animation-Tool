@@ -7,5 +7,5 @@ const double borderMargin = 2;
 const double textFieldBoxHeight = 40;
 const double defaultProjectWidth = 400;
 const double defaultProjectHeight = 400;
-Size drawingBoardSize = Size(defaultProjectWidth, defaultProjectHeight);
-Offset drawingBoardPosition = Offset(50, 50);
+Size drawingBoardSize = const Size(defaultProjectWidth, defaultProjectHeight);
+Offset drawingBoardPosition = const Offset(50, 50);

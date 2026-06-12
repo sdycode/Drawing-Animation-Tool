@@ -1,27 +1,19 @@
 import 'dart:developer';
 import 'dart:html' as html;
-import 'package:animated_icon_demo/Images/icons_paths.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/DrawingCompoents/DrawingComponentTileWidget.dart';
-import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_iconsection.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/update_framePos_list.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/reset_proper_selectedpointIndex.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/set_drawingobjecttype_when_iconsection_selected.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/providers/drawing_board_provider.dart';
 import 'package:animated_icon_demo/providers/edit_pallet_provider.dart';
-import 'package:animated_icon_demo/providers/prov.dart';
-import 'package:animated_icon_demo/widgets/res/Icons/tap_icon.dart';
-import 'package:animated_icon_demo/widgets/res/Icons/tap_image_icon.dart';
 import 'package:animated_icon_demo/widgets/text_widgets/textstyle1.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class DrawingComponentsTreeBox extends StatefulWidget {
-  DrawingComponentsTreeBox({Key? key}) : super(key: key);
+  const DrawingComponentsTreeBox({Key? key}) : super(key: key);
 
   @override
   State<DrawingComponentsTreeBox> createState() =>
@@ -56,7 +48,7 @@ class _DrawingComponentsTreeBoxState extends State<DrawingComponentsTreeBox> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
+                SizedBox(
                   height: topbarHeight * 0.6,
                   width: drawingComponentsTreeBoxWidth,
                   child: Row(
@@ -96,7 +88,7 @@ class _DrawingComponentsTreeBoxState extends State<DrawingComponentsTreeBox> {
                   child: TextWithStyle1(
                     text: " Drawing Board",
                     onTap: () {
-                      log("iconSectionNosIncludedInAnimation ${iconSectionNosIncludedInAnimation}");
+                      log("iconSectionNosIncludedInAnimation $iconSectionNosIncludedInAnimation");
                       setState(() {
                         componentSelectedTypeInTree =
                             ComponentSelectedTypeInTree.drawingBoard;

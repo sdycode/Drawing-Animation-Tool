@@ -5,7 +5,6 @@
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/pair_model.dart';
 import 'package:flutter/material.dart';
-import 'package:meta/meta.dart';
 import 'dart:convert';
 
 class UserModel {
@@ -31,12 +30,10 @@ class UserModel {
 class UserProfile {
   UserProfile({
     required this.userName,
-    required this.password,
     required this.projects,
   });
 
   String userName;
-  String password;
   List<int> projects;
 
   factory UserProfile.fromJson(String str) =>
@@ -46,7 +43,6 @@ class UserProfile {
 
   factory UserProfile.fromMap(Map<String, dynamic> json) => UserProfile(
       userName: json["userName"],
-      password: json["password"],
       projects: json["projects"] == null
           ? []
           : List<int>.from(json["projects"].map((x) => x))
@@ -56,7 +52,6 @@ class UserProfile {
 
   Map<String, dynamic> toMap() => {
         "userName": userName,
-        "password": password,
         "projects": List<dynamic>.from(projects.map((x) => x)),
         // "projects": List<dynamic>.from(project.map((x) => x.toMap())),
       };
@@ -243,7 +238,7 @@ required this. frameNo
               ? const BoxSize()
               : BoxSize.fromMap(json["boxSize"]),
           hoverPoint: json["hoverPoint"] == null
-              ? Point(x: 0.0, y: 0.0)
+              ? const Point(x: 0.0, y: 0.0)
               : Point.fromMap(json["hoverPoint"]),
           controlPointAdjecntPair: json["controlPointAdjecntPair"] == null
               ? ControlPointAdjecntPair()
@@ -343,8 +338,8 @@ class ControlPointAdjecntPair {
 
   String toJson() => json.encode(toMap());
   ControlPointAdjecntPair.fromPair(Pair pair) {
-    this.preIndex = pair.preIndex;
-    this.nextIndex = pair.nextIndex;
+    preIndex = pair.preIndex;
+    nextIndex = pair.nextIndex;
   }
   factory ControlPointAdjecntPair.fromMap(Map<String, dynamic> json) =>
       ControlPointAdjecntPair(

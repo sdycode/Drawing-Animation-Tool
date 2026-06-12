@@ -30,7 +30,7 @@ class _TextFieldNumberState extends State<TextFieldNumber> {
         Provider.of<DrawingBoardProvider>(
       context,
     );
-    return Container(
+    return SizedBox(
       width: widget.width,
       height: widget.height,
       child: TextField(
@@ -50,7 +50,7 @@ class _TextFieldNumberState extends State<TextFieldNumber> {
         style:
             Theme.of(context).textTheme.displayMedium?.copyWith(fontSize: 15),
         decoration: InputDecoration(
-            contentPadding: EdgeInsets.only(left: 8),
+            contentPadding: const EdgeInsets.only(left: 8),
             border: OutlineInputBorder(
                 borderSide:
                     const BorderSide(width: 1, color: Colors.deepPurple),

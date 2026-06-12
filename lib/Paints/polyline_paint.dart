@@ -1,12 +1,10 @@
-import 'dart:developer';
 
-import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:flutter/material.dart';
 
 class PointsLinePaint extends CustomPainter {
-  List<Offset> _p;
+  final List<Offset> _p;
   int iconsecIndex;
   List<int> indexes;
   PointsLinePaint(this._p, {this.iconsecIndex = 0, this.indexes = const [0]});
@@ -81,34 +79,26 @@ class PointsLinePaint extends CustomPainter {
         Paint curvepaint = Paint();
         curvepaint
           ..style = PaintingStyle.fill
-          ..color = Color(int.parse(
-              "0x${projectList[currentProjectNo].iconSections[indexes[iconsecIndex % indexes.length] % projectList[currentProjectNo].iconSections.length].color}"))
-          // myColors[iconsecIndex].withAlpha(120)
-          //  Colors.deepPurple
+          ..color = _resolveFillColor()
           ..strokeWidth = 4;
-        // Only Straight line
-        curvePath.moveTo(_p[0].dx, _p[0].dy);
-        // for (var i = 1; i < _p.length ; i++) {
-        //    curvePath.lineTo(_p[i].dx, _p[i].dy);
-        // }
-
-        for (var i = 0; i < _p.length - 1; i++) {
-          if (controlMidPoints.containsKey(i)) {
-            // curvePath.moveTo(_p[i].dx, _p[i].dy);
-            curvePath.quadraticBezierTo(controlMidPoints[i]!.dx,
-                controlMidPoints[i]!.dy, _p[i + 1].dx, _p[i + 1].dy);
-            // curvePath.moveTo(_p[i].dx, _p[i].dy);
-          } else {
-            curvePath.lineTo(_p[i].dx, _p[i].dy);
-            if (i == _p.length - 2) {
-              curvePath.lineTo(_p[i + 1].dx, _p[i + 1].dy);
+        // Guard the empty/short points list (e.g. a freshly created frame with
+        // nothing drawn yet) — otherwise `_p[0]` throws RangeError every paint.
+        if (_p.isNotEmpty) {
+          curvePath.moveTo(_p[0].dx, _p[0].dy);
+          for (var i = 0; i < _p.length - 1; i++) {
+            if (controlMidPoints.containsKey(i)) {
+              curvePath.quadraticBezierTo(controlMidPoints[i]!.dx,
+                  controlMidPoints[i]!.dy, _p[i + 1].dx, _p[i + 1].dy);
+            } else {
+              curvePath.lineTo(_p[i].dx, _p[i].dy);
+              if (i == _p.length - 2) {
+                curvePath.lineTo(_p[i + 1].dx, _p[i + 1].dy);
+              }
             }
           }
+          curvePath.close();
+          canvas.drawPath(curvePath, curvepaint);
         }
-        // curvePath.moveTo(_p.first.dx, _p.first.dy);
-        curvePath.close();
-        canvas.drawPath(curvePath, curvepaint);
-        // curvePath.
         if (showPoints) {
           for (Offset e in _p) {
             canvas.drawCircle(e, 3, pointpaint);
@@ -117,6 +107,26 @@ class PointsLinePaint extends CustomPainter {
 
         break;
       default:
+    }
+  }
+
+  /// Resolves the section fill color, falling back to a default when the
+  /// project/section indices are out of range or the stored color is malformed —
+  /// instead of throwing during paint().
+  Color _resolveFillColor() {
+    const fallback = Color(0xFFFFC0CB);
+    if (currentProjectNo < 0 || currentProjectNo >= projectList.length) {
+      return fallback;
+    }
+    final sections = projectList[currentProjectNo].iconSections;
+    if (sections.isEmpty || indexes.isEmpty) return fallback;
+    final hex =
+        sections[indexes[iconsecIndex % indexes.length] % sections.length].color;
+    if (hex == null) return fallback;
+    try {
+      return Color(int.parse("0x$hex"));
+    } catch (_) {
+      return fallback;
     }
   }
 

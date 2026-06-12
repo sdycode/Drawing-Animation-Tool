@@ -8,7 +8,6 @@ import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_field
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/get_animatedpoints.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/points_to_offsets.dart';
-import 'package:animated_icon_demo/widgets/animation_showing_box_widget.dart';
 
 import 'package:flutter/material.dart';
 

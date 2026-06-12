@@ -6,7 +6,7 @@ import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_mode
 
 void insertNewFrameAtPosition(int i, double framePos) {
   framePosPercentListForAllIconSections.forEach((key, value) {
-    log("insernew $key / $value / ${currentIconSectionNo}");
+    log("insernew $key / $value / $currentIconSectionNo");
     // log("in insertn  $framePosPercentListForAllIconSections and $currentIconSectionNo :: ${framePosPercentListForAllIconSections.containsKey(currentIconSection)}");
 //
   });
@@ -47,7 +47,7 @@ void insertNewFrameAtPositionInThisIconsection(
     int i, int iconNo, double framePos) {
   currentIconSectionNo = iconNo;
   framePosPercentListForAllIconSections.forEach((key, value) {
-    log("insernew $key / $value / ${iconNo}");
+    log("insernew $key / $value / $iconNo");
     // log("in insertn  $framePosPercentListForAllIconSections and $currentIconSectionNo :: ${framePosPercentListForAllIconSections.containsKey(currentIconSection)}");
 //
   });

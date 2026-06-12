@@ -1,12 +1,10 @@
 import 'dart:developer';
 
-import 'package:animated_icon_demo/service/firebase_service.dart';
+import 'package:animated_icon_demo/data/project_repository.dart';
 import 'package:animated_icon_demo/shared/shared.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 Future<bool> checkIsthereAnyPorjectExist() async {
-  Stream<DocumentSnapshot<Map<String, dynamic>>> doc =
-      (await DataService().usersInstance.doc(Shared.getUserName()).snapshots());
+  final doc = ProjectRepository().watchUserProfile(Shared.getUserName());
   // .get();
   log("old data size ${doc.length} ");
   int count = 0;

@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
@@ -10,7 +9,7 @@ import 'package:flutter/material.dart';
 libraryButton(BuildContext context, AnimSheetProvider animSheetProvider,
     ProvData provData) {
   return Container(
-    margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+    margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
     decoration: BoxDecoration(
       border: Border.all(color: Colors.white),
       // color:topbarColor,
@@ -24,7 +23,7 @@ libraryButton(BuildContext context, AnimSheetProvider animSheetProvider,
           provData.updateUI();
           
         },
-        icon: Container(
+        icon: SizedBox(
             height: topbarHeight * 0.7,
             child: Image.asset(
               "assets/icons/files.png",
@@ -59,7 +58,7 @@ class LibrarySampleWidget extends StatelessWidget {
         AnimationFromAssetFileWithTimeDuration(
           repeat: true,
           filePath: jsonFilePath,
-          animationDuration: Duration(milliseconds: 2000),
+          animationDuration: const Duration(milliseconds: 2000),
           size: Size(boxSize, boxSize),
           clickAnimationDirection: ClickAnimationDirection.forwardReverse,
         ),

@@ -1,17 +1,13 @@
 import 'dart:developer';
-import 'dart:math' as m;
 
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/Paints/border_rect_paint.dart';
 import 'package:animated_icon_demo/controllers/text_controllers/text_controllers.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/angle_between3_points.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/getCenterPointForBoxCornerPoints.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/get_box_corner_points_for_numerousPoints.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/get_current_box_origin.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/get_top_right_point.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/Point%20methods/point_to_offset.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/providers/drawing_board_provider.dart';
 import 'package:animated_icon_demo/providers/edit_pallet_provider.dart';
@@ -21,7 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class DrawingBoardWidget extends StatefulWidget {
-  DrawingBoardWidget({Key? key}) : super(key: key);
+  const DrawingBoardWidget({Key? key}) : super(key: key);
 
   @override
   State<DrawingBoardWidget> createState() => _DrawingBoardWidgetState();
@@ -75,7 +71,7 @@ class _DrawingBoardWidgetState extends State<DrawingBoardWidget> {
           }
         },
         child: Container(
-          margin: EdgeInsets.all(6),
+          margin: const EdgeInsets.all(6),
           width: drawingBoardSize.width,
           height: drawingBoardSize.height,
           color: Colors.green.shade200,
@@ -83,7 +79,7 @@ class _DrawingBoardWidgetState extends State<DrawingBoardWidget> {
             Transform.rotate(
                 angle: finalAngle * 0,
                 origin: getCurrentBoxOrigin(),
-                child: DrawingPlaneWidget()),
+                child: const DrawingPlaneWidget()),
             // Positioned(
             //   right: 50,
             //   top: 60,
@@ -124,7 +120,7 @@ class _DrawingBoardWidgetState extends State<DrawingBoardWidget> {
                       ignoring:
                           editShapeVertices != EditShapeVertices.boxVertices,
                       child: ClipRRect(
-                        child: Container(
+                        child: SizedBox(
                           width: 8,
                           height: 8,
                           child: GestureDetector(

@@ -1,6 +1,5 @@
 // ignore_for_file: non_constant_identifier_names
 
-import 'dart:math';
 
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';

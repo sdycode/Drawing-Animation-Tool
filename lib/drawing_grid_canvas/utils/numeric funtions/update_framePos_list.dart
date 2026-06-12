@@ -5,19 +5,18 @@ import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_field
 
 void updateFramePostList() {
   currntframePosPercentList.clear();
-  projectList[currentProjectNo]
+  for (var e in projectList[currentProjectNo]
       .iconSections[currentIconSectionNo]
-      .frames
-      .forEach((e) {
+      .frames) {
     // log("fore ${e.frameNo}");
     currntframePosPercentList.add(e.singleFrameModel.framePosition);
-  });
+  }
 
   List<double> templist = List.from(currntframePosPercentList);
-  log("fore ${templist}");
+  log("fore $templist");
   templist.sort();
   currntframePosPercentList = List.from(templist);
-  log("foreafte ${templist}");
+  log("foreafte $templist");
   framePosPercentListForAllIconSections[currentIconSectionNo] =
       List.from(templist);
 }

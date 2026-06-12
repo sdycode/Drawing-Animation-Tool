@@ -83,7 +83,7 @@ abstract class AnimatedIconData {
 }
 
 class _AnimatedIconData extends AnimatedIconData {
-  const _AnimatedIconData(this.size, this.paths, {this.matchTextDirection = false});
+  const _AnimatedIconData(this.size, this.paths) : matchTextDirection = false;
 
   final Size size;
   final List<_PathFrames> paths;

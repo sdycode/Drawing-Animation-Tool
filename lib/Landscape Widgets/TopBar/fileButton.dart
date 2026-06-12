@@ -11,7 +11,6 @@ import 'package:animated_icon_demo/drawing_grid_canvas/utils/update_all_projects
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/screens/landscape_layout.dart';
-import 'package:animated_icon_demo/screens/username_page.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_image_icon.dart';
 import 'package:flutter/material.dart';
 
@@ -42,10 +41,10 @@ fileButton(ProvData provData, GlobalKey<PopupMenuButtonState> fileButtonMenuKey,
                   child: Text(
                     drawingTypesNamesPopupMap[item.key] ?? "",
                     textAlign: TextAlign.left,
-                    style: TextStyle(color: Colors.white),
+                    style: const TextStyle(color: Colors.white),
                   ),
                 ),
-                Spacer(),
+                const Spacer(),
               ],
             ));
       })),
@@ -60,7 +59,7 @@ fileButton(ProvData provData, GlobalKey<PopupMenuButtonState> fileButtonMenuKey,
 
           List<int> prnos = await getNewPorjectNo();
           int projectNo = prnos.last + 1;
-          String newProjectName = currentProjectName + "_${projectNo}";
+          String newProjectName = "${currentProjectName}_$projectNo";
 
           newProjectName =
               await getProjectNameFromUser(context, newProjectName)??newProjectName;currentProjectNo = projectList.length - 1;
@@ -71,7 +70,7 @@ fileButton(ProvData provData, GlobalKey<PopupMenuButtonState> fileButtonMenuKey,
 
           Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (context) => LandscapeLayoutScreen()
+              MaterialPageRoute(builder: (context) => const LandscapeLayoutScreen()
                   // DrawGridCanvase()
 
                   ));
@@ -99,7 +98,7 @@ fileButton(ProvData provData, GlobalKey<PopupMenuButtonState> fileButtonMenuKey,
       },
       height: topbarHeight * 0.88,
       width: topbarHeight * 0.88,
-      padding: EdgeInsets.all(6),
+      padding: const EdgeInsets.all(6),
       cornerRadius: 4,
     ),
   );
@@ -133,7 +132,7 @@ Future<String?> getProjectNameFromUser(
                     color: Colors.black,
                     borderRadius: BorderRadius.circular(8)),
                 // height: topbarHeight,
-                constraints: BoxConstraints(maxHeight: 100),
+                constraints: const BoxConstraints(maxHeight: 100),
                 width: 200,
                 child: TextField(
                   scrollPadding: EdgeInsets.zero,

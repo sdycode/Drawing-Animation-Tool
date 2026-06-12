@@ -1,48 +1,27 @@
 import 'dart:developer';
 
 
-import 'package:animated_icon_demo/drawing_grid_canvas/models/converted_songle_frame_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_frame.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_iconsection.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_project.dart';
 
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/check_if_hoverpoint_inside_boundarybox.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/check_is_there_any_project_or_not.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/create_new_empty_project_with_next_id_name.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/create_single_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_current_project_instance.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_interpolated_point.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_updated_user_profile_added_with_new_project.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/load_project_to_current.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/points_to_offsets.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/set_animating_points_for_multisections_with2_frames.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/set_points_for_2_frames_for_animation.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/updateProject.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/update_all_projects.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/screens/username_page.dart';
-import 'package:animated_icon_demo/service/firebase_service.dart';
 import 'package:animated_icon_demo/shared/shared.dart';
-import 'package:animated_icon_demo/widgets/animated_paint.dart';
 import 'package:animated_icon_demo/widgets/animation_showing_box_widget.dart';
-import 'package:animated_icon_demo/widgets/control_point_widget.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/drawing_plane_widget.dart';
 import 'package:animated_icon_demo/widgets/multi_section_animating_box.dart';
-import 'package:animated_icon_demo/widgets/point_box.dart';
 import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/widgets/temp_paint.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'models/pair_model.dart';
 
-import 'utils/add_control_point.dart';
-import 'utils/check_this_point_is_inside_given_point_box.dart';
-import 'utils/getIndexForHoveredPointFromListofAddedPoints.dart';
-import 'utils/get_lower_value_from_pair.dart';
 
 
 Map<int, int> pointRoundedValuesofX = {};
@@ -60,7 +39,7 @@ List<String> drawingTypeNames = [
 
 
 class DrawGridCanvase extends StatefulWidget {
-  DrawGridCanvase({Key? key}) : super(key: key);
+  const DrawGridCanvase({Key? key}) : super(key: key);
 
   @override
   State<DrawGridCanvase> createState() => _DrawGridCanvaseState();
@@ -151,10 +130,10 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
               ? Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    DrawingPlaneWidget(),
-                    MultiSectionAnimationShowingBoxWidget(),
+                    const DrawingPlaneWidget(),
+                    const MultiSectionAnimationShowingBoxWidget(),
                     if (!showAnimationPanel && animatingFramePoints.length > 1)
-                      AnimationShowingBoxWidget()
+                      const AnimationShowingBoxWidget()
                   ],
                 )
               : const DrawingPlaneWidget(),
@@ -191,7 +170,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
           if (!showAnimationPanel &&
               animatingFramePoints.length > 1 &&
               !isLandscape)
-            AnimationShowingBoxWidget(),
+            const AnimationShowingBoxWidget(),
           if (showAnimationPanel)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -277,7 +256,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
             ),
           const Divider(),
           if (showAnimationPanel)
-            Container(
+            SizedBox(
               height: 40,
               width: double.infinity,
               child: Scrollbar(
@@ -339,7 +318,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
           const Divider(),
           if (showAnimationPanel) const Text("Projects"),
           if (showAnimationPanel)
-            Container(
+            SizedBox(
                 height: 30 + 20,
                 width: double.infinity,
                 child: Row(
@@ -392,7 +371,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                 )),
           if (showAnimationPanel) const Text("Icon Secations"),
           if (showAnimationPanel)
-            Container(
+            SizedBox(
                 height: 30 + 20 + 30,
                 width: double.infinity,
                 child: Row(
@@ -467,7 +446,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
           //  projectList[currentProjectNo].iconSections[currentIconSectionNo]
           if (showAnimationPanel || true) const Text("Frames"),
           if (showAnimationPanel || true)
-            Container(
+            SizedBox(
                 height: 150 + 20,
                 child: Row(
                   children: [
@@ -522,7 +501,7 @@ class _DrawGridCanvaseState extends State<DrawGridCanvase>
                                         Align(
                                           alignment: Alignment.topCenter,
                                           child: Text(
-                                              "${currentIconSectionNo}_${i} / ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[i].singleFrameModel.points.length}"),
+                                              "${currentIconSectionNo}_$i / ${projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[i].singleFrameModel.points.length}"),
                                         )
                                       ],
                                     )

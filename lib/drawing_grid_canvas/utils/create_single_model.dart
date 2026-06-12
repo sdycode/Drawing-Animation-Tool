@@ -1,11 +1,7 @@
-import 'dart:developer';
 
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/models/converted_songle_frame_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/cast_control_points.dart';
-import 'package:animated_icon_demo/service/firebase_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 void createSingleModel() async {
   SingleFrameModel singleFrameModel = SingleFrameModel(frameNo: 1);
@@ -14,12 +10,9 @@ void createSingleModel() async {
         projectList[currentProjectNo].iconSections[currentIconSectionNo].frames[currentFrameNo].singleFrameModel.points;
   
   // currntString = singleFrameModel.controlMidPoints.toString();
-  String currntString = "\n" + singleFrameModel.toMap().toString() + "\n";
+  String currntString = "\n${singleFrameModel.toMap()}\n";
   // String UserName = "Shubham22";
-  QuerySnapshot<Map<String, dynamic>> data = await DataService()
-      .usersInstance
-      .get(const GetOptions(source: Source.serverAndCache));
-  bool userNameAlreadyExist = false;
+  // (legacy whole-collection read removed — result was unused; see ProjectRepository)
   // data.docs.forEach(
   //   (e) {
   //     if (e.id.trim().toLowerCase() == userNameController.text .trim().toLowerCase()) {

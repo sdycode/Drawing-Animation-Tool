@@ -1,6 +1,5 @@
 import 'dart:developer';
 
-import 'package:animated_icon_demo/Landscape%20Widgets/Anim_sheet_widgets/addFrameButtonsColumnInAnimMainBox.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/Anim_sheet_widgets/animsheet_main_box.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/Anim_sheet_widgets/icon_sections_tree_in_animsheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
@@ -12,13 +11,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class SyncScrollController {
-  List<ScrollController> _registeredScrollControllers = [];
+  final List<ScrollController> _registeredScrollControllers = [];
 
   ScrollController? _scrollingController;
   bool _scrollingActive = false;
 
   SyncScrollController(List<ScrollController> controllers) {
-    controllers.forEach((controller) => registerScrollController(controller));
+    for (var controller in controllers) {
+      registerScrollController(controller);
+    }
   }
 
   void registerScrollController(ScrollController controller) {
@@ -41,10 +42,11 @@ class SyncScrollController {
       }
 
       if (notification is ScrollUpdateNotification) {
-        _registeredScrollControllers.forEach((controller) => {
-              if (!identical(_scrollingController, controller))
-                controller..jumpTo(_scrollingController!.offset)
-            });
+        for (var controller in _registeredScrollControllers) {
+              if (!identical(_scrollingController, controller)) {
+                controller.jumpTo(_scrollingController!.offset);
+              }
+            }
         return;
       }
     }
@@ -75,7 +77,7 @@ Map<int, List<double>> framePosPercentListForAllIconSections = {
 List<double> currntframePosPercentList = [0, 100];
 
 class AnimationSheetWidget extends StatefulWidget {
-  AnimationSheetWidget({Key? key}) : super(key: key);
+  const AnimationSheetWidget({Key? key}) : super(key: key);
 
   @override
   State<AnimationSheetWidget> createState() => _AnimationSheetWidgetState();
@@ -115,7 +117,7 @@ class _AnimationSheetWidgetState extends State<AnimationSheetWidget> {
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 _animBar(),
-                Row(
+                const Row(
                   children: [
                     IconsectionsTreeinAnimSheet(), 
                   AnimSheetMainBox()

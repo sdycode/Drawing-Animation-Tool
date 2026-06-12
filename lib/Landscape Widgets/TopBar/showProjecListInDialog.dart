@@ -19,8 +19,8 @@ showProjecListInDialog(BuildContext context) async {
           children: [
             Expanded(
               child: GridView(
-                padding: EdgeInsets.all(20),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                padding: const EdgeInsets.all(20),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 6, childAspectRatio: 1),
                 children: [
                   ...List.generate(
@@ -30,11 +30,11 @@ showProjecListInDialog(BuildContext context) async {
                           borderRadius: BorderRadius.circular(8)
                           ,color: currentProjectNo==i?Colors.blue.shade300.withAlpha(150):Colors.transparent
                         ),
-                        padding: EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(8),
                         child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Container(
+                                SizedBox(
                                   width: 220,
                                   height: 150,
                                   child: TapImageIcon(
@@ -46,7 +46,7 @@ showProjecListInDialog(BuildContext context) async {
                                       Navigator.pushReplacement(
                           context,
                           MaterialPageRoute(
-                              builder: (context) => LandscapeLayoutScreen()
+                              builder: (context) => const LandscapeLayoutScreen()
                               // DrawGridCanvase()
 
                               ));
@@ -55,7 +55,7 @@ showProjecListInDialog(BuildContext context) async {
                                 ),
                                 Text(
                                   projectList[i].projectName,
-                                  style: TextStyle(fontSize: 15),
+                                  style: const TextStyle(fontSize: 15),
                                 )
                               ],
                             ),

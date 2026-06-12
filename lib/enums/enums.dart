@@ -1,5 +1,3 @@
-import 'package:animated_icon_demo/controllers/text_controllers/text_controllers.dart';
-import 'package:flutter/material.dart';
 
 bool isComponent() {
   return componentSelectedTypeInTree ==

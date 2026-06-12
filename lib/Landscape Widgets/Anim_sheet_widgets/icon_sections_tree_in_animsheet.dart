@@ -1,21 +1,16 @@
-import 'package:animated_icon_demo/Landscape%20Widgets/Anim_sheet_widgets/timeline_bar.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/getActualStickserPositionFromPercentValue.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/set_drawingobjecttype_when_iconsection_selected.dart';
 import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/providers/animation_sheet_provider.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/screens/landscape_layout.dart';
-import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
-import 'package:animated_icon_demo/widgets/animation_showing_box_widget.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class IconsectionsTreeinAnimSheet extends StatefulWidget {
-  IconsectionsTreeinAnimSheet({Key? key}) : super(key: key);
+  const IconsectionsTreeinAnimSheet({Key? key}) : super(key: key);
 
   @override
   State<IconsectionsTreeinAnimSheet> createState() =>
@@ -46,7 +41,7 @@ class _IconsectionsTreeinAnimSheetState
     );  animSheetProvider =
                                 Provider.of<AnimSheetProvider>(context);
 
-    return Container(
+    return SizedBox(
       width: animIconSectionTreeWidthFactor.sw(context) - 50,
       height: (100.sh(context) -
           topbarHeight -
@@ -56,7 +51,7 @@ class _IconsectionsTreeinAnimSheetState
           -
           animaBarH).abs(),
       // color: Colors.amber.shade200,
-      child: Container(
+      child: SizedBox(
           width: animIconSectionTreeWidthFactor.sw(context) - 50,
           height:
               // animSheetHeightFactor.sh(context) -
@@ -75,7 +70,7 @@ class _IconsectionsTreeinAnimSheetState
               // SizedBox(height: 10,),
               Transform.translate(
                 offset: Offset(0, -timelineBarH.sw(context) * 0.2),
-                child: Container(
+                child: SizedBox(
                   height: timelineBarH.sw(context),
                   //  + 1.sh(context),
                   width: animIconSectionTreeWidthFactor.sw(context),
@@ -135,7 +130,7 @@ class _IconsectionsTreeinAnimSheetState
                                     borderRadius: BorderRadius.circular(4),
                                     border:
                                         Border.all(color: Colors.grey.shade100),
-                                    color: Color.fromARGB(255, 38, 37, 37),
+                                    color: const Color.fromARGB(255, 38, 37, 37),
                                   ),
                   
                                   // Colors.primaries[i % Colors.primaries.length],

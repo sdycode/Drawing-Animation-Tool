@@ -1,9 +1,7 @@
-import 'dart:developer';
 
 import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_frame.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/insert_new_frame_at_position.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/getPercentValueForStickPosition.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/get_index_for_new_frame_for_frameposition.dart';
@@ -15,7 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class AddFrameButtonsColumnInAnimMainBox extends StatefulWidget {
-  AddFrameButtonsColumnInAnimMainBox({Key? key}) : super(key: key);
+  const AddFrameButtonsColumnInAnimMainBox({Key? key}) : super(key: key);
 
   @override
   State<AddFrameButtonsColumnInAnimMainBox> createState() =>
@@ -30,7 +28,7 @@ class _AddFrameButtonsColumnInAnimMainBoxState
     AnimSheetProvider animSheetProvider =
         Provider.of<AnimSheetProvider>(context);
 
-    debugLog("AddFrameButtonsColumnInAnimMainBox animSheetProvider called ${iconsectionsTreeinAnimSheetScrollPosition}");
+    debugLog("AddFrameButtonsColumnInAnimMainBox animSheetProvider called $iconsectionsTreeinAnimSheetScrollPosition");
     // addFrameButtonsColumnInAnimMainBoxScrollController = ScrollController(
     //     initialScrollOffset: iconsectionsTreeinAnimSheetScrollPosition);
     return Container(
@@ -65,7 +63,7 @@ class _AddFrameButtonsColumnInAnimMainBoxState
                     : Center(
                         child: TapIcon(
                             onTap: () {
-                              debugLog("timeLinePointerXPosition iconbo  ${i} $timeLinePointerXPosition");
+                              debugLog("timeLinePointerXPosition iconbo  $i $timeLinePointerXPosition");
       
                               //  }\n
                               // ${animTimelineWidthFactor.sw(context)-timelineBarH.sw(context)

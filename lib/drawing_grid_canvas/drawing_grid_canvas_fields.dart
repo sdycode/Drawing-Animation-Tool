@@ -2,7 +2,6 @@ import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/animate_points_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/cast_control_points.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/points_to_offsets.dart';
 import 'package:flutter/material.dart';
 
 import 'models/pair_model.dart';
@@ -41,7 +40,7 @@ List<Project> projectList = [];
 // List<IconSection> currentIconSectionsList = [currentIconSection];
 IconSection currentIconSection = IconSection(
     iconSectionNo: currentIconSectionNo,
-    iconSectionName: "Polyline_${currentIconSectionNo}",
+    iconSectionName: "Polyline_$currentIconSectionNo",
     position: Point.zero,
     frames: [currentFrame]);
 Frame currentFrame = Frame(
@@ -50,7 +49,7 @@ Frame currentFrame = Frame(
 String currentProjectName = "Annimation";
 TextEditingController userNameController = TextEditingController();
 Offset hoverPoint = Offset.zero;
-Size biggerSize = Size(200, 200);
+Size biggerSize = const Size(200, 200);
 Pair controlPointAdjecntPair = Pair(0, 1);
 Map<int, Offset> controlMidPoints = {};
 // List<Offset> points = [];
@@ -100,7 +99,7 @@ Project currentProject = Project(
           frames: projectList[currentProjectNo]
               .iconSections[currentIconSectionNo]
               .frames,
-          position: Point(x: 0, y: 0)),
+          position: const Point(x: 0, y: 0)),
 
       //     iconSectionNo: 1,
       //     iconSectionName: "Polyline_1",

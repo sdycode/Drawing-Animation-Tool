@@ -1,10 +1,5 @@
-import 'dart:developer';
 
-import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/models/pair_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/cast_control_points.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:flutter/material.dart';
 
@@ -31,7 +26,7 @@ class AnimatedMyPaint extends StatelessWidget {
     //   cnt++;
     //   return of;
     // }).toList();
-    return Container(
+    return SizedBox(
       height: height,
       width: width,
       child: CustomPaint(
@@ -41,7 +36,7 @@ class AnimatedMyPaint extends StatelessWidget {
 }
 
 class _AnimatedMyPainter extends CustomPainter {
-  List<Offset> _p;
+  final List<Offset> _p;
   _AnimatedMyPainter(this._p);
 
   @override

@@ -1,15 +1,13 @@
 import 'dart:developer';
 
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_interpolated_point.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/points_to_offsets.dart';
 import 'package:animated_icon_demo/extensions.dart';
 import 'package:animated_icon_demo/widgets/animated_paint.dart';
 import 'package:flutter/material.dart';
 
 class AnimationShowingBoxWidget extends StatefulWidget {
-  AnimationShowingBoxWidget({Key? key}) : super(key: key);
+  const AnimationShowingBoxWidget({Key? key}) : super(key: key);
 
   @override
   State<AnimationShowingBoxWidget> createState() =>

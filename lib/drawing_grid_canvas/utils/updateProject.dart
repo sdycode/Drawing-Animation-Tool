@@ -1,13 +1,11 @@
 import 'dart:developer';
 
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
+import 'package:animated_icon_demo/data/project_repository.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/create_new_empty_project_with_next_id_name.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_current_project_instance.dart';
-import 'package:animated_icon_demo/service/firebase_service.dart';
 import 'package:animated_icon_demo/shared/shared.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 // Future updateProject(Project project) async {
 //   List<String> list = project.projectId.split('_');
@@ -27,12 +25,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
       curProject = currentProject;
       // getNewPorjectNo();
       int projectNo = 0;
-      CollectionReference<Map<String, dynamic>> colref = DataService()
-          .usersInstance
-          .doc(Shared.getUserName())
-          .collection("Project_$projectNo");
       try {
-        colref.doc("Project_$projectNo").set(updatingProject.toMap());
+        await ProjectRepository()
+            .saveProject(Shared.getUserName(), projectNo, updatingProject);
         log("project updated");
       } catch (e) {
         log("project update failed $e");

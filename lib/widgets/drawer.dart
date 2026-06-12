@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 
 import 'package:url_launcher/url_launcher.dart';
 
+/// Opens [url] in a new tab/window. Replaces the removed `launch()` top-level
+/// (url_launcher >= 6.2 dropped it in favour of [launchUrl]).
+void _open(String url) => launchUrl(Uri.parse(url));
+
 class AppDrawer extends StatelessWidget {
   const AppDrawer({Key? key}) : super(key: key);
 
@@ -15,12 +19,12 @@ class AppDrawer extends StatelessWidget {
     double webiconW = 25;
     double webFont = 15;
     return Container(
-      decoration:BoxDecoration(   
+      decoration:const BoxDecoration(   
          borderRadius: BorderRadius.only(
               topLeft: Radius.circular(20), bottomLeft: Radius.circular(20)),
          color: Colors.transparent,) ,
 
-      margin: EdgeInsets.symmetric(vertical: topbarHeight),
+      margin: const EdgeInsets.symmetric(vertical: topbarHeight),
       child: Drawer(  backgroundColor: Colors.white,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.only(
@@ -30,7 +34,7 @@ class AppDrawer extends StatelessWidget {
         width: 200,
         child: Container(
           // color: Colors.white,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: Colors.transparent,
             // image: DecorationImage(
             //     image: AssetImage('assets/app_icons/bg1.jpg'), fit: BoxFit.cover),
@@ -42,7 +46,7 @@ class AppDrawer extends StatelessWidget {
               ),
               InkWell(
                 onTap: () {
-                  launch(C.playstorelink);
+                  _open(C.playstorelink);
                 },
                 child: ListTile(
                   minVerticalPadding: minVerticalPadding,
@@ -58,7 +62,7 @@ class AppDrawer extends StatelessWidget {
               ),
               InkWell(
                 onTap: () {
-                  launch(C.linkedinlink);
+                  _open(C.linkedinlink);
                 },
                 child: ListTile(
                   minVerticalPadding: minVerticalPadding,
@@ -74,7 +78,7 @@ class AppDrawer extends StatelessWidget {
               ),
               InkWell(
                 onTap: () {
-                  launch("https://www.youtube.com/@shubhamyeole2881/videos");
+                  _open("https://www.youtube.com/@shubhamyeole2881/videos");
                 },
                 child: ListTile(
                   minVerticalPadding: minVerticalPadding,
@@ -90,7 +94,7 @@ class AppDrawer extends StatelessWidget {
               ),
               InkWell(
                 onTap: () {
-                  launch("https://github.com/sdycode");
+                  _open("https://github.com/sdycode");
                 },
                 child: ListTile(
                   minVerticalPadding: minVerticalPadding,
@@ -107,7 +111,7 @@ class AppDrawer extends StatelessWidget {
               ExpansionTile(
                 collapsedIconColor: Colors.black,
                 iconColor: Colors.blue,
-                title: Text("Web Apps"),
+                title: const Text("Web Apps"),
                 leading: Image.asset(
                   'assets/app_icons/webapp.png',
                   width: webiconW,
@@ -115,7 +119,7 @@ class AppDrawer extends StatelessWidget {
                 children: [
                   InkWell(
                     onTap: () {
-                      launch(
+                      _open(
                           "https://sdycode.github.io/FlutterGradientMaker/#/");
                     },
                     child: ListTile(
@@ -133,7 +137,7 @@ class AppDrawer extends StatelessWidget {
                   ),
                   InkWell(
                     onTap: () {
-                      launch(
+                      _open(
                           "https://sdycode.github.io/FlutterPathMaker/#/");
                     },
                     child: ListTile(
@@ -154,7 +158,7 @@ class AppDrawer extends StatelessWidget {
                   ),
                   InkWell(
                     onTap: () {
-                      launch("https://sdycode.github.io/shortnotes/");
+                      _open("https://sdycode.github.io/shortnotes/");
                     },
                     child: ListTile(
                       minVerticalPadding: minVerticalPadding,
@@ -171,7 +175,7 @@ class AppDrawer extends StatelessWidget {
                   ),
                   InkWell(
                     onTap: () {
-                      launch("https://sdycode.github.io/photofilterapp/#/");
+                      _open("https://sdycode.github.io/photofilterapp/#/");
                     },
                     child: ListTile(
                       minVerticalPadding: minVerticalPadding,
@@ -188,7 +192,7 @@ class AppDrawer extends StatelessWidget {
                   ),
                   InkWell(
                     onTap: () {
-                      launch("https://sdycode.github.io/3DModel/#/");
+                      _open("https://sdycode.github.io/3DModel/#/");
                     },
                     child: ListTile(
                       minVerticalPadding: minVerticalPadding,
@@ -205,12 +209,12 @@ class AppDrawer extends StatelessWidget {
                   ),
                 ],
               ),
-              Divider(),
+              const Divider(),
               InkWell(
                   onTap: () {
-                    launch("https://github.com/sdycode/Drawing-Animation-Tool");
+                    _open("https://github.com/sdycode/Drawing-Animation-Tool");
                   },
-                  child: Column(
+                  child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text(
@@ -218,7 +222,7 @@ class AppDrawer extends StatelessWidget {
                         style: TextStyle(fontWeight: FontWeight.w600),
                       ),
                       Padding(
-                        padding: const EdgeInsets.all(8.0),
+                        padding: EdgeInsets.all(8.0),
                         child: Text(
                          "https://github.com/sdycode/Drawing-Animation-Tool",
                           textAlign: TextAlign.center,
@@ -229,8 +233,8 @@ class AppDrawer extends StatelessWidget {
                       )
                     ],
                   )),
-              Divider(),
-              Column(
+              const Divider(),
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
@@ -238,7 +242,7 @@ class AppDrawer extends StatelessWidget {
                     style: TextStyle(fontWeight: FontWeight.w500),
                   ),
                   Padding(
-                    padding: const EdgeInsets.all(8.0),
+                    padding: EdgeInsets.all(8.0),
                     child: Text(
                       "Shubham Yeole",
                       textAlign: TextAlign.center,

@@ -13,7 +13,7 @@ void setAnimatingPointsForMultisectionsWith2frames() {
 
   currentFrameNo = 0;
   animatePointsModels.clear();
-  iconSectionNosIncludedInAnimation.forEach((no) {
+  for (var no in iconSectionNosIncludedInAnimation) {
     log("iconno $no");
     frame1Points = List.from(projectList[currentProjectNo]
         .iconSections[no]
@@ -34,25 +34,25 @@ void setAnimatingPointsForMultisectionsWith2frames() {
         AnimatePointsModel.withFrameAndAnimePointsPoints(
             frame1Points, frame2Points, animatingFramePoints);
     animatePointsModels.add(animatePointsModel);
-  });
+  }
   int c = 0;
-  animatePointsModels.forEach((e) {
+  for (var e in animatePointsModels) {
     log("cnt $c : ${e.frame1Points.length} / ${e.frame2Points.length} /  ${e.animatingFramePoints.length}");
     c++;
-  });
+  }
 }
 
 bool checkNoofFramesAndPointsAreCorrectForMultiSectionAnimation() {
   bool allOk = false;
   // Check Frame Nos
-  iconSectionNosIncludedInAnimation.forEach((no) {
+  for (var no in iconSectionNosIncludedInAnimation) {
     if (projectList[currentProjectNo].iconSections[no].frames.length < 2) {
       allOk = false;
-      return;
+      continue;
     }
-  });
+  }
   allOk = true;
-  iconSectionNosIncludedInAnimation.forEach((no) {
+  for (var no in iconSectionNosIncludedInAnimation) {
     if (projectList[currentProjectNo]
             .iconSections[no]
             .frames[0]
@@ -66,9 +66,9 @@ bool checkNoofFramesAndPointsAreCorrectForMultiSectionAnimation() {
             .points
             .length) {
       allOk = false;
-      return;
+      continue;
     }
-  });
+  }
 
   return allOk;
 }

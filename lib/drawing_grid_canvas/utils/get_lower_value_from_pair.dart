@@ -1,4 +1,3 @@
-import 'package:animated_icon_demo/drawing_grid_canvas/models/single_frame_model.dart';
 
 import '../models/pair_model.dart';
 

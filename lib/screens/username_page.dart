@@ -1,22 +1,19 @@
 // ignore_for_file: use_build_context_synchronously
 
-import 'dart:convert';
 import 'dart:developer';
 
 import 'package:animated_icon_demo/Global/global.dart';
 import 'package:animated_icon_demo/Images/icons_paths.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/add%20new%20methods/add_new_project.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/geometric%20functions/get_startpoint_for_polygon_withcenter_side_and_no.dart';
 
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/get_updated_user_profile_added_with_new_project.dart';
 import 'package:animated_icon_demo/providers/user_page_provider.dart';
+import 'package:animated_icon_demo/data/project_repository.dart';
 import 'package:animated_icon_demo/screens/landscape_layout.dart';
-import 'package:animated_icon_demo/service/firebase_service.dart';
 import 'package:animated_icon_demo/shared/shared.dart';
 import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_image_icon.dart';
@@ -28,7 +25,7 @@ QuerySnapshot<Map<String, dynamic>>? serverData;
 String _username = "";
 
 class UserNamePage extends StatefulWidget {
-  UserNamePage({Key? key}) : super(key: key);
+  const UserNamePage({Key? key}) : super(key: key);
 
   @override
   State<UserNamePage> createState() => _UserNamePageState();
@@ -53,7 +50,7 @@ class _UserNamePageState extends State<UserNamePage> {
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
+            SizedBox(
               height: logoHeight,
               // color: Colors.green,
               child: Image.asset(
@@ -63,7 +60,7 @@ class _UserNamePageState extends State<UserNamePage> {
               ),
             ),
             Container(
-              margin: EdgeInsets.all(8),
+              margin: const EdgeInsets.all(8),
               width: w * 0.4,
               constraints: const BoxConstraints(minWidth: 300),
               child: const Text(
@@ -72,7 +69,7 @@ class _UserNamePageState extends State<UserNamePage> {
               ),
             ),
             Container(
-              margin: EdgeInsets.all(8),
+              margin: const EdgeInsets.all(8),
               // height: topbarHeight,
               width: w * 0.4,
               constraints: const BoxConstraints(minWidth: 300),
@@ -80,7 +77,7 @@ class _UserNamePageState extends State<UserNamePage> {
                 child: TextField(
                   scrollPadding: EdgeInsets.zero,
                   controller: textEditingController,
-                  style: TextStyle(color: Colors.white, fontSize: 20),
+                  style: const TextStyle(color: Colors.white, fontSize: 20),
                   onChanged: (value) {
                     showError = true;
                     setState(() {});
@@ -93,7 +90,7 @@ class _UserNamePageState extends State<UserNamePage> {
                               : null,
                       hintText: "Please enter your username",
                       hintStyle: TextStyle(color: Colors.white.withAlpha(180)),
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                       enabledBorder: const OutlineInputBorder(
                           borderSide: BorderSide(color: Colors.white))),
                 ),
@@ -101,7 +98,7 @@ class _UserNamePageState extends State<UserNamePage> {
             ),
             ElevatedButton(
                 style: ButtonStyle(
-                    backgroundColor: MaterialStateColor.resolveWith((d) {
+                    backgroundColor: WidgetStateColor.resolveWith((d) {
                   return textEditingController.text.trim().length > 4
                       ? Colors.blue
                       : Colors.grey.withAlpha(180);
@@ -124,7 +121,7 @@ class _UserNamePageState extends State<UserNamePage> {
                 child: const Text("Go")),
             (projectList.isNotEmpty)
                 ? Container(
-                    margin: EdgeInsets.all(8),
+                    margin: const EdgeInsets.all(8),
                     width: w,
                     height: avalableHeight,
                     child: SingleChildScrollView(
@@ -143,7 +140,7 @@ class _UserNamePageState extends State<UserNamePage> {
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Container(
+                                        SizedBox(
                                           width: 130,
                                           height: 130,
                                           child: TapImageIcon(
@@ -156,7 +153,7 @@ class _UserNamePageState extends State<UserNamePage> {
                                                   context,
                                                   MaterialPageRoute(
                                                       builder: (context) =>
-                                                          LandscapeLayoutScreen()
+                                                          const LandscapeLayoutScreen()
                                                       // DrawGridCanvase()
 
                                                       ));
@@ -189,10 +186,10 @@ class _UserNamePageState extends State<UserNamePage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (showLoading)
-                        Container(
+                        SizedBox(
                           width: w,
                           height: avalableHeight,
-                          child: Center(
+                          child: const Center(
                             child: CircularProgressIndicator(),
                           ),
                         )
@@ -253,9 +250,7 @@ class _UserNamePageState extends State<UserNamePage> {
       
       Shared.setUserName(textEditingController.text.trim());
       log("username before get data [${Shared.getUserName()}]");
-      serverData = await DataService()
-          .usersInstance
-          .get(const GetOptions(source: Source.server));
+      serverData = await ProjectRepository().fetchAllUserDocsFromServer();
 
       try {
         await getNewProjectName();
@@ -279,29 +274,14 @@ List<double> getFramePosForthisIconSection(IconSection iconSection) {
 Future loadAllProjectsFromServer() async {
   List<int> prnos = await getNewPorjectNo();
   if (prnos.length < 2) {
-    log("prns length in loadAllProjectsFromServer ${prnos}");
+    log("prns length in loadAllProjectsFromServer $prnos");
     await addNewProjectToListAndFirebase();
   }
   List<Project> projectsFromServer = [];
   await Future.forEach(prnos, (no) async {
-    String projectId = "Project_$no";
-    try {
-      QuerySnapshot<Map<String, dynamic>> prdata = await DataService()
-          .usersInstance
-          .doc(Shared.getUserName())
-          .collection(projectId)
-          .get();
-      try {
-        projectsFromServer.add(Project.fromMap(prdata.docs.first.data()));
-        // log("prdata of $no added to templist : ${prdata.docs.first.data()}");
-      } catch (e) {
-        // log("prdata of $no proejct convert failed : error ${e}");
-      }
-
-      // log("prdata of $no : ${prdata.docs.first.data()}");
-    } catch (e) {
-      // log("prdata of $no : error ${e}");
-    }
+    final project =
+        await ProjectRepository().fetchProject(Shared.getUserName(), no);
+    if (project != null) projectsFromServer.add(project);
   });
   projectList.clear();
   projectList = List.from(projectsFromServer);
@@ -325,12 +305,8 @@ Future<String> getNewProjectName() async {
   List<int> prnos = await getNewPorjectNo();
 
   log("username in getNewProjectName ${Shared.getUserName()} ");
-  await DataService().usersInstance.doc("${Shared.getUserName()}").set(
-      UserProfile(
-              userName: Shared.getUserName(),
-              password: "password",
-              projects: prnos)
-          .toMap());
+  await ProjectRepository().saveUserProfile(
+      UserProfile(userName: Shared.getUserName(), projects: prnos));
   String newProjectSuffix = "_0";
   String newProjectName = Shared.getUserName() + newProjectSuffix;
 
@@ -338,7 +314,7 @@ Future<String> getNewProjectName() async {
   try {
     projectList.add(Project(
         projectId: "Project_0",
-        projectName: currentProjectName + "_0",
+        projectName: "${currentProjectName}_0",
         width: defaultProjectWidth,
         height: defaultProjectHeight,
         iconSections: [
@@ -355,12 +331,8 @@ Future<String> getNewProjectName() async {
         ]));
   } catch (e) {}
   try {
-    await DataService()
-        .usersInstance
-        .doc(Shared.getUserName())
-        .collection("Project_0")
-        .doc("Project_0")
-        .set(projectList.first.toMap());
+    await ProjectRepository()
+        .saveProject(Shared.getUserName(), 0, projectList.first);
   } catch (e) {}
 
   try {
@@ -377,11 +349,8 @@ Future setUserProfile(
   if (nos.length < 2) {
     log("noss are $nos");
     List<int> getProjectNo = [0];
-    DataService().usersInstance.doc("${Shared.getUserName()}").set(UserProfile(
-            userName: Shared.getUserName(),
-            password: "password",
-            projects: getProjectNo)
-        .toMap());
+    await ProjectRepository().saveUserProfile(
+        UserProfile(userName: Shared.getUserName(), projects: getProjectNo));
   }
 }
 /*

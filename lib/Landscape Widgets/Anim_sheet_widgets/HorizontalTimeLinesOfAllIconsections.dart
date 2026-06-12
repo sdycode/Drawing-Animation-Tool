@@ -14,7 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class HorizontalTimeLinesOfAllIconsections extends StatefulWidget {
-  HorizontalTimeLinesOfAllIconsections({Key? key}) : super(key: key);
+  const HorizontalTimeLinesOfAllIconsections({Key? key}) : super(key: key);
 
   @override
   State<HorizontalTimeLinesOfAllIconsections> createState() =>
@@ -53,14 +53,14 @@ class _HorizontalTimeLinesOfAllIconsectionsState
     // }
 
     debugLog(
-        "HorizontalTimeLinesOfAllIconsections animSheetProvider called ${iconsectionsTreeinAnimSheetScrollPosition}");
+        "HorizontalTimeLinesOfAllIconsections animSheetProvider called $iconsectionsTreeinAnimSheetScrollPosition");
 
     // horizontalTimeLinesOfAllIconsectionsScrollController =
     // ScrollController(
     //     initialScrollOffset: iconsectionsTreeinAnimSheetScrollPosition);
     log("factot ${animSheetMainBoxWidthFactor.sw(context) * (1 - 0.051)} and ${39 / animSheetMainBoxWidthFactor.sw(context)}");
 
-    return Container(
+    return SizedBox(
         // color: Colors.green,
         width: (animSheetMainBoxWidthFactor.sw(context) * (1 - 0.051) +
                 extraRightSpaceForScrollbar)
@@ -211,7 +211,7 @@ class _HorizontalTimeLinesOfAllIconsectionsState
                         //     .singleFrameModel
                         //     .framePosition
                         //     .toString())
-                        CircleAvatar(radius: 4,
+                        const CircleAvatar(radius: 4,
                         backgroundColor: Colors.white,
                         )
                         ),
@@ -261,7 +261,7 @@ class _HorizontalTimeLinesOfAllIconsectionsState
                       //  (tempPosition - 3 + timelineBarH.sw(context) * 0.5)
                       // .abs(),
                       top: 2,
-                      child: Container(
+                      child: SizedBox(
                         height: 30,
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,

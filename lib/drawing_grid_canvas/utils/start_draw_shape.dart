@@ -3,8 +3,6 @@ import 'dart:developer';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/shape%20functions/check_weather_youare_drawing_shape_first_time.dart';
-import 'package:animated_icon_demo/enums/enums.dart';
-import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
 import 'package:flutter/material.dart';
 
 void startDrawRectangle(DragStartDetails d) {
@@ -118,15 +116,14 @@ void startDrawPolygon(DragStartDetails d, int n) {
                 .length,
             Point.fromOffset(d.localPosition));
     int c = 0;
-    projectList[currentProjectNo]
+    for (var e in projectList[currentProjectNo]
         .iconSections[currentIconSectionNo]
         .frames[currentFrameNo]
         .singleFrameModel
-        .cornerBoxPoints
-        .forEach((e) {
+        .cornerBoxPoints) {
       log("polygonpoints startp $c : ${e.toMap()}");
       c++;
-    });
+    }
   } else {
     log("not firstime");
   }

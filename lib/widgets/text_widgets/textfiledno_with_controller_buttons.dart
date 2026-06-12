@@ -23,7 +23,7 @@ class _TextFieldNoWithContollerButtonsState
     extends State<TextFieldNoWithContollerButtons> {
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       height: textFieldBoxHeight,
       child: Row(
         mainAxisSize: MainAxisSize.min,

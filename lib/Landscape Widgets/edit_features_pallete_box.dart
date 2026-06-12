@@ -13,16 +13,14 @@ import 'package:animated_icon_demo/providers/drawing_board_provider.dart';
 import 'package:animated_icon_demo/providers/edit_pallet_provider.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
 import 'package:animated_icon_demo/utils/text_field_methods/toggle%20methods/toggleEditShapeVerices.dart';
-import 'package:animated_icon_demo/utils/text_field_methods/toggle%20methods/toggleShowAnimationBoard.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_icon.dart';
-import 'package:animated_icon_demo/widgets/text_widgets/textfield_no.dart';
 import 'package:animated_icon_demo/widgets/text_widgets/textfiledno_with_controller_buttons.dart';
 import 'package:animated_icon_demo/widgets/text_widgets/textstyle1.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class EditFeaturesPalleteBox extends StatefulWidget {
-  EditFeaturesPalleteBox({Key? key}) : super(key: key);
+  const EditFeaturesPalleteBox({Key? key}) : super(key: key);
 
   @override
   State<EditFeaturesPalleteBox> createState() => _EditFeaturesPalleteBoxState();
@@ -45,7 +43,7 @@ class _EditFeaturesPalleteBoxState extends State<EditFeaturesPalleteBox> {
         child: Stack(
           children: [
             Container(
-              margin: EdgeInsets.all(borderMargin),
+              margin: const EdgeInsets.all(borderMargin),
               width: editFeaturesPalleteBoxWidth,
               // editFeaturesPalleteBoxWidth,
               height: 100.sh(context),
@@ -76,7 +74,7 @@ class _EditFeaturesPalleteBoxState extends State<EditFeaturesPalleteBox> {
   Widget getEditPalletForSelectedItem() {
     if (componentSelectedTypeInTree ==
         ComponentSelectedTypeInTree.drawingBoard) {
-      return EditPalletForDrawingBoard();
+      return const EditPalletForDrawingBoard();
     }
     return EditPalletForDrawingShape();
     tempWidgetToShowPointsCoordinatesforShape(context);
@@ -90,7 +88,7 @@ Widget tempWidgetToShowPointsCoordinatesforShape(BuildContext context) {
     height: 100.sh(context), color: Theme.of(context).primaryColorDark,
     child: ListView.separated(
         separatorBuilder: (context, index) {
-          return Divider();
+          return const Divider();
         },
         shrinkWrap: true,
         itemCount: projectList[currentProjectNo]
@@ -99,7 +97,7 @@ Widget tempWidgetToShowPointsCoordinatesforShape(BuildContext context) {
             .length,
         itemBuilder: (c, fi) {
           ScrollController controller = ScrollController();
-          return Container(
+          return SizedBox(
               height: 40,
               width: editFeaturesPalleteBoxWidth,
               child:
@@ -125,7 +123,7 @@ Widget tempWidgetToShowPointsCoordinatesforShape(BuildContext context) {
                           .points[pi];
                       return Text(
                         "[ ${e.x.toStringAsFixed(2)} / ${e.y.toStringAsFixed(2)} ]",
-                        style: TextStyle(color: Colors.white),
+                        style: const TextStyle(color: Colors.white),
                       );
                     }),
               ));
@@ -151,7 +149,7 @@ class EditPalletForDrawingShape extends StatelessWidget {
     ProvData provData = Provider.of<ProvData>(context, listen: false);
     return Container(
       width: editFeaturesPalleteBoxWidth,
-      margin: EdgeInsets.all(10),
+      margin: const EdgeInsets.all(10),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -165,11 +163,11 @@ class EditPalletForDrawingShape extends StatelessWidget {
                 drawingBoardProvider.updateUI();
                 // provData.updateUI();
               },
-              label: Text("Show Points"),
+              label: const Text("Show Points"),
               // onDeleted: (){ toggleShowAnimationBoard();
               //         provData.updateUI();},
               avatar: Container(
-                margin: EdgeInsets.only(right: 2, left: 2),
+                margin: const EdgeInsets.only(right: 2, left: 2),
                 child: Padding(
                   padding: const EdgeInsets.only(left: 2, right: 2),
                   child: TapIcon(
@@ -195,11 +193,11 @@ class EditPalletForDrawingShape extends StatelessWidget {
                 editPalletProvider.updateUI();
                 drawingBoardProvider.updateUI();
               },
-              label: Text("Edit Vertices"),
+              label: const Text("Edit Vertices"),
               // onDeleted: (){ toggleShowAnimationBoard();
               //         provData.updateUI();},
               avatar: Container(
-                margin: EdgeInsets.only(right: 2, left: 2),
+                margin: const EdgeInsets.only(right: 2, left: 2),
                 child: Padding(
                   padding: const EdgeInsets.only(left: 2, right: 2),
                   child: TapIcon(
@@ -236,10 +234,10 @@ class EditPalletForDrawingShape extends StatelessWidget {
 
           Container(
               width: double.infinity,
-              margin: EdgeInsets.all(8),
+              margin: const EdgeInsets.all(8),
               child: ElevatedButton(
                   style: ButtonStyle(
-                      backgroundColor: MaterialStateProperty.all(Color(int.parse(
+                      backgroundColor: WidgetStateProperty.all(Color(int.parse(
                           "0x${projectList[currentProjectNo].iconSections[currentIconSectionNo].color}")))),
                   onPressed: () {
                     showColorPicker(context, (Color d) {
@@ -249,14 +247,13 @@ class EditPalletForDrawingShape extends StatelessWidget {
                           d.toString().replaceAll(')', '').split('x')[1];
                       editPalletProvider.updateUI();
                       drawingBoardProvider.updateUI();
-                      ;
                     },
                         Color(int.parse(
                             "0x${projectList[currentProjectNo].iconSections[currentIconSectionNo].color}")));
                   },
-                  child: Text(""))),
+                  child: const Text(""))),
           if (drawingObjectType == DrawingObjectType.polygon)
-            PolygonNoEditWidget()
+            const PolygonNoEditWidget()
           // TextWithStyle1(
           //   text: "Position",
           //   fontsize: 16,
@@ -276,7 +273,7 @@ class EditPalletForDrawingShape extends StatelessWidget {
 bool longPressedStarted = false;
 
 class EditPalletForDrawingBoard extends StatefulWidget {
-  EditPalletForDrawingBoard({Key? key}) : super(key: key);
+  const EditPalletForDrawingBoard({Key? key}) : super(key: key);
 
   @override
   State<EditPalletForDrawingBoard> createState() =>
@@ -308,8 +305,8 @@ class _EditPalletForDrawingBoardState extends State<EditPalletForDrawingBoard> {
         Provider.of<DrawingBoardProvider>(context, listen: false);
     return Container(
       width: editFeaturesPalleteBoxWidth,
-      margin: EdgeInsets.all(10),
-      child: Column(
+      margin: const EdgeInsets.all(10),
+      child: const Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -379,7 +376,6 @@ class PolygonNoEditWidget extends StatelessWidget {
           set_polygon_no_to_current_iconsection();
           TextControllers.polygon_no_Controller.text =
               noOfSidesOfPolygon.toString();
-          ;
           editPalletProvider.updateUI();
           drawingBoardProvider.updateUI();
         },
@@ -554,7 +550,7 @@ class DrawingBoardPositionFieldWidgetsRow extends StatelessWidget {
             controller: TextControllers.drawingaBoard_X_posController,
             textFieldTitle: "X",
             onTapUp: () {
-              log("x+ called ${drawingBoardPosition}");
+              log("x+ called $drawingBoardPosition");
               drawingBoardPosition = Offset(
                   drawingBoardPosition.dx + 0.5, drawingBoardPosition.dy);
               TextControllers.drawingaBoard_X_posController.text =
@@ -634,7 +630,7 @@ class TextWithTextField extends StatefulWidget {
 class _TextWithTextFieldState extends State<TextWithTextField> {
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: editFeaturesPalleteBoxWidth * 0.4,
       height: 50,
       child: Row(

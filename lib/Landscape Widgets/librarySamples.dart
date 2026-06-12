@@ -8,10 +8,7 @@ import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_mode
 import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/update_framePos_list.dart';
 import 'package:animated_icon_demo/providers/animation_sheet_provider.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/src/widgets/container.dart';
-import 'package:flutter/src/widgets/framework.dart';
 import 'package:provider/provider.dart';
 
 class LibrarySamples extends StatefulWidget {
@@ -46,7 +43,7 @@ class _LibrarySamplesState extends State<LibrarySamples> {
             children: [
               Positioned(
                 bottom: 0,
-                child: Container(
+                child: SizedBox(
                   width: w * 0.8,
                   height: h * 0.86-30,
                   child: SingleChildScrollView(
@@ -72,7 +69,7 @@ class _LibrarySamplesState extends State<LibrarySamples> {
                                       Project project = Project.fromMap(proj);
 
                                       project.projectName =
-                                          "Library_" + project.projectName;
+                                          "Library_${project.projectName}";
 
                                       // _projectList.clear();
 
@@ -102,7 +99,7 @@ class _LibrarySamplesState extends State<LibrarySamples> {
                                       animSheetProvider.updateUI();
                                     } catch (e) {}
                                   },
-                                  child: Text("Go"))
+                                  child: const Text("Go"))
                             ],
                           );
                         }),
@@ -119,7 +116,7 @@ class _LibrarySamplesState extends State<LibrarySamples> {
 
                                       animSheetProvider.updateUI();
                     },
-                    icon: Icon(Icons.close, color: Colors.red,)),
+                    icon: const Icon(Icons.close, color: Colors.red,)),
               )
             ],
           )),

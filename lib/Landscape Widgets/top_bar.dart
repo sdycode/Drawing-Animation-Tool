@@ -8,11 +8,8 @@ import 'package:animated_icon_demo/Landscape%20Widgets/TopBar/drawingObjectbutto
 import 'package:animated_icon_demo/Landscape%20Widgets/TopBar/drawingTypeButton.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/TopBar/fileButton.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/TopBar/libraryButton.dart';
-import 'package:animated_icon_demo/Landscape%20Widgets/animation_sheet.dart';
 import 'package:animated_icon_demo/Landscape%20Widgets/sizes_landscape.dart';
 import 'package:animated_icon_demo/drawing_grid_canvas/drawing_grid_canvas_fields.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/models/new_full_user_model.dart';
-import 'package:animated_icon_demo/drawing_grid_canvas/utils/numeric%20funtions/update_framePos_list.dart';
 import 'package:animated_icon_demo/enums/enums.dart';
 import 'package:animated_icon_demo/providers/animation_sheet_provider.dart';
 import 'package:animated_icon_demo/providers/prov.dart';
@@ -21,14 +18,13 @@ import 'package:animated_icon_demo/screens/username_page.dart';
 import 'package:animated_icon_demo/utils/text_field_methods/debugLog.dart';
 import 'package:animated_icon_demo/utils/text_field_methods/toggle%20methods/toggleShowAnimationBoard.dart';
 import 'package:animated_icon_demo/widgets/res/Icons/tap_icon.dart';
-import 'package:annimation/annimation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_saver/file_saver.dart';
 import 'dart:html' as html;
 
 class TopBar extends StatefulWidget {
-  TopBar({Key? key}) : super(key: key);
+  const TopBar({Key? key}) : super(key: key);
 
   @override
   State<TopBar> createState() => _TopBarState();
@@ -67,24 +63,24 @@ class _TopBarState extends State<TopBar> {
                 onPressed: () async {
                   Navigator.pushReplacement(context, MaterialPageRoute(
                     builder: (context) {
-                      return UserNamePage();
+                      return const UserNamePage();
                     },
                   ));
                 },
-                icon: Icon(Icons.arrow_back)),
+                icon: const Icon(Icons.arrow_back)),
             if (projectList.length > currentProjectNo)
               Tooltip(
                 message: "Project Name",
                 child: TextButton.icon(
                     onPressed: () async {
                       debugLog(
-                          "pname  :  ${currentProjectNo} :    projectNameTextController.text ");
+                          "pname  :  $currentProjectNo :    projectNameTextController.text ");
 
                       if (projectList.length > currentProjectNo) {
                         projectNameTextController.text =
                             projectList[currentProjectNo].projectName;
                         debugLog(
-                            "pname ${projectList[currentProjectNo].projectName} :  ${currentProjectNo} :    projectNameTextController.text ");
+                            "pname ${projectList[currentProjectNo].projectName} :  $currentProjectNo :    projectNameTextController.text ");
                       }
 
                       await showProjectNameEditDialog(
@@ -104,7 +100,7 @@ class _TopBarState extends State<TopBar> {
             // ),
             Container(
               // margin: EdgeInsets.only(left: 4),
-              margin: EdgeInsets.all(4),
+              margin: const EdgeInsets.all(4),
               width: topbarHeight - 8,
               height: topbarHeight - 8,
               decoration: BoxDecoration(
@@ -232,7 +228,7 @@ class _TopBarState extends State<TopBar> {
                       color: Colors.black,
                       borderRadius: BorderRadius.circular(8)),
                   // height: topbarHeight,
-                  constraints: BoxConstraints(maxHeight: 100),
+                  constraints: const BoxConstraints(maxHeight: 100),
                   width: 200,
                   child: TextField(
                     scrollPadding: EdgeInsets.zero,
@@ -268,7 +264,7 @@ class _TopBarState extends State<TopBar> {
 
 youtubeButton(BuildContext context) {
   return Container(
-    margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+    margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
     decoration: BoxDecoration(
       border: Border.all(color: Colors.white),
       // color:topbarColor,
@@ -279,7 +275,7 @@ youtubeButton(BuildContext context) {
         onPressed: () async {
           html.window.open('https://youtu.be/m_NibA9HXW8', "_blank");
         },
-        icon: Container(
+        icon: SizedBox(
             height: topbarHeight * 0.7,
             child: Image.asset(
               "assets/icons/youtube.png",

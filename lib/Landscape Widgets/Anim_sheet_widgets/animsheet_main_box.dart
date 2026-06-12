@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class AnimSheetMainBox extends StatefulWidget {
-  AnimSheetMainBox({Key? key}) : super(key: key);
+  const AnimSheetMainBox({Key? key}) : super(key: key);
 
   @override
   State<AnimSheetMainBox> createState() => _AnimSheetMainBoxState();
@@ -43,18 +43,18 @@ class _AnimSheetMainBoxState extends State<AnimSheetMainBox> {
           SizedBox(
             height: 1.sh(context),
           ),
-          TimelineBar(),
+          const TimelineBar(),
           Expanded(
             child: LayoutBuilder(
               builder: (p0, box) {
-                return Container(
+                return SizedBox(
                   // width: box.maxWidth,
                   width: animSheetMainBoxWidthFactor.sw(context),
                   height: box.maxHeight,
                   child: Row(
                     children: [
                       Container(
-                        child: Stack(
+                        child: const Stack(
                           // fit: StackFit.passthrough,
                           children: [
                             HorizontalTimeLinesOfAllIconsections(),
@@ -62,7 +62,7 @@ class _AnimSheetMainBoxState extends State<AnimSheetMainBox> {
                           ],
                         ),
                       ),
-                      AddFrameButtonsColumnInAnimMainBox()
+                      const AddFrameButtonsColumnInAnimMainBox()
                     ],
                   ),
                 );

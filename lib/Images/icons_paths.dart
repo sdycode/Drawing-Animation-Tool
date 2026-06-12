@@ -16,17 +16,17 @@ class IconsImagesPaths {
   static String trianlgeicon = "${customIconSPath}triangle.png";
   static String circleicon = "${customIconSPath}circle.png";
 
-  static String file = "${iconsPath}/file.png";
-  static String files = "${iconsPath}/files.png";
-  static String openfile = "${iconsPath}/openfile.png";
-  static String pan = "${iconsPath}/pan.png";
-  static String save = "${iconsPath}/save.png";
-  static String saveas = "${iconsPath}/saveas.png";
-  static String translate = "${iconsPath}/translate.png";
-  static String translate_arrow = "${iconsPath}/translate_arrow.png";
+  static String file = "$iconsPath/file.png";
+  static String files = "$iconsPath/files.png";
+  static String openfile = "$iconsPath/openfile.png";
+  static String pan = "$iconsPath/pan.png";
+  static String save = "$iconsPath/save.png";
+  static String saveas = "$iconsPath/saveas.png";
+  static String translate = "$iconsPath/translate.png";
+  static String translate_arrow = "$iconsPath/translate_arrow.png";
   static String translate_arrow_transp =
-      "${iconsPath}/translate_arrow_transp.png";
-  static String youtube = "${iconsPath}/youtube.png";
-static String newfile= "${iconsPath}/newfile.png";
-static String export= "${iconsPath}/export.png";
+      "$iconsPath/translate_arrow_transp.png";
+  static String youtube = "$iconsPath/youtube.png";
+static String newfile= "$iconsPath/newfile.png";
+static String export= "$iconsPath/export.png";
 }
