@@ -270,8 +270,22 @@
 ## E10 — Persistence & Autosave
 *Scope 13, 18, 19.*
 
+### F10.0 — Auth (email/password only)
+**Depends on:** nothing. Lands in M0 — `uid` is what scopes every Firestore path, so nothing persistent works without it.
+
+Firebase **email/password sign-up and sign-in, and nothing else**. No social providers, no anonymous auth, no forgot-password, no email verification, no account linking, no MFA (00 §4). Anonymous is rejected outright: it mints a new `uid` per browser and per data-clear, scattering one person's work across orphaned accounts.
+
+| # | Given | When | Then |
+| --- | --- | --- | --- |
+| AC-10.0.1 | A new visitor at `/signin` | Submitting a valid email + password in sign-up mode | The account is created and they land on the project list |
+| AC-10.0.2 | An existing account | Signing in | The same `uid` is restored and their projects load |
+| AC-10.0.3 | A signed-in session | The browser is reloaded | Still signed in — no re-authentication prompt |
+| AC-10.0.4 | The sign-in form | Each Firebase error returned | Invalid email, weak password (min 6 chars), email already in use, wrong password, user not found, and network failure each render a distinct inline message — never a modal, never a raw exception string |
+| AC-10.0.5 | The auth UI | Inspected | No social buttons, no "forgot password" link. **A forgotten password is unrecoverable in v1** and the UI must not imply otherwise |
+| AC-10.0.6 | User A signed in | Requesting user B's project path | Firestore security rules deny it — `uid` scoping is enforced server-side, not only in the client |
+
 ### F10.1 — `ProjectStore` seam
-**Depends on:** F1.2. **Must land in commit one** — retrofitting it means untangling `cloud_firestore` types out of the domain layer.
+**Depends on:** F1.2, F10.0. **Must land in commit one** — retrofitting it means untangling `cloud_firestore` types out of the domain layer.
 
 ```dart
 abstract class ProjectStore {

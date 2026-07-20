@@ -1,0 +1,22 @@
+name: anim_render
+description: >-
+  Flutter rendering layer for anim_core. Turns an evaluated Scene into painted
+  pixels. Knows dart:ui; knows nothing about persistence, editing or the editor's
+  UI chrome.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  anim_core:
+    path: ../anim_core
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0

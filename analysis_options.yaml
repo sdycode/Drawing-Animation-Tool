@@ -1,16 +1,30 @@
-# Static-analysis configuration. Run with `flutter analyze`.
-# Baseline: package:flutter_lints. A stricter set (very_good_analysis /
-# strict-casts) is a tracked Phase-0 task — it needs the existing warning
-# backlog triaged first (see docs/plan_of_action.md), so it is NOT enabled yet.
+# Static-analysis configuration for the v3 app. Run with `flutter analyze`.
+#
+# Greenfield, so strict from day one — there is no warning backlog to triage.
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
   exclude:
+    # Read-only copy of the v2 app, kept while porting the timeline percent math
+    # and geometry helpers (docs/v3/06 M4). Deleted at parity — it is not v3 code
+    # and must never be analyzed, linted, or built.
+    - legacy_reference/**
     - build/**
-    - "**/*.g.dart"        # generated (e.g. Animated/.../play_pause.g.dart)
-    - "**/*.freezed.dart"  # generated (future)
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+  errors:
+    # The isolation rules in docs/v3/08 are load-bearing, not style preferences.
+    # `!` on a nullable is the recurring frame-ending crash named in 08 §4.
+    unnecessary_null_checks: error
 
 linter:
   rules:
-    # Curated additions land here as the codebase is cleaned up.
-    # Full very_good_analysis adoption is tracked in docs/plan_of_action.md.
+    # docs/v3/08 §4: bare `!` and untyped grab-bags are the named cascade risks.
+    - avoid_dynamic_calls
+    - prefer_final_locals
+    - unawaited_futures

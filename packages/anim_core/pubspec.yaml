@@ -1,0 +1,17 @@
+name: anim_core
+description: >-
+  Pure-Dart domain model, serializer and evaluator for the v3 vector-animation
+  format. Zero Flutter imports, zero dart:ui, zero persistence dependencies —
+  everything here is testable in a plain `dart test`.
+version: 0.1.0
+
+# Published at M8 as the runtime package. NOT a successor to `annimation` v0.0.2,
+# which reads the legacy format and cannot read a v3 document (docs/v3/07 ADR-004).
+publish_to: none
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0

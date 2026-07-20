@@ -40,7 +40,11 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+# v3 is Flutter WEB ONLY (docs/v3/00 §6). `flutter pub get` regenerates these
+# platform folders on every run; they are not part of the project and must never
+# be committed again.
+/android/
+/ios/
+/macos/
+/linux/
+/windows/
