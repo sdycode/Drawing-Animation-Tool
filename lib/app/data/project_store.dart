@@ -55,11 +55,26 @@ enum StoreFailure {
 }
 
 class StoreException implements Exception {
-  const StoreException(this.failure);
+  const StoreException(this.failure, {this.code, this.details});
+
   final StoreFailure failure;
 
+  /// The backend's raw error code, e.g. Firestore's `permission-denied`.
+  final String? code;
+
+  /// The backend's raw message, verbatim.
+  final String? details;
+
+  /// What a developer needs and [StoreFailure.message] deliberately hides.
+  String get technical => [
+        if (code != null) 'code: $code',
+        if (details != null) details,
+      ].join('\n');
+
   @override
-  String toString() => 'StoreException(${failure.name})';
+  String toString() => 'StoreException(${failure.name}'
+      '${code == null ? '' : ', $code'}'
+      '${details == null ? '' : ': $details'})';
 }
 
 abstract class ProjectStore {

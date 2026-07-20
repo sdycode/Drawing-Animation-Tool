@@ -74,6 +74,22 @@ void main() {
       expect(messages.length, AuthFailure.values.length - 1);
     });
 
+    // Two audiences, two messages. The user must never see a provider string;
+    // the developer must never be left with only "Something went wrong".
+    test('keeps the raw provider code alongside the friendly message', () {
+      const e = AuthException(
+        AuthFailure.unknown,
+        code: 'operation-not-allowed',
+        details: 'Password sign-in is disabled for this project.',
+      );
+
+      expect(e.failure.message, 'Something went wrong. Please try again.');
+      expect(e.technical, contains('operation-not-allowed'));
+      expect(e.technical, contains('disabled for this project'));
+      // toString is what the copy button puts on the clipboard.
+      expect(e.toString(), contains('operation-not-allowed'));
+    });
+
     test('clearError wipes a stale message once the user edits', () async {
       final c = containerWith(auth);
       addTearDown(c.dispose);
@@ -122,6 +138,21 @@ void main() {
 
       expect(find.byKey(const Key('auth-error')), findsOneWidget);
       expect(find.byType(AlertDialog), findsNothing);
+    });
+
+    testWidgets('shows the raw provider detail in debug builds',
+        (tester) async {
+      await tester.pumpWidget(harness(auth));
+
+      await tester.enterText(
+          find.byType(TextFormField).first, 'ghost@example.com');
+      await tester.enterText(find.byType(TextFormField).last, 'secret1');
+      await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
+      await tester.pumpAndSettle();
+
+      // Tests run in debug, so the panel is present. In release `kDebugMode` is
+      // a const false and the whole widget tree-shakes away.
+      expect(find.byKey(const Key('auth-error-technical')), findsOneWidget);
     });
 
     testWidgets('toggles between sign in and sign up', (tester) async {

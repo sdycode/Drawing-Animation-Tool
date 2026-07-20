@@ -29,7 +29,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '527498934912',
     projectId: 'animate-widget-tool',
     authDomain: 'animate-widget-tool.firebaseapp.com',
-    storageBucket: 'animate-widget-tool.appspot.com',
+    storageBucket: 'animate-widget-tool.firebasestorage.app',
     measurementId: 'G-QTS8MRVKTB',
   );
 }

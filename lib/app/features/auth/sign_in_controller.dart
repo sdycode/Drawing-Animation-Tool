@@ -9,21 +9,27 @@ class SignInState {
   const SignInState({
     this.mode = AuthMode.signIn,
     this.busy = false,
-    this.failure,
+    this.error,
   });
 
   final AuthMode mode;
   final bool busy;
 
-  /// Null when there is nothing to show. Never a raw exception string — the
-  /// service maps every provider error into this closed set (AC-10.0.4).
-  final AuthFailure? failure;
+  /// Null when there is nothing to show.
+  ///
+  /// The whole exception is kept, not just the enum: the user sees
+  /// `failure.message` (never a provider string, AC-10.4), while a debug build
+  /// also shows `error.technical` so an unmapped code is diagnosable instead of
+  /// hiding behind "Something went wrong".
+  final AuthException? error;
 
-  SignInState copyWith({AuthMode? mode, bool? busy, AuthFailure? failure}) =>
+  AuthFailure? get failure => error?.failure;
+
+  SignInState copyWith({AuthMode? mode, bool? busy, AuthException? error}) =>
       SignInState(
         mode: mode ?? this.mode,
         busy: busy ?? this.busy,
-        failure: failure,
+        error: error,
       );
 }
 
@@ -41,12 +47,12 @@ class SignInController extends Notifier<SignInState> {
   /// Clears the previous error as soon as the user edits, so a stale message
   /// never sits under a field they have already fixed.
   void clearError() {
-    if (state.failure != null) state = state.copyWith(failure: null);
+    if (state.error != null) state = state.copyWith(error: null);
   }
 
   Future<void> submit({required String email, required String password}) async {
     if (state.busy) return; // double-submit guard
-    state = state.copyWith(busy: true, failure: null);
+    state = state.copyWith(busy: true, error: null);
 
     final auth = ref.read(authServiceProvider);
     try {
@@ -58,7 +64,7 @@ class SignInController extends Notifier<SignInState> {
       // On success the auth stream drives navigation. Nothing to do here.
       state = state.copyWith(busy: false);
     } on AuthException catch (e) {
-      state = state.copyWith(busy: false, failure: e.failure);
+      state = state.copyWith(busy: false, error: e);
     }
   }
 }

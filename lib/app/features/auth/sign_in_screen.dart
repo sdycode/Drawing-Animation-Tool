@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/auth_service.dart';
 import 'sign_in_controller.dart';
 
 /// The `/signin` screen (docs/v3/05 §1).
@@ -102,7 +105,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         ? 'At least 6 characters'
                         : null,
                   ),
-                  if (state.failure != null) ...[
+                  if (state.error != null) ...[
                     const SizedBox(height: 12),
                     // Inline, never a modal (AC-10.0.4).
                     Row(
@@ -113,7 +116,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            state.failure!.message,
+                            state.error!.failure.message,
                             key: const Key('auth-error'),
                             style: const TextStyle(
                                 fontSize: 12, color: Color(0xFFEF9A9A)),
@@ -121,6 +124,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         ),
                       ],
                     ),
+                    _TechnicalDetail(error: state.error!),
                   ],
                   const SizedBox(height: 20),
                   FilledButton(
@@ -154,6 +158,89 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The raw provider error, shown **in debug builds only**.
+///
+/// Two audiences, two messages: the user gets
+/// [AuthFailure.message] (never a provider string, AC-10.0.4), the developer
+/// gets the code that produced it. Without this, `AuthFailure.unknown` — which
+/// by definition means the mapping in `FirebaseAuthService` fell short — is a
+/// dead end that reads only "Something went wrong".
+///
+/// `kDebugMode` is a compile-time constant, so this whole widget and the raw
+/// strings it renders tree-shake out of a release build.
+class _TechnicalDetail extends StatelessWidget {
+  const _TechnicalDetail({required this.error});
+
+  final AuthException error;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kDebugMode || error.technical.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.black26,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  'debug detail',
+                  style: TextStyle(
+                    fontSize: 10,
+                    letterSpacing: 0.5,
+                    color: Colors.white38,
+                  ),
+                ),
+                const Spacer(),
+                InkWell(
+                  onTap: () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: error.toString()),
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Error copied'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    }
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(Icons.copy, size: 12, color: Colors.white38),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            SelectableText(
+              error.technical,
+              key: const Key('auth-error-technical'),
+              style: const TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: Color(0xFFB0BEC5),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:flutter/foundation.dart';
 
 import 'auth_service.dart';
 
@@ -44,10 +45,24 @@ class FirebaseAuthService implements AuthService {
   Future<void> _run(Future<void> Function() op) async {
     try {
       await op();
-    } on fb.FirebaseAuthException catch (e) {
-      throw AuthException(_map(e.code));
-    } catch (_) {
-      throw const AuthException(AuthFailure.unknown);
+    } on fb.FirebaseAuthException catch (e, st) {
+      // Always log the raw provider error. A mapped-to-`unknown` failure with
+      // no trace of what actually happened is undebuggable, and `unknown` is
+      // by definition the case where the mapping above fell short.
+      debugPrint('[auth] FirebaseAuthException ${e.code}: ${e.message}');
+      if (_map(e.code) == AuthFailure.unknown) {
+        debugPrint('[auth] UNMAPPED code "${e.code}" — add it to _map()');
+        debugPrintStack(stackTrace: st, maxFrames: 6);
+      }
+      throw AuthException(_map(e.code), code: e.code, details: e.message);
+    } catch (e, st) {
+      debugPrint('[auth] non-Firebase failure: $e');
+      debugPrintStack(stackTrace: st, maxFrames: 6);
+      throw AuthException(
+        AuthFailure.unknown,
+        code: e.runtimeType.toString(),
+        details: '$e',
+      );
     }
   }
 

@@ -55,11 +55,31 @@ enum AuthFailure {
 }
 
 class AuthException implements Exception {
-  const AuthException(this.failure);
+  const AuthException(this.failure, {this.code, this.details});
+
   final AuthFailure failure;
 
+  /// The provider's raw error code, e.g. `operation-not-allowed`. Null for
+  /// failures raised by client-side validation.
+  final String? code;
+
+  /// The provider's raw message, verbatim.
+  final String? details;
+
+  /// What a developer needs and [AuthFailure.message] deliberately hides.
+  ///
+  /// Kept separate from the user-facing copy: the friendly message must never
+  /// leak a provider string, but "Something went wrong" with nothing behind it
+  /// is undebuggable. The UI shows this in debug builds only.
+  String get technical => [
+        if (code != null) 'code: $code',
+        if (details != null) details,
+      ].join('\n');
+
   @override
-  String toString() => 'AuthException(${failure.name})';
+  String toString() => 'AuthException(${failure.name}'
+      '${code == null ? '' : ', $code'}'
+      '${details == null ? '' : ': $details'})';
 }
 
 abstract class AuthService {
@@ -101,12 +121,20 @@ class FakeAuthService implements AuthService {
     _controller.add(user);
   }
 
+  /// Mirrors the shape of the real service: every throw carries a code and a
+  /// message, so the debug detail panel is exercised by tests rather than only
+  /// by a live Firebase failure.
+  static Never _fail(AuthFailure f, String code, String message) =>
+      throw AuthException(f, code: code, details: message);
+
   static void _validate(String email, String password) {
     if (!email.contains('@') || email.trim().isEmpty) {
-      throw const AuthException(AuthFailure.invalidEmail);
+      _fail(AuthFailure.invalidEmail, 'invalid-email',
+          'The email address is badly formatted.');
     }
     if (password.length < 6) {
-      throw const AuthException(AuthFailure.weakPassword);
+      _fail(AuthFailure.weakPassword, 'weak-password',
+          'Password should be at least 6 characters.');
     }
   }
 
@@ -114,7 +142,8 @@ class FakeAuthService implements AuthService {
   Future<void> signUp({required String email, required String password}) async {
     _validate(email, password);
     if (_accounts.containsKey(email)) {
-      throw const AuthException(AuthFailure.emailAlreadyInUse);
+      _fail(AuthFailure.emailAlreadyInUse, 'email-already-in-use',
+          'The email address is already in use by another account.');
     }
     _accounts[email] = password;
     _emit(AuthUser(uid: 'fake-uid-${_uidSeq++}', email: email));
@@ -124,9 +153,13 @@ class FakeAuthService implements AuthService {
   Future<void> signIn({required String email, required String password}) async {
     _validate(email, password);
     final stored = _accounts[email];
-    if (stored == null) throw const AuthException(AuthFailure.userNotFound);
+    if (stored == null) {
+      _fail(AuthFailure.userNotFound, 'user-not-found',
+          'There is no user record corresponding to this identifier.');
+    }
     if (stored != password) {
-      throw const AuthException(AuthFailure.wrongPassword);
+      _fail(AuthFailure.wrongPassword, 'invalid-credential',
+          'The supplied auth credential is incorrect or malformed.');
     }
     _emit(AuthUser(uid: 'fake-uid-$email', email: email));
   }

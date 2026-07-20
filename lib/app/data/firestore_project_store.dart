@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import 'project_store.dart';
 
@@ -41,15 +42,30 @@ class FirestoreProjectStore implements ProjectStore {
   Future<T> _run<T>(Future<T> Function() op) async {
     try {
       return await op();
-    } on FirebaseException catch (e) {
-      throw StoreException(switch (e.code) {
+    } on FirebaseException catch (e, st) {
+      // Always log the raw error — a mapped-to-`unknown` failure with no trace
+      // of what happened is undebuggable, and `unknown` is by definition where
+      // the mapping fell short.
+      debugPrint('[store] FirebaseException ${e.code}: ${e.message}');
+      final failure = switch (e.code) {
         'permission-denied' => StoreFailure.permissionDenied,
         'not-found' => StoreFailure.notFound,
         'unavailable' || 'deadline-exceeded' => StoreFailure.network,
         _ => StoreFailure.unknown,
-      });
-    } catch (_) {
-      throw const StoreException(StoreFailure.unknown);
+      };
+      if (failure == StoreFailure.unknown) {
+        debugPrint('[store] UNMAPPED code "${e.code}" — add it to _run()');
+        debugPrintStack(stackTrace: st, maxFrames: 6);
+      }
+      throw StoreException(failure, code: e.code, details: e.message);
+    } catch (e, st) {
+      debugPrint('[store] non-Firebase failure: $e');
+      debugPrintStack(stackTrace: st, maxFrames: 6);
+      throw StoreException(
+        StoreFailure.unknown,
+        code: e.runtimeType.toString(),
+        details: '$e',
+      );
     }
   }
 
