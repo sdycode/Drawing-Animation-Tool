@@ -294,7 +294,7 @@ abstract class ProjectStore {
 
 | # | Given | When | Then |
 | --- | --- | --- | --- |
-| AC-10.2.1 | Firebase Auth signed in | A project is saved and the browser reloaded | Geometry comes back **byte-identical** |
+| AC-10.2.1 | A signed-in email/password session | A project is saved and the browser reloaded | Geometry comes back **byte-identical**; the session and `uid` persist without re-authenticating |
 | AC-10.2.2 | A Firestore payload | Compared to a file export | They are the **same bytes** — `jsonEncode(doc.toJson())`, one serializer, no parallel path |
 | AC-10.2.3 | Firestore returning a whole double as an int | Decoded | Every numeric read goes through `double d(Object? v) => (v as num).toDouble();` — no `as double` cast survives a grep (dart2wasm readiness) |
 | AC-10.2.4 | A document missing a required subtree | Loaded | The strict decoder **throws with a path**. No null-coalescing manufactures plausible-but-wrong data |
@@ -366,7 +366,7 @@ abstract class ProjectStore {
 | # | Given | When | Then |
 | --- | --- | --- | --- |
 | AC-12.1.1 | The `main` build | Deployed | A public URL serves the CanvasKit Flutter Web build; a stranger can reach it with no local setup |
-| AC-12.1.2 | A stranger on that URL | Signing in | Firebase Auth completes and an empty project list loads |
+| AC-12.1.2 | A stranger on that URL | Signing up with an email and password | The account is created, an empty project list loads, and the session survives a reload. Email/password is the **only** provider (00 §4) |
 | AC-12.1.3 | The deployed build | Exercised | All 9 criteria in 00 §5 pass **on that URL, without assistance** |
 | AC-12.1.4 | CI | Run on every push | The round-trip property test over all 8 fixtures **and** the golden transform test on the 450.2 × 250.4 artboard both pass. A red gate blocks deploy |
 | AC-12.1.5 | Build targets | Inspected | Flutter Web only. No mobile or desktop target is configured (00 §4) |

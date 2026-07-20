@@ -282,7 +282,7 @@ The point of §1's dependency direction: **the entire irreplaceable part of this
 
 The architecture that carries weight in v1 is what this doc actually specifies: package boundaries and dependency direction (§1), the persistence seam (§2), state ownership (§4), and the render pipeline (§5).
 
-**Real HLD arrives with v1.1** — the Go service in `server/`: request lifecycle, auth boundary, the hybrid relational schema (02 §9b), `rev`-based optimistic concurrency, indexes and retention. That is where topology decisions start to exist. It is planned in [06](06_backend_v1_1.md) and it is post-ship, per 00 §4.
+**Real HLD arrives with v1.1** — the Go service in `server/`: request lifecycle, auth boundary, the hybrid relational schema (02 §9b), `rev`-based optimistic concurrency, indexes and retention. That is where topology decisions start to exist. It is planned in [06_roadmap.md](06_roadmap.md) and it is post-ship, per 00 §4.
 
 ---
 

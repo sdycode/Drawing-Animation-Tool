@@ -81,6 +81,7 @@ Numbered so you can point at an item and say "that one, nothing else."
 | **Per-anchor property tracks** | Whole-path keyframes only. |
 | **Cycle / continue extrapolation** | Hold-first / hold-last only. |
 | **Masks & mattes** | Beyond `clipChildren`, nothing. |
+| **Any auth beyond email + password** | v1 has Firebase **email/password sign-up and sign-in, and nothing else**. No Google/GitHub/social providers, no anonymous auth, no forgot-password or reset flow, no email verification, no account linking, no MFA. Anonymous auth is rejected outright: it mints a new `uid` per browser and per data-clear, scattering one person's work across orphaned accounts. |
 | **Multiple artboards** | One per document. |
 | **Text & image nodes** | Vector paths only. |
 | **Parametric shape animation** | `ShapeRecipe` is inert metadata; it regenerates the path, it is never keyed. |
@@ -182,4 +183,13 @@ Three sentences that keep the whole model coherent. Violating any of them is how
 
 ---
 
-**Next:** [01_domain_model.md](01_domain_model.md) · [02_file_format.md](02_file_format.md)
+## Cross-links
+
+- **00_vision_and_scope.md** — this document. The scope commitment.
+- [01_domain_model.md](01_domain_model.md) — Dart types, invariants, mutation API, evaluator. Authoritative on the model.
+- [02_file_format.md](02_file_format.md) — wire contract, forward-compat, legacy importer, storage layouts.
+- [03_features.md](03_features.md) — epics and acceptance criteria per feature.
+- [04_architecture.md](04_architecture.md) — layers, package boundaries, `ProjectStore` seam, render pipeline.
+- [05_ux_flows.md](05_ux_flows.md) — editor layout, tools, interactions, shortcuts.
+- [06_roadmap.md](06_roadmap.md) — milestones and the v1 ship gate.
+- [07_decisions.md](07_decisions.md) — ADR log.

@@ -7,14 +7,17 @@
 
 ## 1. Screen inventory
 
-Two screens. That is the whole app.
+Three screens. That is the whole app.
 
 | # | Screen | Route | Contents |
 | --- | --- | --- | --- |
-| 1 | **Project list** | `/` | Auth gate → `ProjectStore.list()` → cards (name, modified, thumbnail-less). Actions: new, open, rename, delete, import legacy `.json`, open bundled sample. |
+| 0 | **Auth** | `/signin` | One form, two modes toggled by a link: **sign in** and **sign up**. Fields: email, password. Nothing else. Shown only when no session exists; a live session redirects straight to `/`. |
+| 1 | **Project list** | `/` | Auth gate → `ProjectStore.list()` → cards (name, modified, thumbnail-less). Actions: new, open, rename, delete, import legacy `.json`, open bundled sample, **sign out**. |
 | 2 | **Editor** | `/p/{projectId}` | Everything else. One `Document`, one artboard. |
 
-**Decision: no settings screen, no dashboard, no gallery.** Artboard size and `durationSeconds` are edited in the inspector when nothing is selected. A third screen is scope that buys nothing testable in [00 §5](00_vision_and_scope.md).
+**Auth is email + password only** — no social providers, no anonymous auth, no forgot-password, no email verification ([00 §4](00_vision_and_scope.md)). Error states the form must render: invalid email, weak password (Firebase minimum is 6 characters), email already in use, wrong password, user not found, network failure. **A forgotten password is unrecoverable in v1** — that is the accepted cost of cutting the reset flow, and the form should not offer a link that implies otherwise.
+
+**Decision: no settings screen, no dashboard, no gallery.** Artboard size and `durationSeconds` are edited in the inspector when nothing is selected. A fourth screen is scope that buys nothing testable in [00 §5](00_vision_and_scope.md).
 
 ---
 

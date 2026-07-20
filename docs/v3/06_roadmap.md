@@ -29,13 +29,16 @@
 | `packages/anim_core` + `packages/anim_render` created, pubspec-enforced boundary (04 §1) | — |
 | Explicit artboard, `Document` with `id` / `schemaVersion == 3` / `rev` | F1.1, F1.2 |
 | `ProjectStore` interface + `FirestoreProjectStore` + `FakeProjectStore`, `--dart-define=BACKEND=firestore` | **F10.1** |
+| **Firebase email/password auth — and nothing else.** Sign-up form, sign-in form, sign-out, session persists across reload. `uid` scopes the `appData/v3/users/{uid}` path; security rules deny cross-uid reads. **No social providers, no anonymous auth, no forgot-password, no email verification** (00 §4). Anonymous is rejected: a new `uid` per browser and per data-clear scatters one person's work across orphaned accounts. | F10.1 |
 | One `PathNode` from a crude 3-click tool; one `PathTrack` with 2 keyframes; playhead scrub | thin F4.1, F6.1 |
 | `evaluate` present with **all 8 stages as named functions** (stages 4/5/6 no-op; 7/8 pass-through) | thin F9.2 |
 | CI (analyze + `dart test`) and web deploy to a public URL | F12.1 partial |
 
-> **Exit criterion:** on the deployed URL, a stranger signs in, draws a shape, sets a second keyframe, drags the playhead and sees it interpolate, reloads the browser, and the shape returns.
+> **Exit criterion:** on the deployed URL, a stranger signs up with an email and password, draws a shape, sets a second keyframe, drags the playhead and sees it interpolate, reloads the browser, and the shape returns — still signed in.
 
-**Risk — the one that matters here:** building M0 "properly". M0's pen tool may be three clicks and no handles; its timeline may be a slider. **Depth in M0 is the failure mode.** Two things must nonetheless be right on day one, because retrofitting them is expensive: the `ProjectStore` `String`-in/`String`-out seam (03 F10.1: cheap at commit one, expensive at commit three hundred) and the 8 named evaluator stages (an inlined walk gets re-inlined everywhere before anyone notices).
+**Build order inside M0 — deploy first, not last.** Commit one is a hello-world Flutter Web build live on the public URL: hosting chosen, base href correct, CanvasKit loading. It is the highest-variance item in M0 (hosting config, `--base-href`, cold start) and the only one that cannot be unit-tested. Doing it last means discovering it at the worst moment; doing it first means every later M0 commit is deployable. Everything else in this table lands on top of a URL that already works.
+
+**Risk — the one that matters here:** building M0 "properly". M0's pen tool may be three clicks and no handles; its timeline may be a slider; its shape may be one hard-coded colour. **Depth in M0 is the failure mode.** Three things must nonetheless be right on day one, because retrofitting them is expensive: the `ProjectStore` `String`-in/`String`-out seam (03 F10.1: cheap at commit one, expensive at commit three hundred), the 8 named evaluator stages (an inlined walk gets re-inlined everywhere before anyone notices), and ID-matched `PathPose` interpolation — M0's two keyframes must tween by `AnchorId`, never by index, or M0 quietly re-creates the legacy defect the whole rewrite exists to fix.
 
 ---
 
