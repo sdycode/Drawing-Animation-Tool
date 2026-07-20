@@ -1,39 +1,39 @@
 rules_version = '2';
 
 // ============================================================================
-// Firestore security rules for the "Annimation" (animated_icon_demo) web app.
+// Firestore security rules — v3.
 //
-// IMPORTANT — NOT DEPLOYED AUTOMATICALLY. This file is an artifact. It only
-// takes effect when you run `firebase deploy --only firestore:rules`. Review
-// it (and the legacy section below) before deploying to a project that still
-// serves the OLD app.
+// NOT DEPLOYED AUTOMATICALLY. Takes effect only on:
+//   firebase deploy --only firestore:rules
 //
-// Design goal: scope the new `appData/v2` namespace WITHOUT breaking anything
-// that already exists. The legacy top-level `users/...` tree is left exactly
-// as permissive as it is today, so the old deployment keeps working and no
-// existing data is touched.
-//
-// Phase 3 (when firebase_auth + uid re-keying land): tighten the `appData/v2`
-// rule from `if true` to `if request.auth.uid == username` and add a
-// public-read carve-out (`allow read: if resource.data.isPublic == true;`).
+// Three namespaces share one Firebase project and never overlap:
+//   users/...            legacy v1  — the still-deployed old app
+//   appData/v2/...       v2 branch  — abandoned, left readable
+//   appData/v3/...       THIS APP   — uid-scoped, auth required
 // ============================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Legacy v1 data: preserved as-is -----------------------------------
-    // The old app has no auth and relies on open access. We deliberately do
-    // NOT freeze it here, to avoid breaking the existing deployment or
-    // "touching" existing data. Tighten or remove this block only once the
-    // old app is fully retired.
+    // --- v3: the only namespace this app reads or writes -------------------
+    // appData/v3/users/{uid}/projects/{projectId}
+    //
+    // AC-10.0.6: uid scoping is enforced HERE, server-side. A client-side check
+    // is a UI affordance, not a security boundary — user A must not be able to
+    // read user B's projects by editing a path in devtools.
+    match /appData/v3/users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // --- Legacy v1: preserved exactly as-is --------------------------------
+    // The old app has no auth and relies on open access. Deliberately NOT
+    // tightened: the old deployment is still live and its data is never
+    // migrated (docs/v3/02 §8). Remove this block only once it is retired.
     match /users/{document=**} {
       allow read, write: if true;
     }
 
-    // --- New v2 namespace: all version-2 data lives here --------------------
-    // appData/v2/users/{username}/Project_{n}/Project_{n}
-    match /appData/v2/users/{username}/{document=**} {
-      // Phase 0 (pre-auth) rollout: permissive, same as legacy default.
-      // Phase 3 (post-auth): replace with `if request.auth.uid == username;`
+    // --- v2: abandoned branch, left as it was ------------------------------
+    match /appData/v2/{document=**} {
       allow read, write: if true;
     }
 

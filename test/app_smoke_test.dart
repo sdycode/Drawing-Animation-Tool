@@ -1,14 +1,42 @@
 import 'package:drawing_animation_tool/app/app_shell.dart';
+import 'package:drawing_animation_tool/app/data/auth_service.dart';
+import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('app boots', (tester) async {
-    await tester.pumpWidget(
-      const ProviderScope(child: DrawingAnimationToolApp()),
-    );
-    expect(find.text('Drawing Animation Tool'), findsOneWidget);
+  group('auth gate', () {
+    late FakeAuthService auth;
+    setUp(() => auth = FakeAuthService());
+    tearDown(() => auth.dispose());
+
+    Widget harness() => ProviderScope(
+          overrides: [authServiceProvider.overrideWithValue(auth)],
+          child: const DrawingAnimationToolApp(),
+        );
+
+    testWidgets('signed out -> sign-in screen', (tester) async {
+      await tester.pumpWidget(harness());
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
+      expect(find.text('Projects'), findsNothing);
+    });
+
+    testWidgets('signed in -> project list, and sign-out returns to the form',
+        (tester) async {
+      await auth.signUp(email: 'a@b.com', password: 'secret1');
+
+      await tester.pumpWidget(harness());
+      await tester.pumpAndSettle();
+      expect(find.text('Projects'), findsOneWidget);
+      expect(find.text('a@b.com'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Sign out'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
+    });
   });
 
   group('FeatureFallback', () {

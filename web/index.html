@@ -13,7 +13,8 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A browser-based vector animation editor for animated icons and micro-interactions.">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- No <meta name="viewport"> here on purpose: Flutter Web installs its own
+       and logs a replacement warning on every run if one is already present. -->
 
   <link rel="icon" type="image/png" href="favicon.png"/>
   <link rel="manifest" href="manifest.json">

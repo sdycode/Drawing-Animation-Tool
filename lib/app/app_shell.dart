@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'data/providers.dart';
+import 'features/auth/sign_in_screen.dart';
+import 'features/projects/project_list_screen.dart';
 
 /// The one file that composes panels (docs/v3/08 §3).
 ///
-/// At M0 there are no panels yet — this is the deploy-first placeholder. It
-/// grows a `Row` of feature widgets from M2 onward, and stays the *only* place
-/// features are wired together, so deleting a feature is one line here plus one
-/// folder (docs/v3/08 §5).
+/// Deleting a feature stays one line here plus one folder — the compiler-checked
+/// kill switch that docs/v3/08 §5 prefers over a feature-flag registry.
 class DrawingAnimationToolApp extends StatelessWidget {
   const DrawingAnimationToolApp({super.key});
 
@@ -15,26 +18,59 @@ class DrawingAnimationToolApp extends StatelessWidget {
       title: 'Drawing Animation Tool',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark(useMaterial3: true),
-      home: const _M0Placeholder(),
+      home: const _AuthGate(),
     );
   }
 }
 
-class _M0Placeholder extends StatelessWidget {
-  const _M0Placeholder();
+/// Signed out -> sign-in. Signed in -> project list.
+///
+/// Consumed with `.when`, never `.requireValue` (docs/v3/08 §2): the auth stream
+/// is async, and a `.requireValue` on the first frame throws before any user has
+/// had a chance to exist.
+class _AuthGate extends ConsumerWidget {
+  const _AuthGate();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(authStateProvider).when(
+          loading: () => const _Splash(),
+          error: (e, _) => _Splash(message: 'Sign-in unavailable: $e'),
+          data: (user) =>
+              user == null ? const SignInScreen() : const ProjectListScreen(),
+        );
+  }
+}
+
+class _Splash extends StatelessWidget {
+  const _Splash({this.message});
+
+  final String? message;
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Drawing Animation Tool',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600)),
-            SizedBox(height: 8),
-            Text('v3 · M0 walking skeleton',
-                style: TextStyle(fontSize: 14, color: Colors.white54)),
+            const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            if (message != null) ...[
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  message!,
+                  textAlign: TextAlign.center,
+                  style:
+                      const TextStyle(fontSize: 12, color: Color(0xFFEF9A9A)),
+                ),
+              ),
+            ],
           ],
         ),
       ),
