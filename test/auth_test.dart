@@ -1,4 +1,5 @@
 import 'package:drawing_animation_tool/app/data/auth_service.dart';
+import 'package:drawing_animation_tool/app/dev_credentials.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/features/auth/sign_in_controller.dart';
 import 'package:drawing_animation_tool/app/features/auth/sign_in_screen.dart';
@@ -153,6 +154,26 @@ void main() {
       // Tests run in debug, so the panel is present. In release `kDebugMode` is
       // a const false and the whole widget tree-shakes away.
       expect(find.byKey(const Key('auth-error-technical')), findsOneWidget);
+    });
+
+    // Tests run in debug, so the prefill is live here. The release build folds
+    // `kDevPrefill` to false and tree-shakes the literals — not observable from
+    // a test, which is exactly why the flag is a compile-time const and not a
+    // runtime setting that could be flipped on in production.
+    testWidgets('pre-fills the dev account in debug builds', (tester) async {
+      await tester.pumpWidget(harness(auth));
+
+      expect(kDevPrefill, isTrue);
+      expect(find.text(kDevEmail), findsOneWidget);
+      expect(find.byKey(const Key('dev-prefill-banner')), findsOneWidget);
+
+      // Submitting untouched must reach the service, not bounce off local
+      // validation — the whole point is one click to a signed-in state.
+      await auth.signUp(email: kDevEmail, password: kDevPassword);
+      await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('auth-error')), findsNothing);
+      expect(auth.currentUser?.email, kDevEmail);
     });
 
     testWidgets('toggles between sign in and sign up', (tester) async {

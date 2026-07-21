@@ -3,6 +3,22 @@ import 'package:flutter/foundation.dart';
 
 import 'auth_service.dart';
 
+/// Keep the session across reloads, tab closes, and browser restarts — the
+/// mobile-app behaviour, on web.
+///
+/// Firebase stores the refresh token in IndexedDB under [fb.Persistence.LOCAL]
+/// and silently mints a new ID token on boot, which is why `authStateChanges()`
+/// re-emits the signed-in user with no password prompt. LOCAL is already the
+/// web default; stating it means a changed upstream default (or a stray
+/// `SESSION` elsewhere) cannot quietly start signing everyone out on refresh.
+///
+/// Native platforms persist unconditionally and reject `setPersistence`, hence
+/// the [kIsWeb] guard.
+Future<void> configureAuthPersistence() async {
+  if (!kIsWeb) return;
+  await fb.FirebaseAuth.instance.setPersistence(fb.Persistence.LOCAL);
+}
+
 /// Firebase-backed [AuthService]. The only file that knows `firebase_auth`
 /// exists (docs/v3/08 §3).
 ///

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/auth_service.dart';
+import '../../dev_credentials.dart';
 import 'sign_in_controller.dart';
 
 /// The `/signin` screen (docs/v3/05 §1).
@@ -19,8 +20,12 @@ class SignInScreen extends ConsumerStatefulWidget {
 }
 
 class _SignInScreenState extends ConsumerState<SignInScreen> {
-  final _email = TextEditingController();
-  final _password = TextEditingController();
+  // Pre-filled in debug builds so a developer is not retyping the same account
+  // on every hot restart. Both constants fold away in release
+  // (see dev_credentials.dart).
+  final _email = TextEditingController(text: kDevPrefill ? kDevEmail : '');
+  final _password =
+      TextEditingController(text: kDevPrefill ? kDevPassword : '');
   final _formKey = GlobalKey<FormState>();
 
   @override
@@ -42,6 +47,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(signInControllerProvider);
     final isSignUp = state.mode == AuthMode.signUp;
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       body: Center(
@@ -64,8 +70,20 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                   Text(
                     isSignUp ? 'Create an account' : 'Sign in',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13, color: Colors.white54),
+                    style:
+                        TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
                   ),
+                  // Says out loud why the fields are already populated, so a
+                  // pre-filled form is never mistaken for a leaked session.
+                  if (kDevPrefill) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'debug build — credentials pre-filled',
+                      key: const Key('dev-prefill-banner'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, color: scheme.outline),
+                    ),
+                  ],
                   const SizedBox(height: 28),
                   TextFormField(
                     controller: _email,
@@ -111,15 +129,14 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.error_outline,
-                            size: 16, color: Color(0xFFEF9A9A)),
+                        Icon(Icons.error_outline,
+                            size: 16, color: scheme.error),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             state.error!.failure.message,
                             key: const Key('auth-error'),
-                            style: const TextStyle(
-                                fontSize: 12, color: Color(0xFFEF9A9A)),
+                            style: TextStyle(fontSize: 12, color: scheme.error),
                           ),
                         ),
                       ],
@@ -185,27 +202,29 @@ class _TechnicalDetail extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    final scheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: Colors.black26,
+          color: scheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.white12),
+          border: Border.all(color: scheme.outlineVariant),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Text(
+                Text(
                   'debug detail',
                   style: TextStyle(
                     fontSize: 10,
                     letterSpacing: 0.5,
-                    color: Colors.white38,
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
                 const Spacer(),
@@ -223,9 +242,10 @@ class _TechnicalDetail extends StatelessWidget {
                       );
                     }
                   },
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4),
-                    child: Icon(Icons.copy, size: 12, color: Colors.white38),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(Icons.copy,
+                        size: 12, color: scheme.onSurfaceVariant),
                   ),
                 ),
               ],
@@ -234,10 +254,10 @@ class _TechnicalDetail extends StatelessWidget {
             SelectableText(
               error.technical,
               key: const Key('auth-error-technical'),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 fontFamily: 'monospace',
-                color: Color(0xFFB0BEC5),
+                color: scheme.onSurface,
               ),
             ),
           ],

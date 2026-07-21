@@ -57,6 +57,8 @@ Numbered so you can point at an item and say "that one, nothing else."
 16. **Bundled samples** — the imported legacy projects, playable in-app.
 17. **Deployed URL** — Flutter Web build, publicly reachable.
 18. **Autosave hardening** — `enablePersistence()`, debounced autosave, and a visible dirty/saved indicator in the chrome. *Justification (per §4): the failure mode of an autosave drawing tool is silently losing the user's artwork; this is the only real data risk in v1 and the cheapest one to close.*
+19. **Light / dark theme** — two modes, dark default, one app-bar toggle, remembered across reloads. *Justification (per §4): a drawing tool is judged on its canvas, and a canvas is judged against its surroundings; the cost is one `ColorScheme.fromSeed` pair and it forces theme-derived colours everywhere instead of the hardcoded light-on-dark literals that would otherwise have to be unpicked later.* **No `ThemeMode.system`, no settings screen** (§5 of doc 05 rules a fourth screen out).
+20. **Sign-out confirmation** — a two-choice alert dialog before the session ends. *Justification (per §4): sign-out is one mis-click from a destructive, non-undoable action whose recovery path is a login form, and in v1 a forgotten password is unrecoverable (item 10.0.5).*
 19. **Monotonic `rev` counter on `Document`** — incremented on every save, written and read by the serializer. *Justification (per §4): one integer field, added now because adding it later is a schema break; v1.1 turns it into optimistic concurrency and detects the two-tab clobber that §6 currently accepts blindly.*
 
 ---

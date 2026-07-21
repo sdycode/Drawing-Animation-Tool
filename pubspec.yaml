@@ -7,7 +7,7 @@ publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: ">=3.2.0 <4.0.0"
+  sdk: ">=3.3.0 <4.0.0"   # 3.3 is where extension types (NodeId, AnchorId) went stable
 
 dependencies:
   flutter:
@@ -28,6 +28,11 @@ dependencies:
   firebase_core: ^3.0.0
   firebase_auth: ^5.0.0
   cloud_firestore: ^5.0.0
+
+  # Theme preference only. localStorage on web. Behind ThemeStore so widget
+  # tests never reach a platform binding (docs/v3/04 §2's seam habit, applied
+  # to the one other thing that touches storage).
+  shared_preferences: ^2.2.0
 
 dev_dependencies:
   flutter_test:

@@ -17,6 +17,10 @@ Three screens. That is the whole app.
 
 **Auth is email + password only** — no social providers, no anonymous auth, no forgot-password, no email verification ([00 §4](00_vision_and_scope.md)). Error states the form must render: invalid email, weak password (Firebase minimum is 6 characters), email already in use, wrong password, user not found, network failure. **A forgotten password is unrecoverable in v1** — that is the accepted cost of cutting the reset flow, and the form should not offer a link that implies otherwise.
 
+**Sign-out confirms.** The icon opens a two-choice alert dialog (*Cancel* / *Sign out*) and only ends the session on explicit confirmation; dismissing it counts as Cancel. It is the one modal in the signed-in chrome — auth *errors* stay inline (AC-10.0.4). The copy names only what is true: the session ends and a login is needed to return. It must not warn about unsaved work until autosave exists to have work in flight (00 §3 item 18).
+
+**Theme is a toggle, not a screen.** One app-bar icon flips light ↔ dark, dark is the default, and the choice is remembered across reloads. Two states only — `ThemeMode.system` is never offered, because "straight light/dark" is the requirement (00 §3 item 19). This is deliberately *not* the beginning of a preferences surface: the moment a second preference wants a home, it goes in the inspector, not in a new screen.
+
 **Decision: no settings screen, no dashboard, no gallery.** Artboard size and `durationSeconds` are edited in the inspector when nothing is selected. A fourth screen is scope that buys nothing testable in [00 §5](00_vision_and_scope.md).
 
 ---

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/app_shell.dart';
+import 'app/common/theme.dart';
+import 'app/data/prefs_theme_store.dart';
 import 'app/data/providers.dart';
 
 Future<void> main() async {
@@ -20,5 +22,12 @@ Future<void> main() async {
   // startup error into an unexplainable app.
   await initBackend();
 
-  runApp(const ProviderScope(child: DrawingAnimationToolApp()));
+  // The real theme store is injected here, so `common/theme.dart` imports no
+  // plugin and a widget test builds the whole app with the in-memory default.
+  runApp(
+    ProviderScope(
+      overrides: [themeStoreProvider.overrideWithValue(PrefsThemeStore())],
+      child: const DrawingAnimationToolApp(),
+    ),
+  );
 }

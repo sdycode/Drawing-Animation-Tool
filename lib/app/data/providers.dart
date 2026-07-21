@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../dev_credentials.dart';
 import 'auth_service.dart';
 import 'firebase_auth_service.dart';
 import 'firebase_options.dart';
@@ -28,10 +29,19 @@ bool get kUsesFirebase => kBackend == 'firestore';
 Future<void> initBackend() async {
   if (!kUsesFirebase) return;
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Before runApp: the auth gate reads the stream on the first frame, and the
+  // restored session must already be on its way by then.
+  await configureAuthPersistence();
 }
 
 final authServiceProvider = Provider<AuthService>((ref) {
-  if (!kUsesFirebase) return FakeAuthService();
+  // The memory backend has no accounts, so the pre-filled form would bounce off
+  // `user-not-found`. Seed the same credentials it offers.
+  if (!kUsesFirebase) {
+    return FakeAuthService(
+      accounts: kDevPrefill ? {kDevEmail: kDevPassword} : null,
+    );
+  }
   return FirebaseAuthService();
 });
 
