@@ -2,16 +2,19 @@
 
 ⚪ not started · 🔵 in progress · 🟡 thin/stubbed · 🟢 done · 🔴 broken
 
-**Now:** M0 · step 3 — `Document` model + artboard
+**Now:** M0 · step 4 — one `PathNode` from a 3-click tool (F4.1 thin)
 
 | M | Feature | S |
 |---|---|---|
 | **M0** | Repo skeleton, `anim_core` + `anim_render` packages | 🟢 |
 | | Boundary check + CI (format·analyze·test·boundaries·build) | 🟢 |
 | | F12.1 Public web build on a URL | 🟡 builds; deploy parked |
-| | F10.0 Auth — email/password only | 🟡 **needs console toggle** ↓ |
+| | F10.0 Auth — email/password only | 🟢 |
 | | F10.1 `ProjectStore` seam + Firestore/Memory impls | 🟢 |
-| | F1.1 Artboard · F1.2 `Document` id/`schemaVersion`/`rev` | ⚪ |
+| | Light/dark theme (dark default) · sign-out confirm | 🟢 |
+| | F1.1 Artboard · F1.2 `Document` id/`schemaVersion`/`rev` | 🟢 |
+| | `Affine`/`Transform2` + decompose · forward-compat passthrough | 🟢 |
+| | New/delete project — real `Document` saved and decoded back | 🟢 |
 | | F4.1 Path creation *(thin: 3 clicks)* | ⚪ |
 | | F6.1 Tracks *(thin: 2 keys)* · F9.2 8 named stages *(6 no-op)* | ⚪ |
 | **M1** | F10.2 Save/load round-trip · strict decoder | ⚪ |
@@ -31,7 +34,5 @@
 | M10-14 | Go service · Postgres · `BACKEND=api` · `rev` concurrency · history | ⚪ |
 
 ★ = the load-bearing feature. Best stopping points if this pauses: **M5** (irreplaceable work done) or **M9** (v1).
-
-**Blocked on you:** Firebase console → Authentication → Sign-in method → enable **Email/Password**. Until then sign-up returns `operation-not-allowed`.
 
 Detail: [v3/03_features.md](v3/03_features.md) · [v3/06_roadmap.md](v3/06_roadmap.md) · isolation rules: [v3/08_feature_isolation.md](v3/08_feature_isolation.md)

@@ -7,7 +7,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ">=3.2.0 <4.0.0"
+  sdk: ">=3.3.0 <4.0.0"   # 3.3 is where extension types (NodeId, AnchorId) went stable
   flutter: ">=3.10.0"
 
 dependencies:

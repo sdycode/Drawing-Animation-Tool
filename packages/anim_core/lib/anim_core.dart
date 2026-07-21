@@ -6,8 +6,15 @@
 /// **Boundary rule (docs/v3/04 §1):** nothing in this package may import
 /// `dart:ui`, `package:flutter/*`, `cloud_firestore`, or `http`. Persistence
 /// reaches the domain only through `ProjectStore` (String in / String out),
-/// which lives in the app, not here.
+/// which lives in the app, not here. `boundary_test.dart` enforces it.
 library;
+
+export 'src/affine.dart';
+export 'src/document.dart';
+export 'src/json.dart' show d, i;
+export 'src/node.dart';
+export 'src/primitives.dart';
+export 'src/uuid.dart';
 
 /// The wire-format version this build reads and writes.
 ///
