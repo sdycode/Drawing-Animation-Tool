@@ -9,3 +9,6 @@
 library;
 
 export 'package:anim_core/anim_core.dart' show kSchemaVersion;
+
+export 'src/document_painter.dart';
+export 'src/path_geometry.dart';

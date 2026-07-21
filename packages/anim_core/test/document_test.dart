@@ -192,12 +192,32 @@ void main() {
       expect(node.toJson(), bone);
     });
 
-    test('a "path" node is preserved until PathNode exists', () {
-      // Paths become a typed node with the pen tool. Until then the same
-      // forward-compat mechanism carries them, so nothing written by a later
-      // build is lost in the interim.
-      final path = <String, Object?>{
+    test('an unclaimed node key survives on a typed node', () {
+      // `recipe` is a real spec'd field with no Dart type until the shape tools
+      // (M3). It rides through unknownKeys on a fully typed PathNode, so a
+      // rectangle authored by a later build stays re-editable rather than being
+      // flattened into anonymous anchors by this one.
+      final recipe = <String, Object?>{
+        'type': 'rect',
+        'w': 40.0,
+        'h': 40.0,
+        'cornerRadius': 0.0,
+      };
+      final node = Node.fromJson(<String, Object?>{
         'type': 'path',
+        'id': 'n-rect',
+        'name': 'Square',
+        'path': <String, Object?>{'closed': true, 'anchors': <Object?>[]},
+        'recipe': recipe,
+      });
+
+      expect(node, isA<PathNode>());
+      expect(node.toJson()['recipe'], recipe);
+    });
+
+    test('an unrecognised node type is still preserved', () {
+      final path = <String, Object?>{
+        'type': 'lathe',
         'id': 'n-sig',
         'name': 'Signature',
         'path': <String, Object?>{'closed': false, 'anchors': <Object?>[]},

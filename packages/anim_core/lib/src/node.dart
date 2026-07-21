@@ -3,6 +3,8 @@ library;
 
 import 'affine.dart';
 import 'json.dart';
+import 'paint.dart';
+import 'path.dart';
 import 'primitives.dart';
 
 sealed class Node {
@@ -58,6 +60,7 @@ sealed class Node {
     final type = m['type'] as String;
     return switch (type) {
       'group' => GroupNode.fromJson(m),
+      'path' => PathNode.fromJson(m),
       _ => UnknownNode.fromJson(m),
     };
   }
@@ -159,6 +162,108 @@ final class GroupNode extends Node {
       );
 }
 
+/// The only leaf in v1.
+final class PathNode extends Node {
+  const PathNode({
+    required super.id,
+    required super.name,
+    required this.path,
+    this.fills = const [],
+    this.strokes = const [],
+    this.trim = PathTrim.full,
+    super.transform,
+    super.opacity,
+    super.visible,
+    super.locked,
+    super.unknownKeys,
+  });
+
+  /// **Authoritative** topology and rest pose. Keyframes pose these anchors by
+  /// id; they never restate which anchors exist.
+  final PathData path;
+
+  /// Painted in list order, first is bottom. The v1 UI exposes 0 or 1 of each,
+  /// but they are lists from day one so multi-paint is additive.
+  final List<Fill> fills;
+
+  /// Painted after all fills.
+  final List<Stroke> strokes;
+
+  final PathTrim trim;
+
+  /// `recipe` is deliberately **not** claimed here.
+  ///
+  /// `ShapeRecipe` is inert re-edit metadata that arrives with the shape tools
+  /// (M3). Leaving the key unclaimed routes it through [unknownKeys], so a
+  /// rectangle authored by a later build stays re-editable instead of being
+  /// flattened into anonymous anchors by this one.
+  static const _own = {'path', 'fills', 'strokes', 'trim'};
+
+  factory PathNode.fromJson(Map<String, Object?> m) {
+    final c = Node._common(m);
+    return PathNode(
+      id: NodeId(c['id']! as String),
+      name: c['name']! as String,
+      transform: c['transform']! as Transform2,
+      opacity: c['opacity']! as double,
+      visible: c['visible']! as bool,
+      locked: c['locked']! as bool,
+      path: PathData.fromJson(m['path']),
+      fills: opt(
+        m,
+        'fills',
+        (v) => (v! as List<Object?>).map(Fill.fromJson).toList(growable: false),
+        const <Fill>[],
+      ),
+      strokes: opt(
+        m,
+        'strokes',
+        (v) =>
+            (v! as List<Object?>).map(Stroke.fromJson).toList(growable: false),
+        const <Stroke>[],
+      ),
+      trim: opt(m, 'trim', PathTrim.fromJson, PathTrim.full),
+      unknownKeys: unknownKeysOf(m, {...Node.commonKeys, ..._own}),
+    );
+  }
+
+  @override
+  Map<String, Object?> toJson() => withUnknown(unknownKeys, {
+        ..._commonJson('path'),
+        'path': path.toJson(),
+        'fills': fills.map((f) => f.toJson()).toList(growable: false),
+        'strokes': strokes.map((s) => s.toJson()).toList(growable: false),
+        // Omitted when full, per docs/v3/02 §3.6 — the common case writes no
+        // trim key at all.
+        if (!trim.isFull) 'trim': trim.toJson(),
+      });
+
+  PathNode copyWith({
+    String? name,
+    PathData? path,
+    List<Fill>? fills,
+    List<Stroke>? strokes,
+    PathTrim? trim,
+    Transform2? transform,
+    double? opacity,
+    bool? visible,
+    bool? locked,
+  }) =>
+      PathNode(
+        id: id,
+        name: name ?? this.name,
+        path: path ?? this.path,
+        fills: fills ?? this.fills,
+        strokes: strokes ?? this.strokes,
+        trim: trim ?? this.trim,
+        transform: transform ?? this.transform,
+        opacity: opacity ?? this.opacity,
+        visible: visible ?? this.visible,
+        locked: locked ?? this.locked,
+        unknownKeys: unknownKeys,
+      );
+}
+
 /// Forward compatibility, **not a feature**.
 ///
 /// A decoder meeting an unrecognised node `type` keeps the raw JSON and
@@ -166,11 +271,6 @@ final class GroupNode extends Node {
 /// hit-testable. Without it, a v1 client opening a v2 document (bones,
 /// instancing) from Firestore silently destroys it on the next autosave — and
 /// autosave means the user never even sees it happen.
-///
-/// At this milestone `"path"` also lands here, because [PathNode] does not
-/// exist yet. That is the mechanism working as designed rather than a special
-/// case: nothing is lost, and the node becomes typed the moment the pen tool
-/// lands. `node_test.dart` pins that.
 final class UnknownNode extends Node {
   const UnknownNode({
     required super.id,

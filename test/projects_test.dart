@@ -20,9 +20,14 @@ void main() {
   late FakeAuthService auth;
   late MemoryProjectStore store;
 
+  /// What the shell would navigate to. The list itself must not know how — a
+  /// feature reaching into a sibling feature is what check_boundaries rejects.
+  late List<String> opened;
+
   setUp(() {
     auth = FakeAuthService();
     store = MemoryProjectStore();
+    opened = <String>[];
   });
   tearDown(() => auth.dispose());
 
@@ -31,7 +36,9 @@ void main() {
           authServiceProvider.overrideWithValue(auth),
           projectStoreProvider.overrideWithValue(store),
         ],
-        child: const MaterialApp(home: ProjectListScreen()),
+        child: MaterialApp(
+          home: ProjectListScreen(onOpen: opened.add),
+        ),
       );
 
   Future<void> createProject(WidgetTester tester, String name) async {
@@ -80,8 +87,7 @@ void main() {
         reason: 'legacy derived ids from a name and collided across samples');
   });
 
-  testWidgets('tapping a project decodes it back out of the store',
-      (tester) async {
+  testWidgets('tapping a project asks the shell to open it', (tester) async {
     await tester.pumpWidget(harness());
     await tester.pumpAndSettle();
     await createProject(tester, 'Round Trip');
@@ -89,10 +95,9 @@ void main() {
     await tester.tap(find.text('Round Trip'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('document-info')), findsOneWidget);
-    expect(find.text('schemaVersion 3'), findsOneWidget);
-    expect(find.text('artboard 450.2 × 250.4'), findsOneWidget);
-    expect(find.text('1 node(s)'), findsOneWidget);
+    // The list reports *which* project; routing to the editor is the shell's
+    // job, so this feature stays deletable without touching the other one.
+    expect(opened, [(await store.list()).single.id]);
   });
 
   testWidgets('deleting returns the list to empty', (tester) async {
@@ -116,24 +121,6 @@ void main() {
     await createProject(tester, 'Offline');
 
     expect(find.text(StoreFailure.network.message), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('corrupt stored bytes report as corrupt, not as a crash',
-      (tester) async {
-    // The failure this guards: a half-written or foreign document must not take
-    // the screen down. `load` converts anything undecodable into a typed
-    // StoreException so the UI has something real to say.
-    store = MemoryProjectStore({'p-1': '{"not":"a document"}'});
-
-    await tester.pumpWidget(harness());
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Untitled'));
-    await tester.pumpAndSettle();
-
-    expect(find.text(StoreFailure.corrupt.message), findsOneWidget);
-    expect(find.byKey(const Key('document-info')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

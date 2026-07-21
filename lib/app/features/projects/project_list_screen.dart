@@ -111,7 +111,15 @@ class _NewProjectDialogState extends State<_NewProjectDialog> {
 /// `Document` is created, encoded, stored, listed, and decoded again. Cards,
 /// open, rename, import and samples arrive with F11 at M8.
 class ProjectListScreen extends ConsumerWidget {
-  const ProjectListScreen({super.key});
+  const ProjectListScreen({required this.onOpen, super.key});
+
+  /// Where "open this project" goes.
+  ///
+  /// A callback rather than a `Navigator.push` to `EditorScreen`, because a
+  /// feature importing a sibling feature is exactly what `check_boundaries`
+  /// rejects (docs/v3/08 §3). Composition lives in `app_shell.dart`, so
+  /// deleting the editor stays one line there plus one folder.
+  final void Function(String projectId) onOpen;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -189,11 +197,7 @@ class ProjectListScreen extends ConsumerWidget {
                     title: Text(p.name),
                     subtitle: Text('rev ${p.rev}',
                         style: const TextStyle(fontSize: 11)),
-                    // Opening needs an editor (M2). Until then, decoding the
-                    // stored bytes back into a `Document` is the thing worth
-                    // proving — "it saved" and "it is still readable" are not
-                    // the same claim.
-                    onTap: () => _showDocumentInfo(context, ref, p.id),
+                    onTap: () => onOpen(p.id),
                     trailing: IconButton(
                       tooltip: 'Delete',
                       icon: const Icon(Icons.delete_outline, size: 18),
@@ -221,54 +225,6 @@ class ProjectListScreen extends ConsumerWidget {
         label: const Text('New project'),
       ),
     );
-  }
-}
-
-/// Temporary M0 scaffolding: reads a project back through the seam, decodes it,
-/// and shows what came out. Deleted the moment the editor can open one.
-Future<void> _showDocumentInfo(
-    BuildContext context, WidgetRef ref, String id) async {
-  try {
-    final doc = await ref.read(projectActionsProvider).load(id);
-    if (!context.mounted) return;
-    if (doc == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(StoreFailure.notFound.message)),
-      );
-      return;
-    }
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        key: const Key('document-info'),
-        title: Text(doc.name),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('schemaVersion ${doc.schemaVersion}'),
-            Text('rev ${doc.rev}'),
-            Text('artboard ${doc.artboard.x} × ${doc.artboard.y}'),
-            Text('${doc.nodeIndex.length} node(s)'),
-            if (doc.isReadOnly)
-              const Text(
-                'Written by a newer build — read-only.',
-                style: TextStyle(fontSize: 12),
-              ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  } on StoreException catch (e) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(e.failure.message)));
   }
 }
 

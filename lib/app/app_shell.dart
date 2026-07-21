@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'common/theme.dart';
 import 'data/providers.dart';
 import 'features/auth/sign_in_screen.dart';
+import 'features/editor/editor_screen.dart';
 import 'features/projects/project_list_screen.dart';
 
 /// The one file that composes panels (docs/v3/08 §3).
@@ -41,9 +42,23 @@ class _AuthGate extends ConsumerWidget {
     return ref.watch(authStateProvider).when(
           loading: () => const _Splash(),
           error: (e, _) => _Splash(message: 'Sign-in unavailable: $e'),
-          data: (user) =>
-              user == null ? const SignInScreen() : const ProjectListScreen(),
+          data: (user) => user == null
+              ? const SignInScreen()
+              : ProjectListScreen(onOpen: (id) => _openEditor(context, id)),
         );
+  }
+
+  /// The only place the projects feature and the editor feature meet.
+  ///
+  /// Neither imports the other — `check_boundaries` rejects that — so removing
+  /// the editor is this method plus one folder, and the compiler finds every
+  /// loose end.
+  static void _openEditor(BuildContext context, String projectId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EditorScreen(projectId: projectId),
+      ),
+    );
   }
 }
 

@@ -13,6 +13,8 @@ export 'src/affine.dart';
 export 'src/document.dart';
 export 'src/json.dart' show d, i;
 export 'src/node.dart';
+export 'src/paint.dart';
+export 'src/path.dart';
 export 'src/primitives.dart';
 export 'src/uuid.dart';
 

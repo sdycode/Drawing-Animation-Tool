@@ -2,7 +2,7 @@
 
 ⚪ not started · 🔵 in progress · 🟡 thin/stubbed · 🟢 done · 🔴 broken
 
-**Now:** M0 · step 4 — one `PathNode` from a 3-click tool (F4.1 thin)
+**Now:** M0 · step 5 — one `PathTrack` with 2 keyframes + playhead scrub (F6.1 thin)
 
 | M | Feature | S |
 |---|---|---|
@@ -15,7 +15,9 @@
 | | F1.1 Artboard · F1.2 `Document` id/`schemaVersion`/`rev` | 🟢 |
 | | `Affine`/`Transform2` + decompose · forward-compat passthrough | 🟢 |
 | | New/delete project — real `Document` saved and decoded back | 🟢 |
-| | F4.1 Path creation *(thin: 3 clicks)* | ⚪ |
+| | F4.1 Path creation *(thin: 3 clicks)* · `PathData`/`Anchor` | 🟢 |
+| | F5.1 Solid fill & stroke *(model + renderer; no paint UI)* | 🟡 |
+| | `DocumentPainter` + `artboardFit` — editor opens and draws | 🟢 |
 | | F6.1 Tracks *(thin: 2 keys)* · F9.2 8 named stages *(6 no-op)* | ⚪ |
 | **M1** | F10.2 Save/load round-trip · strict decoder | ⚪ |
 | | CI gate: round-trip ×8 fixtures + golden 450.2×250.4 | ⚪ |
