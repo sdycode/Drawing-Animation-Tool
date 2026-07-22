@@ -282,6 +282,8 @@ void main() {
         document: doc,
         playhead: playhead,
         animation: null,
+        fit: artboardFit(doc.artboard, const ui.Size(200, 200)),
+        mode: RenderMode.editor,
       );
 
       _record((canvas) => painter.paint(canvas, const ui.Size(200, 200)));
@@ -298,12 +300,25 @@ void main() {
       // 114 anchors to avoid a cheap paint is backwards.
       final b = docWith(pathNode());
 
-      final p1 =
-          ArtboardPainter(document: a, playhead: playhead, animation: null);
-      final p2 =
-          ArtboardPainter(document: a, playhead: playhead, animation: null);
-      final p3 =
-          ArtboardPainter(document: b, playhead: playhead, animation: null);
+      const fit = Affine.identity;
+      final p1 = ArtboardPainter(
+          document: a,
+          playhead: playhead,
+          animation: null,
+          fit: fit,
+          mode: RenderMode.editor);
+      final p2 = ArtboardPainter(
+          document: a,
+          playhead: playhead,
+          animation: null,
+          fit: fit,
+          mode: RenderMode.editor);
+      final p3 = ArtboardPainter(
+          document: b,
+          playhead: playhead,
+          animation: null,
+          fit: fit,
+          mode: RenderMode.editor);
 
       expect(p2.shouldRepaint(p1), isFalse);
       expect(p3.shouldRepaint(p1), isTrue);
@@ -320,6 +335,8 @@ void main() {
         document: docWith(pathNode()),
         playhead: playhead,
         animation: null,
+        fit: Affine.identity,
+        mode: RenderMode.editor,
       );
 
       var repaints = 0;
@@ -357,6 +374,8 @@ void main() {
         anchorBorder: const Color(0xFF000000),
         pendingColor: const Color(0xFFFFAB40),
         pending: const [Vec2(5, 5)],
+        fit: artboardFit(doc.artboard, const ui.Size(200, 200)),
+        mode: RenderMode.editor,
       );
 
       _record((canvas) => painter.paint(canvas, const ui.Size(200, 200)));
@@ -383,6 +402,8 @@ void main() {
         anchorBorder: const Color(0xFF000000),
         pendingColor: const Color(0xFFFFAB40),
         selected: {const NodeId('deleted-by-undo')},
+        fit: artboardFit(doc.artboard, const ui.Size(200, 200)),
+        mode: RenderMode.editor,
       );
 
       _record((canvas) => painter.paint(canvas, const ui.Size(200, 200)));

@@ -23,9 +23,24 @@ class BackgroundPainter extends CustomPainter {
     required this.artboard,
     required this.background,
     required this.edge,
+    required this.fit,
   });
 
   final Vec2 artboard;
+
+  /// The composed `viewport ∘ artboardFit` the canvas built once (docs/v3/05 §3).
+  ///
+  /// **Required, and never null.** It was optional, and each of the three
+  /// painters then fell back to its own `artboardFit(...)` — three places that
+  /// could build a document→screen mapping, so passing `fit:` to two of them and
+  /// forgetting the third produced one silently un-panned layer with no compile
+  /// error and no failing test. One mapping, one source (AC-3.1.4).
+  ///
+  /// There is no `mode` here on purpose: this layer draws the board rect and
+  /// nothing else, so clipping it to the board is a no-op. The clip decision
+  /// belongs to the two layers that can draw *outside* the board — see
+  /// [RenderMode].
+  final Affine fit;
 
   /// The document's authored background. Fully transparent is legal and means
   /// "draw the edge only", which is how an exported PNG keeps its alpha.
@@ -40,10 +55,9 @@ class BackgroundPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // The same [artboardFit] the artboard painter and hit-testing use.
+    // The same composed matrix the artboard painter and hit-testing use.
     // Computing the fit twice is how a click lands where the shape is not, and
     // it is also how the background ends up one pixel off the geometry.
-    final fit = artboardFit(artboard, size);
     final board = Rect.fromPoints(
       _offset(fit.apply(Vec2.zero)),
       _offset(fit.apply(artboard)),
@@ -70,5 +84,6 @@ class BackgroundPainter extends CustomPainter {
   bool shouldRepaint(BackgroundPainter old) =>
       old.artboard != artboard ||
       old.background != background ||
-      old.edge != edge;
+      old.edge != edge ||
+      old.fit != fit; // a pan/zoom moves the board without touching the doc
 }

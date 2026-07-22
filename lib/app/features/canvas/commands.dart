@@ -28,6 +28,23 @@ import '../../state/document_controller.dart';
 /// the user gets a sentence and keeps their document instead of a red screen.
 const String kRejectedEditMessage = 'That edit could not be applied.';
 
+/// The message shown when the canvas **declines** to move a node.
+///
+/// A node whose position / rotation / scale is driven by a track in the active
+/// animation reads its transform from that track at every `t`, so the static
+/// `Transform2` a canvas drag writes would be masked: the shape would not
+/// follow the pointer, and the release would still record an undo entry and bump
+/// `rev` for a change nobody can see.
+///
+/// A refusal, not an `assert`: a document carrying transform tracks is a legal
+/// document, and `assert(false, …)` is for programming errors, not for user data
+/// (docs/v3/08 §1). Keyframing the move at the playhead is the M4 answer
+/// (docs/v3/05 §3, Select row); until then the user gets a sentence instead of a
+/// silent no-op.
+const String kAnimatedTransformMessage =
+    'This layer’s transform is animated — move it by keyframing it, not by '
+    'dragging.';
+
 final class CanvasCommands {
   const CanvasCommands(this._ref, this._projectId);
 
@@ -92,6 +109,15 @@ final class CanvasCommands {
     required double? atT,
   }) {
     return _guard(() => _controller.moveAnchorAt(node, anchor, to, atT: atT));
+  }
+
+  /// **One** command per node move, on drag *end* — the Select tool's move
+  /// (docs/v3/05 §3, F3.1). The live drag is a private field of the canvas and
+  /// only the released transform reaches here, so the whole gesture is a single
+  /// undo entry (docs/v3/04 §6). The reparent/duplicate exit criterion's "undo
+  /// as one entry" is the same shape.
+  Future<String?> setTransform(NodeId node, Transform2 transform) {
+    return _guard(() => _controller.setTransform(node, transform));
   }
 
   /// The one catch site.

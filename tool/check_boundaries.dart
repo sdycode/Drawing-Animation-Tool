@@ -56,6 +56,132 @@ bool _leaksAnimation(String combinators) {
   return true;
 }
 
+/// Directory names that mean "I could not think where this goes".
+///
+/// `common/` is deliberately absent: docs/v3/08 §3 sanctions it by name for
+/// shared leaf widgets, and rule 3 already stops it depending on a feature.
+const _grabBagNames = <String>{
+  'utils',
+  'util',
+  'helpers',
+  'helper',
+  'widgets',
+  'shared',
+  'misc',
+  'core',
+};
+
+/// `features/<name>/widgets/` — the ONE sanctioned use of a banned name.
+///
+/// docs/v3/08 §3's directory law spells a feature as
+/// `canvas/ { widgets/, providers.dart, commands.dart }`, so a feature's own
+/// `widgets/` is the law, not a grab-bag: it is scoped to one feature, and rule
+/// 2 already stops anything else importing it. `features/canvas/utils/` is NOT
+/// exempt — a private grab-bag is still a grab-bag.
+final _featureWidgetsRe = RegExp(r'^lib/app/features/[^/]+/widgets(/|$)');
+
+/// The grab-bag directory [path] sits in, or null.
+///
+/// Matches on any path SEGMENT under `lib/`, not on a fixed prefix. The earlier
+/// rule was a literal `^lib/app/(utils|helpers|widgets)/`, which meant
+/// `lib/app/util/`, `lib/app/shared/`, `lib/utils/` and `lib/app/canvas/utils/`
+/// all sailed through — the antipattern was preventable only under three exact
+/// spellings.
+String? _grabBagDir(String path) {
+  if (!path.startsWith('lib/')) return null;
+  if (_featureWidgetsRe.hasMatch(path)) return null;
+  for (final segment in path.split('/')) {
+    if (_grabBagNames.contains(segment)) return segment;
+  }
+  return null;
+}
+
+/// Grab-bags flagged by EXISTING, not merely by being imported.
+///
+/// An empty or not-yet-imported `lib/app/utils/` is still the beginning of the
+/// shared mutable surface docs/v3/08 §4 names; catching it on creation is the
+/// difference between deleting one file and unpicking twenty call sites.
+List<String> _grabBagDirectories() {
+  final out = <String>[];
+  final lib = Directory('lib');
+  if (!lib.existsSync()) return out;
+  for (final entity in lib.listSync(recursive: true)) {
+    if (entity is! Directory) continue;
+    final path = entity.path.replaceFirst('${Directory.current.path}/', '');
+    final name = _grabBagDir(path);
+    if (name == null || path.split('/').last != name) continue;
+    out.add('$path/\n    -> grab-bag: a "$name" directory is where shared '
+        'mutable surface starts; shared code moves DOWN into anim_core, never '
+        'sideways (docs/v3/08 §3, §4)');
+  }
+  return out;
+}
+
+/// Feature → sibling-feature edges that run THROUGH a non-feature file.
+///
+/// Rule 2 compares one importer against one target, so it cannot see
+/// `features/canvas → state/x.dart → features/tools/y.dart`. That laundered
+/// edge is what docs/v3/08 §5's kill switch actually depends on: if deleting
+/// `features/tools/` breaks `state/`, and `state/` is what every panel imports,
+/// then "delete the folder and the app still compiles" is false and the
+/// compiler-checked alternative to a feature-flag registry does not exist.
+///
+/// Walks the import graph from each feature file and reports the first path
+/// that lands in a different feature, with the intermediary named — a violation
+/// nobody can act on is a violation nobody fixes.
+List<String> _transitiveFeatureEdges() {
+  final edges = <String, List<String>>{};
+  final lib = Directory('lib');
+  if (!lib.existsSync()) return <String>[];
+
+  for (final entity in lib.listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.dart')) continue;
+    final path = entity.path.replaceFirst('${Directory.current.path}/', '');
+    final dir = File(path).parent.path;
+    final targets = <String>[];
+    for (final match in _directiveRe.allMatches(entity.readAsStringSync())) {
+      final target = _resolveTarget(dir, match.group(1)!);
+      if (target != null && target.startsWith('lib/')) targets.add(target);
+    }
+    edges[path] = targets;
+  }
+
+  final out = <String>[];
+  for (final start in edges.keys) {
+    final from = _featureOf(start);
+    if (from == null) continue;
+
+    // BFS, carrying the path so the report can name the intermediary.
+    final seen = <String>{start};
+    final queue = <List<String>>[
+      for (final t in edges[start] ?? const <String>[]) [start, t],
+    ];
+    while (queue.isNotEmpty) {
+      final trail = queue.removeAt(0);
+      final node = trail.last;
+      if (!seen.add(node)) continue;
+
+      final at = _featureOf(node);
+      if (at == from) continue; // still inside the same feature
+      if (at != null) {
+        // Direct hops are rule 2's job; only report the laundered ones.
+        if (trail.length > 2) {
+          out.add('${trail.first}\n    ${trail.join('\n      -> ')}\n'
+              '    -> transitive-feature-to-feature: reaches feature "$at" '
+              'through a non-feature file. Deleting features/$at/ would break '
+              '${trail[trail.length - 2]} and everything importing it — invert '
+              'the dependency (docs/v3/08 §3, §5)');
+        }
+        continue; // do not walk on through another feature
+      }
+      for (final next in edges[node] ?? const <String>[]) {
+        queue.add([...trail, next]);
+      }
+    }
+  }
+  return out;
+}
+
 void main() {
   final violations = <String>[];
   final importRe = _directiveRe;
@@ -136,13 +262,18 @@ void main() {
 
       // 4. anim_core is the only place shared math lives. An app-level geometry
       //    grab-bag becomes a second evaluator that disagrees with core
-      //    (docs/v3/08 §4).
-      if (RegExp(r'^lib/app/(utils|helpers|widgets)/').hasMatch(target)) {
+      //    (docs/v3/08 §4). Existence is checked separately below — this catches
+      //    the import even if the directory itself somehow passes.
+      if (_grabBagDir(target) != null) {
         flag('grab-bag',
-            'no app-level utils/helpers/widgets bag; shared code moves down into anim_core');
+            'no app-level ${_grabBagDir(target)}/ bag; shared code moves down into anim_core');
       }
     }
   }
+
+  violations
+    ..addAll(_grabBagDirectories())
+    ..addAll(_transitiveFeatureEdges());
 
   if (violations.isEmpty) {
     stdout.writeln('boundaries ok');

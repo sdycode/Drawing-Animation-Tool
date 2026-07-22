@@ -422,6 +422,34 @@ Dart wins on every engineering axis and is rejected anyway. The **entire purpose
 
 ---
 
+## ADR-018 — Viewport pan/zoom is built in M2, as ephemeral state through the one `Affine`
+
+**Status:** Accepted
+
+**Context.** The viewport was **specified but never scheduled**. `EditorState.viewportTransform` is declared in [01 §12](01_domain_model.md), [04 §5](04_architecture.md) says hit-testing inverts *that same matrix*, and [05 §3](05_ux_flows.md) defines Pan (hold `Space`, or middle-drag) and Zoom (`Cmd/Ctrl`+scroll, `Cmd/Ctrl +/-/0/1`) as tools that "mutate via: **Nothing. Ephemeral only.**" No milestone in [06](06_roadmap.md) contained the feature. The gap surfaced the way gaps do — the owner opened the editor, could not move the board, and asked why. It was recorded as an open roadmap question rather than a defect, because the type existed and the work did not.
+
+**Decision.** Build it in **M2**, under three binding constraints:
+
+1. **One matrix.** The canvas composes `viewportTransform ∘ artboardFit(artboard, size)` in exactly **one** place, and every painter and every hit-test uses *that* composed `Affine`. AC-3.1.4's grep — "a second matrix or a per-axis scale helper returns nothing" — covers the viewport too.
+2. **Ephemeral, always.** Pan and zoom write `EditorState.viewportTransform` and nothing else: no `Document` mutation, no `rev` bump, no undo entry, nothing persisted. Undo **never** restores the viewport ([04 §6](04_architecture.md)).
+3. **Zoom holds the cursor.** `zoomAround` composes about the pointer, so the document point under the cursor stays under it. Every viewport op composes onto the current transform; none replaces it.
+
+**Reasoning.** M2 is the milestone that makes the document a real tree, and a tree you cannot navigate is a tree you cannot inspect — building nested groups while pinned to a letterboxed fit is authoring blind. The deciding argument is cheapness of *sequencing*, not of code: M2 reworks the canvas for selection and node-move anyway, and the composed-matrix seam is one edit while that file is already open and two edits if the viewport lands later. The alternative — the pointer mapping being rebuilt a second time by someone who has forgotten which of the two matrices is authoritative — is precisely the legacy defect [01 §2](01_domain_model.md) exists to prevent, where the y component was scaled by the *width* ratio and drifted on every non-square artboard.
+
+Ephemerality is not a simplification. Persisting the camera is the same class of mistake as legacy persisting `hoverPoint` and the drawing board's screen offset: it makes a document's bytes depend on where its author happened to be looking, and AC-2.2.7 exists because those fields are what made legacy documents refuse to open.
+
+**Consequences.**
+- 06 M2's contents and exit criterion now name the viewport; the tracker's "unscheduled gap" note is closed.
+- Two defects this ADR's invariants catch, both found by M2's audit and fixed: a click while `Space` was held fell through the pan gate and **created and persisted geometry** (the camera tool authoring a shape — a direct violation of constraint 2), and `zoom100` **replaced** rather than composed the transform, so `Cmd/Ctrl+1` after a pan silently moved the focus point (a violation of constraint 3).
+- The viewport does not survive reload. Zoom in, refresh, and you are back at the artboard fit.
+- Hit-testing, the pen, the anchor drag and the node move all invert the one composed matrix captured at gesture start, so a click cannot land where the shape is not, at any zoom.
+
+**Cost.** A camera that resets on every reload is mildly annoying on a large document, and it is the predictable first request once the editor is used in anger. The honest answer is that "remember my camera" is a *per-user view preference*, not document data — it belongs beside the theme preference, never in the `Document` — and no amount of convenience justifies putting it in the file.
+
+**Rejected.** Deferring the viewport to a later milestone (pays for the canvas rework twice and leaves M2's own nested-tree work unusable by hand) · Persisting `viewportTransform` per document (AC-2.2.7; the exact legacy defect) · A separate zoom scalar or a second transform beside `artboardFit` (violates AC-3.1.4 and re-creates the per-axis drift the golden gate exists to catch) · Making the viewport undoable (04 §6 — "nothing is more disorienting than undo moving the camera").
+
+---
+
 ## Cross-links
 
 - [00_vision_and_scope.md](00_vision_and_scope.md) — v1 scope contract, the written non-goals, success criteria.

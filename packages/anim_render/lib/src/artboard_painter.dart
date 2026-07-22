@@ -70,8 +70,11 @@ void _drawNode(Canvas canvas, ResolvedNode node) {
   // A collapsed matrix draws nothing and never throws. The evaluator is total
   // (docs/v3/01 §1 rule 3) and the renderer must not reintroduce the crash the
   // evaluator was built to prevent — so this is an early return, never
-  // `invert()!` (docs/v3/08 §4, the recurring five).
-  if (!_isDrawable(node.world)) return;
+  // `invert()!` (docs/v3/08 §4, the recurring five). `isPlaceable` is the
+  // package's one definition of "this matrix can be drawn through": the overlay
+  // and the selection bounds ask the same question and must not answer it
+  // differently.
+  if (!isPlaceable(node.world)) return;
 
   if (node.fills.isEmpty && node.strokes.isEmpty) return;
 
@@ -110,21 +113,6 @@ void _drawNode(Canvas canvas, ResolvedNode node) {
   canvas.restore();
 }
 
-/// True when [m] maps area to area and carries no NaN.
-///
-/// [Affine.invert] alone is not enough: its singularity test is
-/// `determinant.abs() < 1e-12`, and every comparison against NaN is false, so a
-/// matrix full of NaNs inverts "successfully" into more NaNs. `Canvas.transform`
-/// with a NaN then poisons the whole layer, not just this node.
-bool _isDrawable(Affine m) =>
-    m.a.isFinite &&
-    m.b.isFinite &&
-    m.c.isFinite &&
-    m.d.isFinite &&
-    m.tx.isFinite &&
-    m.ty.isFinite &&
-    m.invert() != null;
-
 /// The `CustomPainter` that owns layer 2.
 ///
 /// **The playhead never enters `build()`.** It arrives as a `ValueNotifier`
@@ -146,9 +134,27 @@ class ArtboardPainter extends CustomPainter {
     required this.document,
     required this.playhead,
     required this.animation,
+    required this.fit,
+    required this.mode,
   }) : super(repaint: playhead);
 
   final Document document;
+
+  /// The composed `viewport ∘ artboardFit` the canvas built once (docs/v3/05 §3).
+  ///
+  /// **Required, and never null.** It used to be optional, with each of the
+  /// three painters falling back to its own `artboardFit(...)` — three sites
+  /// that could each build a document→screen mapping, so a caller that passed
+  /// `fit:` to two of them and forgot the third got one silently un-panned layer
+  /// with no compile error and no failing test. One mapping, one source: the
+  /// canvas computes `composedFit` once, hands the *result* to all three
+  /// painters, and inverts that same result for hit-testing (AC-3.1.4).
+  final Affine fit;
+
+  /// Editor or export preview — the one thing that decides whether the board
+  /// clips (AC-1.1.3). See [RenderMode]; the rect itself comes from
+  /// [artboardClipRect], which the overlay reads too.
+  final RenderMode mode;
 
   /// Identity is stable for the app's lifetime; only its value changes.
   final ValueNotifier<double> playhead;
@@ -168,17 +174,21 @@ class ArtboardPainter extends CustomPainter {
         : <AnimationMix>[AnimationMix(anim, _clampT(playhead.value))];
 
     final scene = evaluate(document, mix);
-    final fit = artboardFit(document.artboard, size);
 
-    // The artboard clips: geometry outside it is off-camera, and letting it
-    // paint over the surrounding chrome makes the board's edge a lie. Clipped
-    // in screen space because [artboardFit] is translate+uniform-scale only, so
-    // the board's rect maps to a rect exactly.
+    // **The editor does not clip** (AC-1.1.3): off-artboard geometry is legal,
+    // it draws, and it is selectable. Clipping it here while `hitTestScene`
+    // clips nothing and the overlay clips nothing is how a user ends up with a
+    // selection box and anchor handles floating over blank canvas around a
+    // shape they cannot see and can still drag. The export preview *does* clip,
+    // because there the board is the frame — one rect, from
+    // [artboardClipRect], shared with the overlay.
+    final clip = artboardClipRect(mode, document.artboard, fit);
+    if (clip == null) {
+      paintScene(canvas, scene, fit: fit);
+      return;
+    }
     canvas.save();
-    canvas.clipRect(Rect.fromPoints(
-      _offset(fit.apply(Vec2.zero)),
-      _offset(fit.apply(document.artboard)),
-    ));
+    canvas.clipRect(clip);
     paintScene(canvas, scene, fit: fit);
     canvas.restore();
   }
@@ -191,8 +201,6 @@ class ArtboardPainter extends CustomPainter {
   /// at the layer that has a frame to draw and a user to show it to.
   static double _clampT(double t) => t.isNaN ? 0.0 : t.clamp(0.0, 1.0);
 
-  static Offset _offset(Vec2 v) => Offset(v.x, v.y);
-
   /// Identity, never deep equality.
   ///
   /// [Document] is immutable, so a new object *is* the change signal.
@@ -204,5 +212,7 @@ class ArtboardPainter extends CustomPainter {
   bool shouldRepaint(ArtboardPainter old) =>
       !identical(old.document, document) ||
       !identical(old.playhead, playhead) ||
-      old.animation != animation;
+      old.animation != animation ||
+      old.mode != mode || // editor ↔ export preview changes the clip
+      old.fit != fit; // a pan/zoom repaints the scene without a document change
 }

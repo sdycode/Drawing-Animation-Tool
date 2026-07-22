@@ -22,6 +22,7 @@ export 'src/eval/evaluate.dart';
 export 'src/eval/scene.dart';
 export 'src/json.dart' show d, i;
 export 'src/node.dart';
+export 'src/ops/node_ops.dart';
 export 'src/ops/path_ops.dart';
 export 'src/ops/track_ops.dart';
 export 'src/paint.dart';

@@ -52,11 +52,40 @@ class OverlayPainter extends CustomPainter {
     required this.anchor,
     required this.anchorBorder,
     required this.pendingColor,
+    required this.fit,
+    required this.mode,
     this.pending = const <Vec2>[],
     this.selected = const <NodeId>{},
+    this.selectedPaths = const <ScenePath>{},
+    this.selectionColor,
   }) : super(repaint: playhead);
 
   final Document document;
+
+  /// The composed `viewport ∘ artboardFit` the canvas built once (docs/v3/05 §3).
+  ///
+  /// **Required, and never null**, for the reason the other two painters carry
+  /// verbatim: an optional `fit` meant three independent fallbacks to
+  /// `artboardFit(...)`, and forgetting one of the three produced a silently
+  /// un-panned layer with no compile error and no failing test (AC-3.1.4).
+  final Affine fit;
+
+  /// Editor or export preview. The overlay clips exactly when the geometry
+  /// layer does — same [artboardClipRect], so handles can never survive a clip
+  /// that erased the shape they belong to (AC-1.1.3).
+  final RenderMode mode;
+
+  /// The nodes the Select tool has selected, keyed by [ScenePath] (docs/v3/01
+  /// §11 — never by [NodeId], so instancing does not collide later). Each gets a
+  /// **world-space AABB outline**. This is the M2 selection affordance; authored
+  /// anchor *handles* belong to Direct-select at M3. **Resolved, never
+  /// repaired** (docs/v3/08 §2): a path whose node was deleted simply matches
+  /// nothing this frame, and undo restoring the node restores its outline for
+  /// free — nothing is scrubbed from `EditorState`.
+  final Set<ScenePath> selectedPaths;
+
+  /// The outline colour, or null to draw none (the golden-test path).
+  final Color? selectionColor;
 
   /// Same notifier the artboard painter uses, for the same reason: an anchor
   /// marker must land on the shape on the very frame the shape moves, and a
@@ -96,27 +125,49 @@ class OverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final fit = artboardFit(document.artboard, size);
     final anim = animation;
     final mix = anim == null
         ? const <AnimationMix>[]
         : <AnimationMix>[AnimationMix(anim, _clampT(playhead.value))];
 
-    final frame = composeWorldA(resolvePose(sampleTracks(document, mix)));
+    // Stages 1–3 as a `Scene`, so the selection outline can ask
+    // [selectionBounds] the very question the hit-test asks — one answer, so
+    // the box the user sees is the area that answers a click.
+    final frame =
+        composeWorldA(resolvePose(sampleTracks(document, mix))).toScene();
+
+    // The editor clips nothing (AC-1.1.3); the export preview clips to the same
+    // rect the geometry layer does. The clip wraps the whole overlay, so a
+    // handle can never outlive the shape it belongs to.
+    final clip = artboardClipRect(mode, document.artboard, fit);
+    if (clip != null) {
+      canvas.save();
+      canvas.clipRect(clip);
+    }
 
     final fillPaint = Paint()..color = anchor;
     final borderPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
       ..color = anchorBorder;
+    final outlineColor = selectionColor;
+    final outlinePaint = outlineColor == null
+        ? null
+        : (Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = outlineColor);
 
     // Per item, inside the loop — same rule as the artboard painter. A node
     // whose handles cannot be placed loses its handles, not the whole overlay,
     // and certainly not the artboard underneath it.
-    for (final node in frame.nodes) {
+    for (final node in frame.drawOrder) {
       final depth = canvas.getSaveCount();
       try {
-        _drawHandles(canvas, node, fit, fillPaint, borderPaint);
+        _drawHandles(canvas, node, fillPaint, borderPaint);
+        if (outlinePaint != null && selectedPaths.contains(node.path)) {
+          _drawSelection(canvas, frame, node, outlinePaint);
+        }
       } catch (error, stack) {
         canvas.restoreToCount(depth);
         final watched = RenderFaults.report(RenderFault(
@@ -137,12 +188,45 @@ class OverlayPainter extends CustomPainter {
         Paint()..color = pendingColor,
       );
     }
+
+    if (clip != null) canvas.restore();
+  }
+
+  /// The selected node's **world-space AABB**, stroked in screen space.
+  ///
+  /// The box comes from [selectionBounds] — the same function `hitTestScene`
+  /// uses — so the outline the user sees is exactly the region that answers a
+  /// click. Two independent bounds is how an outline ends up somewhere the node
+  /// is not, and it is why a **group** gets an outline here at all: it has no
+  /// geometry of its own, so its box is the union of its descendants'. A group
+  /// that could be selected in the layers panel but showed nothing on the canvas
+  /// and could not be dragged made the tree's own container nodes second-class.
+  ///
+  /// The bound is axis-aligned in *world* space (so a rotated node gets an
+  /// upright box around where it actually is), then mapped to screen through the
+  /// composed [fit].
+  void _drawSelection(
+    Canvas canvas,
+    Scene frame,
+    ResolvedNode node,
+    Paint outlinePaint,
+  ) {
+    if (node.path.nodeId == document.root.id) return; // the root is not a node
+    final bounds = selectionBounds(frame, document, node.path);
+    if (bounds == null) return; // an empty group encloses nothing to outline
+
+    canvas.drawRect(
+      Rect.fromPoints(
+        _offset(fit.apply(Vec2(bounds.left, bounds.top))),
+        _offset(fit.apply(Vec2(bounds.right, bounds.bottom))),
+      ),
+      outlinePaint,
+    );
   }
 
   void _drawHandles(
     Canvas canvas,
     ResolvedNode node,
-    Affine fit,
     Paint fillPaint,
     Paint borderPaint,
   ) {
@@ -152,8 +236,10 @@ class OverlayPainter extends CustomPainter {
 
     // Early return, never `invert()!` (docs/v3/08 §4). A node collapsed to a
     // point has no meaningful handle positions; drawing them all stacked at the
-    // origin would invite a drag that means nothing.
-    if (!_isPlaceable(node.world)) return;
+    // origin would invite a drag that means nothing. `isPlaceable` is the
+    // package's one definition of that question — the geometry layer and the
+    // selection bounds ask it too, and three copies could drift.
+    if (!isPlaceable(node.world)) return;
 
     final toScreen = fit.mul(node.world);
     for (final a in geometry.anchors) {
@@ -163,15 +249,6 @@ class OverlayPainter extends CustomPainter {
       canvas.drawCircle(at, anchorRadius, borderPaint);
     }
   }
-
-  static bool _isPlaceable(Affine m) =>
-      m.a.isFinite &&
-      m.b.isFinite &&
-      m.c.isFinite &&
-      m.d.isFinite &&
-      m.tx.isFinite &&
-      m.ty.isFinite &&
-      m.invert() != null;
 
   static double _clampT(double t) => t.isNaN ? 0.0 : t.clamp(0.0, 1.0);
 
@@ -191,6 +268,10 @@ class OverlayPainter extends CustomPainter {
       old.anchor != anchor ||
       old.anchorBorder != anchorBorder ||
       old.pendingColor != pendingColor ||
+      old.selectionColor != selectionColor ||
+      old.mode != mode || // editor ↔ export preview changes the clip
+      old.fit != fit ||
       !setEquals(old.selected, selected) ||
+      !setEquals(old.selectedPaths, selectedPaths) ||
       !listEquals(old.pending, pending);
 }

@@ -1,96 +1,336 @@
 import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'common/theme.dart';
 import 'data/project_store.dart';
 import 'features/canvas/widgets/canvas_view.dart';
+import 'features/inspector/widgets/inspector_panel.dart';
+import 'features/layers/commands.dart';
+import 'features/layers/providers.dart';
+import 'features/layers/widgets/layers_panel.dart';
 import 'features/timeline/widgets/timeline_bar.dart';
 import 'state/document_controller.dart';
+import 'state/editor_controller.dart';
 
 /// Screen 2 — the editor (docs/v3/05 §2).
 ///
-/// **This file is not a feature, and that is the point.** `canvas` and
-/// `timeline` may not import each other (`tool/check_boundaries.dart` rejects
-/// it), so the file that composes them has to sit one level up. Deleting the
-/// timeline is one import and one folder, and the compiler finds every loose
-/// end — the kill switch docs/v3/08 §5 prefers over a feature-flag registry.
+/// **This file is not a feature, and that is the point.** The panels — canvas,
+/// layers, inspector, timeline — may not import one another
+/// (`tool/check_boundaries.dart` rejects it), so the one file that *composes*
+/// them sits a level up. Deleting a panel is one import and one folder here, and
+/// the compiler finds every loose end — the kill switch docs/v3/08 §5 prefers
+/// over a feature-flag registry. The same reasoning puts the **global keyboard
+/// shortcuts** here (docs/v3/05 §5): `Cmd/Ctrl+Z`, `Cmd/Ctrl+G` and
+/// `Cmd/Ctrl+D` must fire while the pointer is on the canvas, so they cannot
+/// live inside the panel that owns the command — the shell is the only scope
+/// that contains every panel.
 ///
-/// It is also the only place in the editor that touches the whole
-/// `AsyncValue<Document>`. Panels read named slices from their own
-/// `providers.dart`; the shell reads the async wrapper so it can render
-/// loading and error *states* rather than pushing that decision into every
-/// panel — and it consumes it with `.when`, never `.requireValue`, because a
+/// **The docs/v3/05 §2 layout:** a left LAYERS rail, the centre CANVAS, a right
+/// INSPECTOR rail, and the TIMELINE below. **Every panel gets explicit
+/// constraints from its parent** — fixed-width side rails, an `Expanded` canvas,
+/// a fixed-height timeline (docs/v3/08 §2, last row). An unconstrained slot is
+/// what makes the fallback `ErrorWidget` throw a *second* time during layout, and
+/// that second throw is the white screen; a dead panel here leaves the rest of
+/// the editor usable.
+///
+/// **The shell no longer hands the document down.** It is still the only place
+/// that touches the whole `AsyncValue<Document>` — but only in the *chrome*
+/// (title, rev, undo/redo), which is allowed to rebuild once per commit because
+/// that is what it is displaying. The body is reached through a slice that
+/// projects the async wrapper to a **phase**, so an ordinary document emission
+/// compares equal and stops there. Handing `document` to an inline
+/// `_EditorBody` (as this file used to) re-created `LayersPanel`,
+/// `InspectorPanel`, `TimelineBar` and `CanvasView` on **every** commit —
+/// none can be `const`, `projectId` being a runtime value — and a widget whose
+/// parent rebuilt rebuilds regardless of how carefully its own `.select` slices
+/// refuse to notify. That is docs/v3/08 §2's "an anchor commit rebuilding
+/// layers + inspector + timeline", verbatim, and it fired once per keystroke
+/// committed in the inspector.
+///
+/// The async wrapper is consumed with `.when`, never `.requireValue`, because a
 /// `.requireValue` on the first frame throws at every `ref.watch` and takes the
 /// tree with it (docs/v3/08 §2).
-class EditorShell extends ConsumerWidget {
+class EditorShell extends StatelessWidget {
   const EditorShell({required this.projectId, super.key});
 
   final String projectId;
 
-  /// Fixed height rather than a flex share: the timeline must not grow into the
-  /// canvas as keys are added, and — more importantly — every panel gets
-  /// explicit constraints from its parent (docs/v3/08 §2, last row). An
-  /// unconstrained slot is what makes the fallback `ErrorWidget` throw a
-  /// *second* time during layout, and that second throw is the white screen.
+  /// Fixed rather than a flex share (docs/v3/08 §2, last row). The rails do not
+  /// steal width from the canvas as names grow, and the timeline does not grow
+  /// into the canvas as keys are added.
+  static const double layersWidth = 248.0;
+  static const double inspectorWidth = 260.0;
   static const double timelineHeight = 84.0;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(documentControllerProvider(projectId));
-    final doc = async.valueOrNull;
-    final scheme = Theme.of(context).colorScheme;
-
+  Widget build(BuildContext context) {
+    // Nothing is watched at this level, so this widget builds once per open and
+    // the body it hands down keeps its identity across every commit.
     return Scaffold(
       appBar: AppBar(
-        title: Text(doc?.name ?? 'Editor'),
+        title: _ChromeTitle(projectId: projectId),
         actions: [
-          if (doc != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-              child: Center(
-                child: Text(
-                  'rev ${doc.rev}',
-                  key: const Key('editor-rev'),
-                  style:
-                      TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-                ),
-              ),
-            ),
+          _ChromeActions(projectId: projectId),
+          const ThemeToggleButton(),
+          const SizedBox(width: 4),
         ],
       ),
-      body: async.when(
-        loading: () => const Center(
-          child: SizedBox(
-            height: 20,
-            width: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
+      body: _EditorBodyGate(projectId: projectId),
+    );
+  }
+}
+
+/// Reverse the last edit, then put the captured editing keyframe back on
+/// `EditorState` (docs/v3/04 §6). The controller hands the [Restore] back rather
+/// than reaching into `EditorController` itself, keeping the two peers
+/// uncoupled; the viewport is never restored — undo does not move the camera.
+Future<void> _undo(WidgetRef ref, String projectId) async {
+  final restore =
+      await ref.read(documentControllerProvider(projectId).notifier).undo();
+  if (restore != null) {
+    ref
+        .read(editorControllerProvider.notifier)
+        .restoreKeyframe(restore.selectedKeyframe);
+  }
+}
+
+Future<void> _redo(WidgetRef ref, String projectId) async {
+  final restore =
+      await ref.read(documentControllerProvider(projectId).notifier).redo();
+  if (restore != null) {
+    ref
+        .read(editorControllerProvider.notifier)
+        .restoreKeyframe(restore.selectedKeyframe);
+  }
+}
+
+/// The project name in the app bar. Its own `.select`, so a rev bump alone does
+/// not rebuild it.
+class _ChromeTitle extends ConsumerWidget {
+  const _ChromeTitle({required this.projectId});
+
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final name = ref.watch(documentControllerProvider(projectId)
+        .select((async) => async.valueOrNull?.name ?? 'Editor'));
+    return Text(name);
+  }
+}
+
+/// Undo, redo and the `rev` readout.
+///
+/// **This is the one widget that watches the whole `AsyncValue<Document>`** —
+/// and it may, because it is chrome that *displays* the commit: `rev` changes on
+/// every save and the undo labels change on every command. It is three small
+/// widgets, and it is deliberately a sibling of the body rather than its
+/// ancestor, so its rebuild reaches nothing else.
+class _ChromeActions extends ConsumerWidget {
+  const _ChromeActions({required this.projectId});
+
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final doc = ref.watch(documentControllerProvider(projectId)).valueOrNull;
+    if (doc == null) return const SizedBox.shrink();
+    final controller = ref.read(documentControllerProvider(projectId).notifier);
+    final scheme = Theme.of(context).colorScheme;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          key: const Key('editor-undo'),
+          tooltip: controller.undoLabel == null
+              ? 'Undo'
+              : 'Undo ${controller.undoLabel}',
+          icon: const Icon(Icons.undo, size: 18),
+          onPressed: controller.canUndo ? () => _undo(ref, projectId) : null,
         ),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
+        IconButton(
+          key: const Key('editor-redo'),
+          tooltip: controller.redoLabel == null
+              ? 'Redo'
+              : 'Redo ${controller.redoLabel}',
+          icon: const Icon(Icons.redo, size: 18),
+          onPressed: controller.canRedo ? () => _redo(ref, projectId) : null,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          child: Center(
             child: Text(
-              e is StoreException
-                  ? e.failure.message
-                  : 'Could not open this project.',
-              key: const Key('editor-error'),
-              textAlign: TextAlign.center,
+              'rev ${doc.rev}',
+              key: const Key('editor-rev'),
               style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
             ),
           ),
         ),
-        data: (document) => Column(
+      ],
+    );
+  }
+}
+
+/// Which of the three body states is on screen — loading, error, or the panels.
+///
+/// A value type so the `.select` below dedups: every ordinary commit projects to
+/// the same `ready` phase and rebuilds nothing.
+@immutable
+class _BodyPhase {
+  const _BodyPhase._(this.ready, this.error);
+
+  static const _BodyPhase loading = _BodyPhase._(false, null);
+  static const _BodyPhase data = _BodyPhase._(true, null);
+  const _BodyPhase.failed(String message) : this._(false, message);
+
+  final bool ready;
+  final String? error;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _BodyPhase && other.ready == ready && other.error == error;
+
+  @override
+  int get hashCode => Object.hash(ready, error);
+}
+
+/// Loading / error / panels, chosen from a **phase slice** rather than from the
+/// document itself (see [EditorShell]'s note on the rebuild storm).
+class _EditorBodyGate extends ConsumerWidget {
+  const _EditorBodyGate({required this.projectId});
+
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final phase =
+        ref.watch(documentControllerProvider(projectId).select((async) {
+      return async.when(
+        loading: () => _BodyPhase.loading,
+        error: (e, _) => _BodyPhase.failed(e is StoreException
+            ? e.failure.message
+            : 'Could not open this project.'),
+        data: (_) => _BodyPhase.data,
+      );
+    }));
+
+    if (phase.ready) return _EditorBody(projectId: projectId);
+
+    final error = phase.error;
+    if (error == null) {
+      return const Center(
+        child: SizedBox(
+          height: 20,
+          width: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          error,
+          key: const Key('editor-error'),
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+        ),
+      ),
+    );
+  }
+}
+
+/// The composed panels, holding **only `projectId`**.
+///
+/// It closes over no `Document`. The read-only banner reads its own two-field
+/// slice, so the one thing here that depends on the document rebuilds when
+/// *that* changes and at no other time.
+class _EditorBody extends ConsumerWidget {
+  const _EditorBody({required this.projectId});
+
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    // A record compares by value, so this is a dedupping slice like any other.
+    final banner = ref.watch(documentControllerProvider(projectId).select((a) {
+      final doc = a.valueOrNull;
+      return (
+        readOnly: doc?.isReadOnly ?? false,
+        version: doc?.schemaVersion ?? Document.currentSchemaVersion,
+      );
+    }));
+
+    // docs/v3/05 §5's Edit section, in the one scope that contains every panel.
+    // The canvas's own `Focus` returns `ignored` for these keys, so the event
+    // bubbles here; both meta (macOS) and control (elsewhere) are bound because
+    // the app ships to whichever the visitor is on.
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): () =>
+            _undo(ref, projectId),
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): () =>
+            _undo(ref, projectId),
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
+            () => _redo(ref, projectId),
+        const SingleActivator(LogicalKeyboardKey.keyZ,
+            control: true, shift: true): () => _redo(ref, projectId),
+        const SingleActivator(LogicalKeyboardKey.keyG, meta: true): () =>
+            _group(context, ref, projectId),
+        const SingleActivator(LogicalKeyboardKey.keyG, control: true): () =>
+            _group(context, ref, projectId),
+        const SingleActivator(LogicalKeyboardKey.keyD, meta: true): () =>
+            _duplicate(context, ref, projectId),
+        const SingleActivator(LogicalKeyboardKey.keyD, control: true): () =>
+            _duplicate(context, ref, projectId),
+      },
+      // **The scope that catches released focus** (docs/v3/05 §5).
+      //
+      // `CallbackShortcuts` only sees a key event that travels up from the
+      // primary focus, so a shortcut with nothing focused inside the editor
+      // silently dies — the failure mode the Flutter Web conflicts table names.
+      // Every numeric field here `unfocus()`es on commit (so `Cmd/Ctrl+Z`
+      // reaches the editor and not the browser's text-field undo), and
+      // `unfocus()` hands focus to the nearest enclosing **scope**: without one
+      // inside the editor, that is the app's root scope and the very next
+      // Cmd/Ctrl+Z, +G or +D reaches nothing at all. With it, focus lands back
+      // here. `autofocus` is what makes the shortcuts live on the first frame,
+      // before the user has clicked anything.
+      child: FocusScope(
+        autofocus: true,
+        debugLabel: 'editor-shortcuts',
+        child: Column(
           children: [
             // docs/v3/02 §1 rule 7's user-facing half. `DocumentController._save`
             // is what actually refuses the write — the gate belongs at the one
-            // place a write happens, not in a widget — but a refusal the user
-            // only discovers by dragging something and reading a snackbar is a
-            // trap, so the state is on screen before they touch anything.
-            if (document.isReadOnly)
-              _ReadOnlyBanner(version: document.schemaVersion),
-            Expanded(child: CanvasView(projectId: projectId)),
+            // place a write happens — but a refusal the user only discovers by
+            // dragging something and reading a snackbar is a trap, so the state is
+            // on screen before they touch anything.
+            if (banner.readOnly) _ReadOnlyBanner(version: banner.version),
+            Expanded(
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: EditorShell.layersWidth,
+                    child: LayersPanel(projectId: projectId),
+                  ),
+                  VerticalDivider(width: 1, color: scheme.outlineVariant),
+                  Expanded(child: CanvasView(projectId: projectId)),
+                  VerticalDivider(width: 1, color: scheme.outlineVariant),
+                  SizedBox(
+                    width: EditorShell.inspectorWidth,
+                    child: InspectorPanel(projectId: projectId),
+                  ),
+                ],
+              ),
+            ),
             SizedBox(
-              height: timelineHeight,
+              height: EditorShell.timelineHeight,
               child: TimelineBar(projectId: projectId),
             ),
           ],
@@ -98,6 +338,56 @@ class EditorShell extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// `Cmd/Ctrl+G` — group the current multi-selection (docs/v3/05 §4.5 step 4,
+/// §5).
+///
+/// Reads the gate with `ref.read`, never `ref.watch`: watching the selection
+/// here would rebuild the whole panel row on every click, which is the defect
+/// this file was just restructured to remove. A blocked group **says why** —
+/// `CreateGroupCommand` has real preconditions, and a shortcut that silently
+/// does nothing is indistinguishable from an unbound key.
+void _group(BuildContext context, WidgetRef ref, String projectId) {
+  final actions = ref.read(layersActionsProvider(projectId));
+  final blocked = actions.groupBlockedReason;
+  if (blocked != null) {
+    _toast(context, blocked);
+    return;
+  }
+  _reportShortcut(
+      context, LayersCommands(ref, projectId).group(actions.groupMembers));
+}
+
+/// `Cmd/Ctrl+D` — duplicate the selected subtree as ONE undo entry
+/// (docs/v3/05 §5, AC-2.1.5).
+void _duplicate(BuildContext context, WidgetRef ref, String projectId) {
+  final actions = ref.read(layersActionsProvider(projectId));
+  final target = actions.duplicateTarget;
+  if (target == null) {
+    _toast(context, actions.duplicateBlockedReason ?? 'Nothing to duplicate.');
+    return;
+  }
+  _reportShortcut(context, LayersCommands(ref, projectId).duplicate(target));
+}
+
+void _toast(BuildContext context, String message) =>
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+
+/// Same contract as the panel's reporter: capture the messenger before the
+/// await, and handle `onError` so a rejected edit can never escape as an
+/// unhandled async error (docs/v3/08 §1).
+void _reportShortcut(BuildContext context, Future<String?> pending) {
+  final messenger = ScaffoldMessenger.of(context);
+  void show(String message) =>
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+  pending.then(
+    (message) {
+      if (message != null) show(message);
+    },
+    onError: (Object _, StackTrace __) => show(kRejectedLayerEditMessage),
+  );
 }
 
 /// Says which build wrote the file, because "read-only" without a reason reads

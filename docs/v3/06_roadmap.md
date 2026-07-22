@@ -75,10 +75,13 @@
 | Layers panel — reversed tree, drag-reorder as a `children` splice, rename, `visible` AND, `opacity` PRODUCT, `locked` | F2.2 |
 | `Transform2` authoring: position / scale / pivot / rotation (unbounded radians) / skewX | F3.1 |
 | Riverpod `DocumentController` / `EditorController` / `ToolController` (04 §4); `CommandStack` snapshot undo (04 §6) | — |
+| **Viewport pan/zoom** — `Space`/middle-drag pan, `Cmd/Ctrl`+scroll zoom-at-cursor, `Cmd/Ctrl+0/1`. `EditorState.viewportTransform` composed with `artboardFit` in **one** place; **ephemeral only** — no `Document` write, no `rev` bump, no undo entry, never persisted (ADR-018) | 05 §3 |
 
-> **Exit criterion:** a 3-level nested document reorders, reparents and duplicates correctly; a reparented node does not visually move; `Ctrl+Z` reverts a duplicate-subtree as **one** entry.
+> **Exit criterion:** a 3-level nested document reorders, reparents and duplicates correctly; a reparented node does not visually move; `Ctrl+Z` reverts a duplicate-subtree as **one** entry. **Every step of that sentence is performed by hand, through the UI** — the document is built, grouped and nested with the shipped affordances, not assembled by a test calling `run(...)`. Panning and zooming the board leaves `rev` and the stored bytes untouched.
 
 **Risk:** `EditorState` bleeding into `Document`. Selection, hover and zoom must never be persisted (AC-2.2.7) — this is the legacy defect that made documents unloadable.
+
+**Second risk, learned here rather than predicted:** *a command with no way to invoke it.* M2's ops were correct and green while `createGroup` and `duplicateSubtree` had **zero call sites outside tests** — no `Cmd/Ctrl+G`, no `Cmd/Ctrl+D`, no button — so the exit criterion above passed in CI and was unreachable by a person. A milestone's tests proving an op works is not evidence the milestone shipped; the exit criterion is written to be run by hands, and it must be *checked* that way.
 
 ---
 

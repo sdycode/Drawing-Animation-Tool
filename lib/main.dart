@@ -6,6 +6,8 @@ import 'app/app_shell.dart';
 import 'app/common/theme.dart';
 import 'app/data/prefs_theme_store.dart';
 import 'app/data/providers.dart';
+import 'app/features/tools/registry.dart';
+import 'app/state/tool_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,9 +36,21 @@ Future<void> main() async {
 
   // The real theme store is injected here, so `common/theme.dart` imports no
   // plugin and a widget test builds the whole app with the in-memory default.
+  //
+  // The tool registry is injected for the same reason, and it is what keeps the
+  // dependency arrow pointing one way: `state/tool_controller.dart` owns the
+  // `ToolMode` contract and imports nothing from `features/`, while
+  // `features/tools` supplies the implementations here at composition. Without
+  // this override the controller resolves to an inert tool — total, and
+  // behaviourally identical while nothing calls the pointer handlers — so a
+  // widget test that drives a real tool (M3, once the pen and shape tools have
+  // handlers) must install this same override.
   runApp(
     ProviderScope(
-      overrides: [themeStoreProvider.overrideWithValue(PrefsThemeStore())],
+      overrides: [
+        themeStoreProvider.overrideWithValue(PrefsThemeStore()),
+        toolResolverProvider.overrideWithValue(resolveTool),
+      ],
       child: const DrawingAnimationToolApp(),
     ),
   );

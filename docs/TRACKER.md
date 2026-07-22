@@ -2,7 +2,7 @@
 
 ⚪ not started · 🔵 in progress · 🟡 thin/stubbed · 🟢 done · 🔴 broken
 
-**Now:** M2 — F2.1 nested scene graph · F2.2 layers panel · F3.1 `Transform2` authoring · `CommandStack` undo. M1 shipped `anim_core` complete and gated; F12.1 deploy stays parked (web build is CI-verified).
+**Now:** M3 — F4.1 pen tool (`AnchorKind`, closed paths, curved segments) · shape tools + inert recipes · F5.1 solid fill & stroke authoring. M2 shipped the tree, the panels, undo and pan/zoom; F12.1 deploy stays parked (web build is CI-verified).
 
 | M | Feature | S |
 |---|---|---|
@@ -27,9 +27,15 @@
 | | F10.2 decoder split by required vs optional — required (`schemaVersion`/`id`/`artboard`/`root` + transitive) throws `DocumentException` w/ path; all else degrades | 🟢 |
 | | `Unknown`Node/Paint/Easing/Recipe verbatim re-emit · malformed tracks raw in `TrackSet.unknownKeys` · `rev` round-trip | 🟢 |
 | | CI gate 1/2 round-trip ×8 authored v3 fixtures · gate 2/2 golden 450.2×250.4 — own named steps, red-blocks `build web` | 🟢 |
-| | `anim_core` 260 `dart test` green · zero try/catch · zero bare `as double` (all via `d()`/`i()`) · `boundary_test` enforced | 🟢 |
-| **M2** | F2.1 Nested scene graph · F2.2 Layers panel | ⚪ |
-| | F3.1 `Transform2` authoring · undo (`CommandStack`) | ⚪ |
+| | `anim_core` 297 `dart test` green · zero try/catch · zero bare `as double` (all via `d()`/`i()`) · `boundary_test` enforced | 🟢 |
+| **M2** | F2.1 Nested scene graph — `NodeOps` create/reparent/duplicate + `setVisible`/`setLocked`/`setOpacity`/`reorderChild` | 🟢 |
+| | F2.2 Layers panel — reversed tree, drag-reorder splice, drop-into-group, rename, eye/lock, `visible` AND · `opacity` PRODUCT | 🟢 |
+| | F3.1 `Transform2` + opacity authoring (inspector) · canvas select & move · groups selectable/draggable | 🟢 |
+| | `CommandStack` snapshot undo — depth 100, one command = one entry, gesture coalescing, undo **persists**, `rev` monotonic | 🟢 |
+| | Three controllers complete — `ToolController` contract in `state/`, tools injected at composition | 🟢 |
+| | **Viewport pan/zoom** (ADR-018) — one composed `Affine`, zoom-at-cursor, ephemeral-only | 🟢 |
+| | `clipChildren` — data + decode only; AC-2.1.6 clipping not implemented | 🟡 M3 |
+| | Reparent of a *transform-animated* node refused (exact per-keyframe rewrite is M4) | 🟡 M4 |
 | **M3** | F4.1 Pen tool, `AnchorKind`, closed paths | ⚪ |
 | | F5.1 Solid fill & stroke | ⚪ |
 | **M4** | F6.1 Per-node/per-property tracks · F6.2 Keyframe ops | ⚪ |
@@ -45,8 +51,14 @@
 ★ = the load-bearing feature. Best stopping points if this pauses: **M5** (irreplaceable work done) or **M9** (v1).
 
 **Owner notes** — direct product feedback, carried between milestones. Not scheduled scope; recorded so it is not lost.
-- **Editor exposes very few operations.** Owner flagged this on first use. Breadth is real, scheduled work — it arrives across M2–M6, not in one step; this is expected at M1, not a defect.
-- **No board pan/zoom — genuine roadmap gap, needs a decision.** No milestone in `v3/06` schedules viewport pan/zoom. `viewportTransform` *is* specified (`v3/01 §12` EditorState; `v3/04 §5` says hit-testing inverts it) but the **feature** is unscheduled. This is a gap in the roadmap, not a bug in the code.
-- **Owner-requested capabilities, so their landing is visible:** select a whole object and move it → **M2** (F2.1/F3.1 authoring). Play/transport → **M6** (F9.1).
+- **Editor exposes very few operations.** Owner flagged this on first use. Breadth is real, scheduled work arriving across M2–M6. M2 answered most of it — select · move · group · duplicate · reorder · nest · rename · hide/lock · opacity · undo/redo · pan/zoom. Still to come: drawing depth (M3), keyframe editing (M4), play/transport (M6).
+- ~~**No board pan/zoom — roadmap gap**~~ **RESOLVED in M2.** It was specified (`v3/01 §12`, `v3/04 §5`) but scheduled by no milestone. Owner approved folding it in; now built, recorded as **ADR-018**, and added to `v3/06` M2's contents and exit criterion.
+- **Owner-requested capabilities, so their landing is visible:** select a whole object and move it → **shipped, M2**. Play/transport → **M6** (F9.1).
+- **Live drag feedback** (owner: a drag should show the new shape, not just a moving dot) → **shipped**; the preview re-applies the *same* op the release commits, so what you see cannot disagree with what lands.
+
+**Carried into M3** — found by M2's audit, deliberately not fixed in M2:
+- `clipChildren` renders nothing (AC-2.1.6). The field round-trips; no painter honours it.
+- The tool layer is a **seam, not a feature**: `SelectTool`'s pointer handlers are never invoked (the canvas implements select/move inline), `PointerCtx` is never constructed, and there is no toolbar to switch tools. M3 builds the pen and shape tools and should wire the registry properly then.
+- `CommandStack`'s gesture coalescing (`beginGesture`/`commitGesture`) is correct and tested but **has no call site** — the canvas gets one-entry-per-drag from a local preview plus a single command on release, which also satisfies `v3/04 §6`. Wire it only if a gesture needs to issue *multiple* commands; putting in-progress state into `Document` would violate `v3/08 §2`.
 
 Detail: [v3/03_features.md](v3/03_features.md) · [v3/06_roadmap.md](v3/06_roadmap.md) · isolation rules: [v3/08_feature_isolation.md](v3/08_feature_isolation.md)

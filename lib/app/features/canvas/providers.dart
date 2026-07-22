@@ -12,6 +12,7 @@ import 'package:anim_core/anim_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/document_controller.dart';
+import '../../state/editor_controller.dart';
 
 /// The open document, or null while it is loading or failed.
 ///
@@ -55,4 +56,27 @@ final canvasNodeCountProvider =
     Provider.autoDispose.family<int, String>((ref, projectId) {
   return ref.watch(documentControllerProvider(projectId)
       .select((d) => d.valueOrNull?.root.children.length ?? 0));
+});
+
+/// The pan/zoom the canvas composes over the artboard fit — a named slice of
+/// `EditorState` (docs/v3/08 §2), so a marquee or a document mutation never
+/// rebuilds the canvas *because of the viewport*, and a pan never invalidates a
+/// slice that reads the `Document`.
+///
+/// **Ephemeral, never serialized, never undoable** (AC-3.1.4, docs/v3/04 §6).
+/// The canvas feeds this into `composedFit` — the one place viewport∘artboardFit
+/// is combined — and inverts that same matrix for hit-testing.
+final canvasViewportProvider = Provider.autoDispose<Affine>((ref) {
+  return ref.watch(editorControllerProvider.select((s) => s.viewportTransform));
+});
+
+/// The selected nodes, keyed by [ScenePath] (docs/v3/01 §11) — the slice the
+/// overlay outlines and the Select tool's drag reads.
+///
+/// A slice, not the whole `EditorState`: selecting a node must not rebuild
+/// anything that watches the playhead or the viewport, and vice versa. The set
+/// is **resolved, never repaired** downstream — a dangling path is filtered at
+/// each read site, never scrubbed here (docs/v3/08 §2).
+final canvasSelectionProvider = Provider.autoDispose<Set<ScenePath>>((ref) {
+  return ref.watch(editorControllerProvider.select((s) => s.selectedNodes));
 });

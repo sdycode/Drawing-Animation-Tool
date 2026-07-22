@@ -316,8 +316,17 @@ final class Document {
   /// `NodeId` → node, rebuilt on demand and **never persisted**.
   ///
   /// Derived state (docs/v3/01 §11): the tree is the single source of truth for
-  /// hierarchy, and this index exists only to make track lookup O(1). M2
-  /// memoises it per mutation; at M0 there is nothing to memoise against.
+  /// hierarchy, and this index exists only to make track lookup O(1).
+  ///
+  /// **It is NOT memoised, and it will not be.** Every read re-walks the whole
+  /// tree and returns a fresh map, so a caller that needs it more than once —
+  /// or once per item in a loop — hoists it into a local (`NodeOps.createGroup`
+  /// and `NodeOps.reparent` do exactly that; reading it inside their member
+  /// loops is what made them O(n·m)). A cache field here would be the
+  /// "storing anything derived on `Document`" antipattern docs/v3/08 §4 names
+  /// by name, and it desyncs precisely when two features mutate in one command.
+  /// An earlier version of this comment promised M2 would memoise it; M2
+  /// shipped, it does not, and the promise was the bug.
   Map<NodeId, Node> get nodeIndex => {for (final n in walk()) n.id: n};
 
   /// `NodeId` is unique within a `Document` — governing rule 2 (docs/v3/01 §1).
