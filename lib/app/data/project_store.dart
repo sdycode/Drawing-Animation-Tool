@@ -43,6 +43,16 @@ enum StoreFailure {
 
   /// The stored bytes are not decodable as a v3 document.
   corrupt,
+
+  /// The document's `schemaVersion` is newer than this build reads, so it
+  /// opened read-only and every save path is disabled (docs/v3/02 §1 rule 7).
+  ///
+  /// A store *failure* rather than a silent no-op because the write really did
+  /// not happen and the user has to be told: key preservation protects syntax,
+  /// not semantics, so saving would strip v4 fields this build cannot model —
+  /// `unknownKeys` deliberately does not exist at `Anchor`, `PathData`, `Fill`,
+  /// `Stroke` or `Transform2` level, and a v4 addition there is a version bump.
+  readOnly,
   unknown;
 
   String get message => switch (this) {
@@ -50,6 +60,8 @@ enum StoreFailure {
         permissionDenied => 'You do not have access to that project.',
         network => 'Network unavailable. Your work is still here — retrying.',
         corrupt => 'That project could not be read.',
+        readOnly => 'This project was made by a newer version of the editor, '
+            'so it is open read-only.',
         unknown => 'Could not reach storage. Your work is still here.',
       };
 }

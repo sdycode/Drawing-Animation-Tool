@@ -1,6 +1,7 @@
 /// Fills, strokes and paint sources (docs/v3/01 §6).
 library;
 
+import 'decode.dart';
 import 'json.dart';
 import 'primitives.dart';
 
@@ -25,26 +26,40 @@ sealed class PaintSource {
 
   Map<String, Object?> toJson();
 
-  factory PaintSource.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
+  /// An **unknown** `type` degrades to [UnknownPaint]; a **known** one with a
+  /// broken body throws with a path.
+  ///
+  /// The asymmetry is the boundary on [DocumentException] applied here: a paint
+  /// type this build has never heard of is forward-compatibility and rides
+  /// through verbatim, but `{"type":"solid","color":"red"}` is a paint this
+  /// build claims to understand and cannot, and quietly substituting black
+  /// would be legacy's `?? defaultValue` habit turning a broken document into a
+  /// plausible-but-wrong one.
+  factory PaintSource.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
     return switch (m['type']) {
-      'solid' => SolidPaint(Rgba.fromJson(m['color'])),
+      'solid' => SolidPaint(reqRgba(m['color'], jsonChild(path, 'color'))),
       'linearGradient' => LinearGradientPaint(
-          start: Vec2.fromJson(m['start']),
-          end: Vec2.fromJson(m['end']),
-          stops: _stops(m['stops']),
+          start: reqVec2(m['start'], jsonChild(path, 'start')),
+          end: reqVec2(m['end'], jsonChild(path, 'end')),
+          stops: _stops(m['stops'], jsonChild(path, 'stops')),
         ),
       'radialGradient' => RadialGradientPaint(
-          center: Vec2.fromJson(m['center']),
-          radius: d(m['radius']),
-          stops: _stops(m['stops']),
+          center: reqVec2(m['center'], jsonChild(path, 'center')),
+          radius: reqDouble(m['radius'], jsonChild(path, 'radius')),
+          stops: _stops(m['stops'], jsonChild(path, 'stops')),
         ),
       _ => UnknownPaint(Map.unmodifiable(m)),
     };
   }
 
-  static List<GradientStop> _stops(Object? v) =>
-      (v! as List<Object?>).map(GradientStop.fromJson).toList(growable: false);
+  static List<GradientStop> _stops(Object? v, String path) {
+    final raw = reqArray(v, path);
+    return <GradientStop>[
+      for (var k = 0; k < raw.length; k++)
+        GradientStop.fromJson(raw[k], jsonIndex(path, k)),
+    ];
+  }
 }
 
 final class SolidPaint extends PaintSource {
@@ -78,12 +93,12 @@ final class GradientStop {
 
   final Rgba color;
 
-  factory GradientStop.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
+  factory GradientStop.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
     return GradientStop(
-      id: StopId(m['id']! as String),
-      offset: d(m['offset']),
-      color: Rgba.fromJson(m['color']),
+      id: StopId(reqString(m['id'], jsonChild(path, 'id'))),
+      offset: reqDouble(m['offset'], jsonChild(path, 'offset')),
+      color: reqRgba(m['color'], jsonChild(path, 'color')),
     );
   }
 
@@ -184,15 +199,17 @@ final class Fill {
   final double opacity;
   final bool visible;
 
-  factory Fill.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
+  factory Fill.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
     return Fill(
-      id: PaintId(m['id']! as String),
-      paint: PaintSource.fromJson(m['paint']),
+      id: PaintId(reqString(m['id'], jsonChild(path, 'id'))),
+      paint: PaintSource.fromJson(m['paint'], jsonChild(path, 'paint')),
       rule: opt(m, 'rule', (v) => _byName(FillRule.values, v, FillRule.nonZero),
           FillRule.nonZero),
-      opacity: opt(m, 'opacity', d, 1.0),
-      visible: opt(m, 'visible', (v) => v as bool, true),
+      opacity: opt(
+          m, 'opacity', (v) => reqDouble(v, jsonChild(path, 'opacity')), 1.0),
+      visible: opt(
+          m, 'visible', (v) => reqBool(v, jsonChild(path, 'visible')), true),
     );
   }
 
@@ -230,12 +247,13 @@ final class Stroke {
   /// length, mis-renders on closed and multi-subpath geometry, and puts a
   /// derived geometric quantity into an authored field. `PathTrim` is the
   /// correct primitive for draw-on.
-  factory Stroke.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
+  factory Stroke.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
     return Stroke(
-      id: PaintId(m['id']! as String),
-      paint: PaintSource.fromJson(m['paint']),
-      width: opt(m, 'width', d, 1.0),
+      id: PaintId(reqString(m['id'], jsonChild(path, 'id'))),
+      paint: PaintSource.fromJson(m['paint'], jsonChild(path, 'paint')),
+      width:
+          opt(m, 'width', (v) => reqDouble(v, jsonChild(path, 'width')), 1.0),
       cap: opt(m, 'cap', (v) => _byName(StrokeCap.values, v, StrokeCap.butt),
           StrokeCap.butt),
       join: opt(
@@ -243,9 +261,12 @@ final class Stroke {
           'join',
           (v) => _byName(StrokeJoin.values, v, StrokeJoin.miter),
           StrokeJoin.miter),
-      miterLimit: opt(m, 'miterLimit', d, 4.0),
-      opacity: opt(m, 'opacity', d, 1.0),
-      visible: opt(m, 'visible', (v) => v as bool, true),
+      miterLimit: opt(m, 'miterLimit',
+          (v) => reqDouble(v, jsonChild(path, 'miterLimit')), 4.0),
+      opacity: opt(
+          m, 'opacity', (v) => reqDouble(v, jsonChild(path, 'opacity')), 1.0),
+      visible: opt(
+          m, 'visible', (v) => reqBool(v, jsonChild(path, 'visible')), true),
     );
   }
 

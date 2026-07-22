@@ -263,16 +263,18 @@ The point of §1's dependency direction: **the entire irreplaceable part of this
 | Under test | Harness | Notes |
 |---|---|---|
 | Model types, invariants, `Affine` algebra | `dart test` (`anim_core`) | no Flutter binding |
-| Serializer round-trip | `dart test` | **the 00 §5 automated gate**, over all 8 legacy fixtures |
+| Serializer round-trip | `dart test` | **the 00 §5 automated gate**, over the 8 authored v3 fixtures in `anim_core/test/fixtures/`; the 8 imported legacy documents join this same test at M8 |
 | `evaluate` — totality, continuity, the 8 stages | `dart test` | 00 §5 criteria 6 & 9 as assertions |
 | `PathOps` / `TrackOps` / `NodeOps` invariants | `dart test` | incl. 01 §12's "identical `AnchorId` sequence across every keyframe" |
 | Legacy importer | `dart test` | 8 fixtures × 50 sampled `t` |
 | `CommandStack`, autosave debounce, `EditorController` | `flutter test` (unit, no widgets) | controllers hold no `BuildContext` |
 | `ProjectStore` consumers | `flutter test` + `FakeProjectStore` | no emulator, no network |
-| Scene → Canvas transform | **golden** | **the 00 §5 automated gate**: 450.2 × 250.4 artboard |
+| Scene → Canvas transform | **golden** (numeric, `dart test` in `anim_core` — see below) | **the 00 §5 automated gate**: 450.2 × 250.4 artboard |
 | Edit-at-keyframe wiring, dirty/saved indicator | `flutter test` (widget) | the two flows where a wiring bug is invisible to unit tests |
 
 **No test tracks beyond these.** 00 §5 defines the CI gate as exactly two things — the round-trip property test over the 8 fixtures, and the golden transform test on the non-square artboard. Everything else in this table is developer-local coverage, not a release gate. Inventing a third gate is scope creep with a test-shaped alibi.
+
+**"Golden" here means numeric, not pixel.** The transform gate lives in `anim_core`, which by §1 has no `dart:ui` and therefore nothing to rasterise with — and that is the stronger instrument, not a compromise: the legacy y-scaled-by-width defect is an arithmetic error, and asserting hand-computed coordinates names the wrong number where a bitmap diff would only say "different". `anim_render`'s `Affine → Matrix4` translation *consumes* what this pins down. Do not "complete" it later with an image golden in `anim_render`; that is the third gate this section forbids.
 
 ---
 

@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 3,
+  "id": "77777777-7777-4777-8777-777777777777",
+  "name": "Trim",
+  "rev": 5,
+  "artboard": { "x": 450.2, "y": 250.4 },
+  "background": [1.0, 1.0, 1.0, 1.0],
+  "root": {
+    "type": "group",
+    "id": "n-root",
+    "name": "Root",
+    "children": [
+      {
+        "type": "path",
+        "id": "n-drawn-on",
+        "name": "Stroke that draws itself on — authored trim plus trim tracks",
+        "path": {
+          "closed": false,
+          "anchors": [
+            {
+              "id": "w0",
+              "position": { "x": 40.0, "y": 210.0 },
+              "outTangent": { "x": 60.0, "y": -40.0 }
+            },
+            {
+              "id": "w1",
+              "position": { "x": 225.1, "y": 40.0 },
+              "inTangent": { "x": -70.0, "y": 0.0 },
+              "outTangent": { "x": 70.0, "y": 0.0 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "w2",
+              "position": { "x": 410.0, "y": 210.0 },
+              "inTangent": { "x": -60.0, "y": -40.0 }
+            }
+          ]
+        },
+        "trim": { "start": 0.0, "end": 0.35, "offset": 0.0 },
+        "fills": [],
+        "strokes": [
+          {
+            "id": "p-line",
+            "paint": { "type": "solid", "color": [0.1, 0.1, 0.1, 1.0] },
+            "width": 8.0,
+            "cap": "round",
+            "join": "round"
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-ring-chase",
+        "name": "Closed ring with a rotating reveal window (non-zero offset)",
+        "transform": { "position": { "x": 225.1, "y": 125.2 } },
+        "path": {
+          "closed": true,
+          "anchors": [
+            {
+              "id": "o0",
+              "position": { "x": 0.0, "y": -50.0 },
+              "inTangent": { "x": -27.6, "y": 0.0 },
+              "outTangent": { "x": 27.6, "y": 0.0 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "o1",
+              "position": { "x": 50.0, "y": 0.0 },
+              "inTangent": { "x": 0.0, "y": -27.6 },
+              "outTangent": { "x": 0.0, "y": 27.6 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "o2",
+              "position": { "x": 0.0, "y": 50.0 },
+              "inTangent": { "x": 27.6, "y": 0.0 },
+              "outTangent": { "x": -27.6, "y": 0.0 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "o3",
+              "position": { "x": -50.0, "y": 0.0 },
+              "inTangent": { "x": 0.0, "y": 27.6 },
+              "outTangent": { "x": 0.0, "y": -27.6 },
+              "kind": "symmetric"
+            }
+          ]
+        },
+        "trim": { "start": 0.1, "end": 0.4, "offset": 0.25 },
+        "fills": [],
+        "strokes": [
+          {
+            "id": "p-ring",
+            "paint": { "type": "solid", "color": [0.0, 0.55, 0.85, 1.0] },
+            "width": 4.0,
+            "cap": "butt",
+            "join": "round"
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-untrimmed",
+        "name": "No trim key at all — the common case writes nothing",
+        "path": {
+          "closed": false,
+          "anchors": [
+            { "id": "v0", "position": { "x": 20.0, "y": 20.0 } },
+            { "id": "v1", "position": { "x": 60.0, "y": 20.0 } }
+          ]
+        },
+        "fills": [],
+        "strokes": []
+      }
+    ]
+  },
+  "animations": [
+    {
+      "id": "a-draw-on",
+      "name": "Draw on",
+      "durationSeconds": 1.5,
+      "fps": 60,
+      "loop": "loop",
+      "tracks": {
+        "n-drawn-on": {
+          "trimStart": {
+            "type": "scalar",
+            "keys": [
+              { "t": 0.0, "value": 0.0, "easing": { "kind": "linear" } },
+              { "t": 0.6, "value": 0.0, "easing": { "kind": "cubic", "p": [0.42, 0.0, 0.58, 1.0] } },
+              { "t": 1.0, "value": 1.0, "easing": { "kind": "linear" } }
+            ]
+          },
+          "trimEnd": {
+            "type": "scalar",
+            "keys": [
+              { "t": 0.0, "value": 0.0, "easing": { "kind": "cubic", "p": [0.0, 0.0, 0.58, 1.0] } },
+              { "t": 0.6, "value": 1.0, "easing": { "kind": "linear" } }
+            ]
+          },
+          "trimOffset": {
+            "type": "scalar",
+            "keys": [
+              { "t": 0.0, "value": 0.0, "easing": { "kind": "hold" } },
+              { "t": 1.0, "value": 0.5, "easing": { "kind": "linear" } }
+            ]
+          }
+        },
+        "n-ring-chase": {
+          "trimOffset": {
+            "type": "scalar",
+            "keys": [
+              { "t": 0.0, "value": 0.0, "easing": { "kind": "linear" } },
+              { "t": 1.0, "value": 1.0, "easing": { "kind": "linear" } }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "defaultAnimationId": "a-draw-on"
+}

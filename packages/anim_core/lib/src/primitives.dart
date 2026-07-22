@@ -46,6 +46,22 @@ final class Vec2 {
     return Vec2(d(m['x']), d(m['y']));
   }
 
+  /// The **total** read: null instead of a `TypeError` on malformed bytes.
+  ///
+  /// Decode degrades, never validates-and-throws (docs/v3/08 §2), and a
+  /// container that can preserve a malformed child verbatim needs a way to ask
+  /// "is this readable?" that does not involve a `try` — which `anim_core` does
+  /// not have and will not grow. [Track.fromJson] is the caller that matters:
+  /// one wrong-typed keyframe value must degrade that one track to
+  /// preserved-verbatim, not make a hundred-node document unopenable.
+  static Vec2? tryFromJson(Object? j) {
+    if (j is! Map<String, Object?>) return null;
+    final x = j['x'];
+    final y = j['y'];
+    if (x is! num || y is! num) return null;
+    return Vec2(x.toDouble(), y.toDouble());
+  }
+
   /// Always emits doubles. Firestore may normalise `0.0` back to `0`; [d] on
   /// the read side is what makes that harmless.
   Map<String, Object?> toJson() => <String, Object?>{'x': x, 'y': y};
@@ -96,6 +112,14 @@ final class Rgba {
   factory Rgba.fromJson(Object? j) {
     final l = j! as List<Object?>;
     return Rgba(d(l[0]), d(l[1]), d(l[2]), d(l[3]));
+  }
+
+  /// The **total** read. See [Vec2.tryFromJson] for why it exists.
+  static Rgba? tryFromJson(Object? j) {
+    if (j is! List<Object?> || j.length != 4 || j.any((v) => v is! num)) {
+      return null;
+    }
+    return Rgba(d(j[0]), d(j[1]), d(j[2]), d(j[3]));
   }
 
   List<Object?> toJson() => <Object?>[r, g, b, a];

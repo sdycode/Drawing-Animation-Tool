@@ -3,6 +3,7 @@ library;
 
 import 'dart:math' as math;
 
+import 'decode.dart';
 import 'json.dart';
 import 'primitives.dart';
 
@@ -183,14 +184,23 @@ final class Transform2 {
 
   static const _known = {'position', 'scale', 'pivot', 'rotation', 'skewX'};
 
-  factory Transform2.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
+  /// Every field is optional with a declared default, but a field that is
+  /// *present* and unreadable is reported at its own path — a `scale` of
+  /// `"big"` has always thrown; since M1 it says where (see
+  /// [DocumentException]).
+  factory Transform2.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
     return Transform2(
-      position: opt(m, 'position', Vec2.fromJson, Vec2.zero),
-      scale: opt(m, 'scale', Vec2.fromJson, Vec2.one),
-      pivot: opt(m, 'pivot', Vec2.fromJson, Vec2.zero),
-      rotation: opt(m, 'rotation', d, 0.0),
-      skewX: opt(m, 'skewX', d, 0.0),
+      position: opt(m, 'position',
+          (v) => reqVec2(v, jsonChild(path, 'position')), Vec2.zero),
+      scale: opt(
+          m, 'scale', (v) => reqVec2(v, jsonChild(path, 'scale')), Vec2.one),
+      pivot: opt(
+          m, 'pivot', (v) => reqVec2(v, jsonChild(path, 'pivot')), Vec2.zero),
+      rotation: opt(
+          m, 'rotation', (v) => reqDouble(v, jsonChild(path, 'rotation')), 0.0),
+      skewX:
+          opt(m, 'skewX', (v) => reqDouble(v, jsonChild(path, 'skewX')), 0.0),
     );
   }
 

@@ -2,10 +2,12 @@
 library;
 
 import 'affine.dart';
+import 'decode.dart';
 import 'json.dart';
 import 'paint.dart';
 import 'path.dart';
 import 'primitives.dart';
+import 'recipe.dart';
 
 sealed class Node {
   const Node({
@@ -53,27 +55,38 @@ sealed class Node {
 
   Map<String, Object?> toJson();
 
-  /// Discriminated by an **open** `type` string. An unrecognised value is not
+  /// Discriminated by an **open** `type` string. An unrecognised *value* is not
   /// an error — it becomes an [UnknownNode] and survives the round trip.
-  factory Node.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
-    final type = m['type'] as String;
-    return switch (type) {
-      'group' => GroupNode.fromJson(m),
-      'path' => PathNode.fromJson(m),
-      _ => UnknownNode.fromJson(m),
+  ///
+  /// An **absent** `type`, by contrast, throws with [path]: there is no
+  /// discriminator to preserve, so [UnknownNode] has nothing to re-emit under
+  /// and the node would be silently invented. That is the boundary on
+  /// [DocumentException], one level down from the root.
+  factory Node.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
+    return switch (reqString(m['type'], jsonChild(path, 'type'))) {
+      'group' => GroupNode.fromJson(m, path),
+      'path' => PathNode.fromJson(m, path),
+      _ => UnknownNode.fromJson(m, path),
     };
   }
 
-  static Map<String, Object?> _common(Map<String, Object?> m) =>
+  static Map<String, Object?> _common(Map<String, Object?> m, String path) =>
       <String, Object?>{
-        'id': m['id'] as String,
-        'name': opt(m, 'name', (v) => v as String, ''),
-        'transform':
-            opt(m, 'transform', Transform2.fromJson, Transform2.identity),
-        'opacity': opt(m, 'opacity', d, 1.0),
-        'visible': opt(m, 'visible', (v) => v as bool, true),
-        'locked': opt(m, 'locked', (v) => v as bool, false),
+        'id': reqString(m['id'], jsonChild(path, 'id')),
+        'name':
+            opt(m, 'name', (v) => reqString(v, jsonChild(path, 'name')), ''),
+        'transform': opt(
+            m,
+            'transform',
+            (v) => Transform2.fromJson(v, jsonChild(path, 'transform')),
+            Transform2.identity),
+        'opacity': opt(
+            m, 'opacity', (v) => reqDouble(v, jsonChild(path, 'opacity')), 1.0),
+        'visible': opt(
+            m, 'visible', (v) => reqBool(v, jsonChild(path, 'visible')), true),
+        'locked': opt(
+            m, 'locked', (v) => reqBool(v, jsonChild(path, 'locked')), false),
       };
 
   Map<String, Object?> _commonJson(String type) => <String, Object?>{
@@ -113,22 +126,27 @@ final class GroupNode extends Node {
 
   static const _own = {'children', 'clipChildren'};
 
-  factory GroupNode.fromJson(Map<String, Object?> m) {
-    final c = Node._common(m);
+  factory GroupNode.fromJson(Map<String, Object?> m, [String path = '']) {
+    final c = Node._common(m, path);
+    final children = opt(
+      m,
+      'children',
+      (v) => reqArray(v, jsonChild(path, 'children')),
+      const <Object?>[],
+    );
     return GroupNode(
       id: NodeId(c['id']! as String),
       name: c['name']! as String,
       transform: c['transform']! as Transform2,
-      opacity: c['opacity']! as double,
+      opacity: d(c['opacity']),
       visible: c['visible']! as bool,
       locked: c['locked']! as bool,
-      children: opt(
-        m,
-        'children',
-        (v) => (v! as List<Object?>).map(Node.fromJson).toList(growable: false),
-        const <Node>[],
-      ),
-      clipChildren: opt(m, 'clipChildren', (v) => v as bool, false),
+      children: <Node>[
+        for (var k = 0; k < children.length; k++)
+          Node.fromJson(children[k], jsonIndex(jsonChild(path, 'children'), k)),
+      ],
+      clipChildren: opt(m, 'clipChildren',
+          (v) => reqBool(v, jsonChild(path, 'clipChildren')), false),
       unknownKeys: unknownKeysOf(m, {...Node.commonKeys, ..._own}),
     );
   }
@@ -170,6 +188,7 @@ final class PathNode extends Node {
     required this.path,
     this.fills = const [],
     this.strokes = const [],
+    this.recipe,
     this.trim = PathTrim.full,
     super.transform,
     super.opacity,
@@ -189,40 +208,58 @@ final class PathNode extends Node {
   /// Painted after all fills.
   final List<Stroke> strokes;
 
+  /// **Inert** re-edit metadata — how a shape tool generated [path]. Never
+  /// animated, never read by the evaluator or the renderer; see `recipe.dart`
+  /// for the three rules and for why the tools that mint one are M3.
+  ///
+  /// Null is the normal state: everything the pen tool draws has no recipe, and
+  /// `PathOps.moveAnchor` nulls it the moment an anchor is edited by hand
+  /// (docs/v3/01 §5's authority rule).
+  final ShapeRecipe? recipe;
+
   final PathTrim trim;
 
-  /// `recipe` is deliberately **not** claimed here.
-  ///
-  /// `ShapeRecipe` is inert re-edit metadata that arrives with the shape tools
-  /// (M3). Leaving the key unclaimed routes it through [unknownKeys], so a
-  /// rectangle authored by a later build stays re-editable instead of being
-  /// flattened into anonymous anchors by this one.
-  static const _own = {'path', 'fills', 'strokes', 'trim'};
+  static const _own = {'path', 'fills', 'strokes', 'recipe', 'trim'};
 
-  factory PathNode.fromJson(Map<String, Object?> m) {
-    final c = Node._common(m);
+  factory PathNode.fromJson(Map<String, Object?> m, [String path = '']) {
+    final c = Node._common(m, path);
+    final fills = opt(
+      m,
+      'fills',
+      (v) => reqArray(v, jsonChild(path, 'fills')),
+      const <Object?>[],
+    );
+    final strokes = opt(
+      m,
+      'strokes',
+      (v) => reqArray(v, jsonChild(path, 'strokes')),
+      const <Object?>[],
+    );
     return PathNode(
       id: NodeId(c['id']! as String),
       name: c['name']! as String,
       transform: c['transform']! as Transform2,
-      opacity: c['opacity']! as double,
+      opacity: d(c['opacity']),
       visible: c['visible']! as bool,
       locked: c['locked']! as bool,
-      path: PathData.fromJson(m['path']),
-      fills: opt(
-        m,
-        'fills',
-        (v) => (v! as List<Object?>).map(Fill.fromJson).toList(growable: false),
-        const <Fill>[],
-      ),
-      strokes: opt(
-        m,
-        'strokes',
-        (v) =>
-            (v! as List<Object?>).map(Stroke.fromJson).toList(growable: false),
-        const <Stroke>[],
-      ),
-      trim: opt(m, 'trim', PathTrim.fromJson, PathTrim.full),
+      // Required: a path node without geometry is not a degraded path node,
+      // it is a node with nothing to draw and nothing to key against.
+      path: PathData.fromJson(m['path'], jsonChild(path, 'path')),
+      fills: <Fill>[
+        for (var k = 0; k < fills.length; k++)
+          Fill.fromJson(fills[k], jsonIndex(jsonChild(path, 'fills'), k)),
+      ],
+      strokes: <Stroke>[
+        for (var k = 0; k < strokes.length; k++)
+          Stroke.fromJson(strokes[k], jsonIndex(jsonChild(path, 'strokes'), k)),
+      ],
+      // `"recipe": null` is the encoder's own output for a node without one,
+      // so an explicit null must mean absent rather than "present and
+      // unreadable" (docs/v3/02 §1 rule 5).
+      recipe: opt<ShapeRecipe?>(
+          m, 'recipe', (v) => v == null ? null : ShapeRecipe.fromJson(v), null),
+      trim: opt(m, 'trim', (v) => PathTrim.fromJson(v, jsonChild(path, 'trim')),
+          PathTrim.full),
       unknownKeys: unknownKeysOf(m, {...Node.commonKeys, ..._own}),
     );
   }
@@ -233,16 +270,27 @@ final class PathNode extends Node {
         'path': path.toJson(),
         'fills': fills.map((f) => f.toJson()).toList(growable: false),
         'strokes': strokes.map((s) => s.toJson()).toList(growable: false),
+        // Omitted when absent rather than written as an explicit null: the
+        // no-recipe case is every path the pen tool has ever drawn, and a null
+        // in every node is noise in a format people hand-inspect.
+        if (recipe != null) 'recipe': recipe!.toJson(),
         // Omitted when full, per docs/v3/02 §3.6 — the common case writes no
         // trim key at all.
         if (!trim.isFull) 'trim': trim.toJson(),
       });
 
+  /// [clearRecipe] exists because `recipe: null` cannot mean "null it" in a
+  /// `copyWith` — a null argument is indistinguishable from an omitted one, and
+  /// the authority rule (docs/v3/01 §5) needs a way to say *nulled*, not
+  /// *unchanged*. Silently keeping a stale recipe through an anchor edit is
+  /// precisely the wrong-shape bug that rule prevents.
   PathNode copyWith({
     String? name,
     PathData? path,
     List<Fill>? fills,
     List<Stroke>? strokes,
+    ShapeRecipe? recipe,
+    bool clearRecipe = false,
     PathTrim? trim,
     Transform2? transform,
     double? opacity,
@@ -255,6 +303,7 @@ final class PathNode extends Node {
         path: path ?? this.path,
         fills: fills ?? this.fills,
         strokes: strokes ?? this.strokes,
+        recipe: clearRecipe ? null : (recipe ?? this.recipe),
         trim: trim ?? this.trim,
         transform: transform ?? this.transform,
         opacity: opacity ?? this.opacity,
@@ -282,10 +331,11 @@ final class UnknownNode extends Node {
   final String rawType;
   final Map<String, Object?> raw;
 
-  factory UnknownNode.fromJson(Map<String, Object?> m) => UnknownNode(
-        id: NodeId(m['id']! as String),
-        name: opt(m, 'name', (v) => v as String, ''),
-        rawType: m['type']! as String,
+  factory UnknownNode.fromJson(Map<String, Object?> m, [String path = '']) =>
+      UnknownNode(
+        id: NodeId(reqString(m['id'], jsonChild(path, 'id'))),
+        name: opt(m, 'name', (v) => reqString(v, jsonChild(path, 'name')), ''),
+        rawType: reqString(m['type'], jsonChild(path, 'type')),
         raw: Map.unmodifiable(m),
       );
 

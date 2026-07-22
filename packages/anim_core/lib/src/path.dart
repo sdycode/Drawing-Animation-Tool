@@ -1,6 +1,7 @@
 /// Path geometry (docs/v3/01 §5).
 library;
 
+import 'decode.dart';
 import 'json.dart';
 import 'primitives.dart';
 
@@ -51,13 +52,18 @@ final class Anchor {
         kind: kind ?? this.kind,
       );
 
-  factory Anchor.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
+  /// `id` and `position` are **required** — an anchor without them is not a
+  /// degraded anchor, it is a hole in the topology every keyframe joins to (see
+  /// [DocumentException] for the boundary). Both report [path].
+  factory Anchor.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
     return Anchor(
-      id: AnchorId(m['id']! as String),
-      position: Vec2.fromJson(m['position']),
-      inTangent: opt(m, 'inTangent', Vec2.fromJson, Vec2.zero),
-      outTangent: opt(m, 'outTangent', Vec2.fromJson, Vec2.zero),
+      id: AnchorId(reqString(m['id'], jsonChild(path, 'id'))),
+      position: reqVec2(m['position'], jsonChild(path, 'position')),
+      inTangent: opt(m, 'inTangent',
+          (v) => reqVec2(v, jsonChild(path, 'inTangent')), Vec2.zero),
+      outTangent: opt(m, 'outTangent',
+          (v) => reqVec2(v, jsonChild(path, 'outTangent')), Vec2.zero),
       // An unrecognised kind falls back to `corner` rather than throwing: it is
       // an authoring hint, so being wrong about it costs a UI affordance, while
       // throwing would cost the whole document.
@@ -126,6 +132,21 @@ final class PathData {
     return PathData._(List.unmodifiable(anchors), closed);
   }
 
+  /// **Unchecked.** Only the evaluator may call this (docs/v3/08 §1).
+  ///
+  /// `resolvePose` rebuilds one `PathData` per path-animated node per tick, and
+  /// its anchor list is a 1:1 map over an already-validated topology — the id
+  /// set is the input's id set, so re-running the uniqueness scan cannot find
+  /// anything. What it *can* do is throw from inside the eval path, and a
+  /// throwing evaluator is the invariant this whole package is built to
+  /// exclude: totality is a proof obligation, so there is no `try` one layer up
+  /// in core to contain it.
+  ///
+  /// Every other caller — the pen tool, the importer, `PathOps`, decode — uses
+  /// the validating factory. This constructor is not a fast path to reach for.
+  const PathData.trusted(List<Anchor> anchors, bool closed)
+      : this._(anchors, closed);
+
   /// Zero for a degenerate path. 0 or 1 anchor renders nothing and never
   /// throws — the pen tool produces exactly that on its first click.
   int get segmentCount =>
@@ -149,17 +170,38 @@ final class PathData {
     );
   }
 
-  factory PathData.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
+  /// The anchor list is optional (an empty path is legal and the pen tool makes
+  /// one on its first click) but every *entry* in it is required structure, and
+  /// each reports its own index — `root/children[2]/path/anchors[7]` is the
+  /// whole point of the feature (docs/v3/01 §11).
+  factory PathData.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
+    final anchors = opt(
+      m,
+      'anchors',
+      (v) => reqArray(v, jsonChild(path, 'anchors')),
+      const <Object?>[],
+    );
+    final decoded = <Anchor>[
+      for (var k = 0; k < anchors.length; k++)
+        Anchor.fromJson(anchors[k], jsonIndex(jsonChild(path, 'anchors'), k)),
+    ];
+    // Invariant P1, re-checked at decode. The validating factory below already
+    // rejects a collision, but it throws an `ArgumentError` naming only the id
+    // — which is exactly the unlocatable "invalid document" this milestone
+    // exists to kill, and a duplicate id silently animates one anchor with
+    // another's pose, so it has to be found rather than survived.
+    final seen = <String>{};
+    for (var k = 0; k < decoded.length; k++) {
+      if (!seen.add(decoded[k].id.v)) {
+        throw DocumentException('duplicate AnchorId "${decoded[k].id.v}"',
+            path: jsonIndex(jsonChild(path, 'anchors'), k));
+      }
+    }
     return PathData(
-      anchors: opt(
-        m,
-        'anchors',
-        (v) =>
-            (v! as List<Object?>).map(Anchor.fromJson).toList(growable: false),
-        const <Anchor>[],
-      ),
-      closed: opt(m, 'closed', (v) => v as bool, false),
+      anchors: decoded,
+      closed:
+          opt(m, 'closed', (v) => reqBool(v, jsonChild(path, 'closed')), false),
     );
   }
 
@@ -191,12 +233,14 @@ final class PathTrim {
   /// windows (`start > end`) are a written non-goal and clamp to empty.
   bool get rendersNothing => end <= start;
 
-  factory PathTrim.fromJson(Object? j) {
-    final m = j! as Map<String, Object?>;
+  factory PathTrim.fromJson(Object? j, [String path = '']) {
+    final m = reqObject(j, path);
     return PathTrim(
-      start: opt(m, 'start', d, 0.0),
-      end: opt(m, 'end', d, 1.0),
-      offset: opt(m, 'offset', d, 0.0),
+      start:
+          opt(m, 'start', (v) => reqDouble(v, jsonChild(path, 'start')), 0.0),
+      end: opt(m, 'end', (v) => reqDouble(v, jsonChild(path, 'end')), 1.0),
+      offset:
+          opt(m, 'offset', (v) => reqDouble(v, jsonChild(path, 'offset')), 0.0),
     );
   }
 

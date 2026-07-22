@@ -1,0 +1,58 @@
+/// The canvas feature's named slices (docs/v3/08 §2).
+///
+/// A panel watching a whole document or editor provider with no `.select` is
+/// banned, and this file is where that rule is kept honest: every widget under
+/// `canvas/widgets/` watches one of these, never `documentControllerProvider`
+/// itself. That is the direct antidote to legacy's 93 blind `updateUI()` call
+/// sites — an anchor commit must not rebuild the layers panel, the inspector
+/// and the timeline as a side effect of rebuilding the canvas.
+library;
+
+import 'package:anim_core/anim_core.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../state/document_controller.dart';
+
+/// The open document, or null while it is loading or failed.
+///
+/// The canvas is the one panel that legitimately reads the *whole* document —
+/// it paints all of it — so the slice here is not a field projection but the
+/// **collapse of `AsyncValue` to its value**. That is what it buys: the
+/// loading→data and error→data transitions the shell renders with `.when` do
+/// not reach the painters, so the canvas repaints when the geometry changes and
+/// at no other time.
+///
+/// Null rather than `.requireValue`: the shell decides what "no document yet"
+/// looks like, and a `.requireValue` here would throw at every `ref.watch` on
+/// the first frame (docs/v3/08 §2).
+final canvasDocumentProvider =
+    Provider.autoDispose.family<Document?, String>((ref, projectId) {
+  return ref.watch(
+      documentControllerProvider(projectId).select((d) => d.valueOrNull));
+});
+
+/// The artboard's two painted values, so layer 1 does not watch the document.
+///
+/// `BackgroundPainter` repaints on artboard size and colour only. Handing it
+/// the document instead would repaint the board on every anchor drag, because
+/// document identity changes on every mutation — and the board has not changed
+/// since the file opened. A record is used rather than a pair of providers
+/// because records compare by value, which is exactly the signal `.select`
+/// needs.
+final canvasBackgroundProvider =
+    Provider.autoDispose.family<(Vec2, Rgba)?, String>((ref, projectId) {
+  return ref.watch(documentControllerProvider(projectId).select((d) {
+    final doc = d.valueOrNull;
+    return doc == null ? null : (doc.artboard, doc.background);
+  }));
+});
+
+/// How many shapes the document holds — the tool hint's only document read.
+///
+/// A count, not the child list: the hint must not rebuild when a node moves,
+/// only when one appears.
+final canvasNodeCountProvider =
+    Provider.autoDispose.family<int, String>((ref, projectId) {
+  return ref.watch(documentControllerProvider(projectId)
+      .select((d) => d.valueOrNull?.root.children.length ?? 0));
+});

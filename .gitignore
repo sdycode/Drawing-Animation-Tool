@@ -31,6 +31,12 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+# The leading slash above anchors to the repo root, so it never covered the
+# per-package build/ that `flutter test` drops into packages/anim_render/ the
+# first time the renderer's widget tests run. Left unignored, a routine
+# `git add -A` commits a dill cache and native_assets.json and every later
+# checkout fights the toolchain over them.
+packages/*/build/
 
 # Web related
 

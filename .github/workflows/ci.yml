@@ -4,9 +4,25 @@ name: CI
 # no legacy backlog to grandfather in, and the cost of adding a gate is lowest
 # now.
 #
-# The two named CI gate tests from docs/v3/00 §5 (round-trip over the 8 fixtures,
-# golden transform on the 450.2x250.4 artboard) land at M1 and run under
-# `anim_core tests`. Do NOT add a third gate — see the docs/v3/06 M1 risk note.
+# THE RELEASE GATE IS EXACTLY TWO TESTS (docs/v3/00 §5, docs/v3/04 §7):
+#
+#   Gate 1 — serializer round-trip over the 8 authored v3 fixtures in
+#            packages/anim_core/test/fixtures/ (the 8 imported legacy documents
+#            join this SAME test at M8 when F11.3 lands — they do not get a gate
+#            of their own).
+#   Gate 2 — golden transform on the deliberately non-square 450.2 x 250.4
+#            artboard, the aspect ratio that exposed the legacy y-rescale bug.
+#
+# Both land at M1 and each gets its OWN NAMED STEP below, ahead of `Build web`.
+# They are named individually and run by file so that a future edit cannot
+# quietly drop one inside a broader `dart test` invocation and leave a green
+# tick behind. Every step here runs in one job, in order, and GitHub Actions
+# stops the job at the first non-zero exit — so a broken round-trip never
+# reaches `flutter build web`. That is the docs/v3/06 M1 exit criterion.
+#
+# Do NOT add a third gate. docs/v3/04 §7 is explicit: everything else in this
+# workflow is developer-local coverage, and inventing a third gate is scope
+# creep with a test-shaped alibi (docs/v3/06 M1 risk note).
 
 on:
   push:
@@ -31,18 +47,57 @@ jobs:
         run: flutter pub get
 
       - name: Format check
-        run: dart format --output=none --set-exit-if-changed lib packages tool
+        run: dart format --output=none --set-exit-if-changed lib packages tool test
 
       - name: Analyze
         run: flutter analyze
 
-      # anim_core is pure Dart: it tests without a Flutter toolchain, which is
-      # the whole point of the package boundary (docs/v3/04 §1).
-      - name: anim_core tests
+      # anim_core is pure Dart: it resolves and tests without a Flutter
+      # toolchain, which is the whole point of the package boundary
+      # (docs/v3/04 §1). Resolved once here so the two gate steps below are
+      # nothing but the gate.
+      - name: anim_core pub get
         working-directory: packages/anim_core
-        run: |
-          dart pub get
-          dart test
+        run: dart pub get
+
+      # ── RELEASE GATE 1 of 2 — docs/v3/00 §5 ───────────────────────────────
+      # Round-trip over the 8 authored v3 fixtures. Named and run on its own so
+      # it is impossible to delete by accident: dropping this step deletes a
+      # line whose name says what it is. Red here stops the job before
+      # `Build web`.
+      - name: 'GATE 1/2 — serializer round-trip over the 8 v3 fixtures (docs/v3/00 §5)'
+        working-directory: packages/anim_core
+        run: dart test test/round_trip_gate_test.dart
+
+      # ── RELEASE GATE 2 of 2 — docs/v3/00 §5 ───────────────────────────────
+      # Golden transform on the 450.2 x 250.4 artboard. A numeric golden, not a
+      # pixel one: anim_core has no dart:ui to rasterise with, and the legacy
+      # y-scaled-by-width defect is an arithmetic error that arithmetic catches
+      # more sharply than a bitmap. Do not "fix" this by adding an image golden
+      # in anim_render — that is the forbidden third gate.
+      - name: 'GATE 2/2 — golden transform on the 450.2 × 250.4 artboard (docs/v3/00 §5)'
+        working-directory: packages/anim_core
+        run: dart test test/transform_gate_test.dart
+
+      # Developer-local coverage from here down, NOT release gates (docs/v3/04
+      # §7). They run in the same job and therefore also block the build; that
+      # is a property of one-job CI, not a promotion to gate status. The two
+      # steps above are the only things docs/v3/00 §5 names.
+      - name: anim_core tests (developer coverage — re-runs both gates)
+        working-directory: packages/anim_core
+        run: dart test
+
+      # anim_render needs dart:ui, so its tests live in the package and are
+      # invisible to the root `flutter test`. They are the only thing proving
+      # the docs/v3/08 §1 painter rule — catch PER ITEM inside the loop, never
+      # per frame — and a per-frame catch is exactly the regression that turns
+      # wrong pixels into a silently frozen shape. Unrun, that rule is a comment.
+      # Running a package's ordinary tests is not a release gate; this is the
+      # same category as `App tests`, and removing it would only mean running
+      # less of the suite that already exists.
+      - name: anim_render tests
+        working-directory: packages/anim_render
+        run: flutter test
 
       - name: App tests
         run: flutter test

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 3,
+  "id": "33333333-3333-4333-8333-333333333333",
+  "name": "Geometry",
+  "rev": 7,
+  "artboard": { "x": 450.2, "y": 250.4 },
+  "background": [1.0, 1.0, 1.0, 1.0],
+  "root": {
+    "type": "group",
+    "id": "n-root",
+    "name": "Root",
+    "children": [
+      {
+        "type": "path",
+        "id": "n-open-curve",
+        "name": "Open curve, all three anchor kinds",
+        "path": {
+          "closed": false,
+          "anchors": [
+            {
+              "id": "g0",
+              "position": { "x": 20.0, "y": 200.0 },
+              "inTangent": { "x": 0.0, "y": 0.0 },
+              "outTangent": { "x": 30.0, "y": -60.0 },
+              "kind": "corner"
+            },
+            {
+              "id": "g1",
+              "position": { "x": 140.0, "y": 60.0 },
+              "inTangent": { "x": -40.0, "y": 0.0 },
+              "outTangent": { "x": 40.0, "y": 0.0 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "g2",
+              "position": { "x": 260.0, "y": 190.5 },
+              "inTangent": { "x": -25.0, "y": -50.0 },
+              "outTangent": { "x": 12.5, "y": 25.0 },
+              "kind": "smooth"
+            },
+            {
+              "id": "g3",
+              "position": { "x": 380.25, "y": 120.75 },
+              "kind": "corner"
+            }
+          ]
+        },
+        "fills": [],
+        "strokes": [
+          {
+            "id": "p-open-stroke",
+            "paint": { "type": "solid", "color": [0.1, 0.2, 0.3, 1.0] },
+            "width": 3.5
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-closed-curve",
+        "name": "Closed curve — the wrap segment exists only when closed",
+        "path": {
+          "closed": true,
+          "anchors": [
+            {
+              "id": "c0",
+              "position": { "x": 60.0, "y": 40.0 },
+              "inTangent": { "x": -20.0, "y": 0.0 },
+              "outTangent": { "x": 20.0, "y": 0.0 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "c1",
+              "position": { "x": 120.0, "y": 90.0 },
+              "inTangent": { "x": 0.0, "y": -22.0 },
+              "outTangent": { "x": 0.0, "y": 22.0 },
+              "kind": "smooth"
+            },
+            {
+              "id": "c2",
+              "position": { "x": 60.0, "y": 140.0 },
+              "inTangent": { "x": 20.0, "y": 0.0 },
+              "outTangent": { "x": -20.0, "y": 0.0 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "c3",
+              "position": { "x": 0.0, "y": 90.0 },
+              "kind": "corner"
+            }
+          ]
+        },
+        "fills": [
+          {
+            "id": "p-closed-fill",
+            "paint": { "type": "solid", "color": [0.9, 0.4, 0.1, 1.0] }
+          }
+        ],
+        "strokes": []
+      },
+      {
+        "type": "path",
+        "id": "n-one-anchor",
+        "name": "Degenerate: one anchor — what the pen tool makes on click 1",
+        "path": {
+          "closed": false,
+          "anchors": [
+            { "id": "s0", "position": { "x": 410.0, "y": 30.0 } }
+          ]
+        },
+        "fills": [],
+        "strokes": []
+      },
+      {
+        "type": "path",
+        "id": "n-zero-anchor",
+        "name": "Degenerate: no anchors at all, and closed anyway",
+        "path": { "closed": true },
+        "fills": [],
+        "strokes": []
+      }
+    ]
+  },
+  "animations": []
+}

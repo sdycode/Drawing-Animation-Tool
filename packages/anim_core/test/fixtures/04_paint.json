@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 3,
+  "id": "44444444-4444-4444-8444-444444444444",
+  "name": "Paint",
+  "rev": 12,
+  "artboard": { "x": 450.2, "y": 250.4 },
+  "background": [0.05, 0.05, 0.08, 1.0],
+  "root": {
+    "type": "group",
+    "id": "n-root",
+    "name": "Root",
+    "children": [
+      {
+        "type": "path",
+        "id": "n-nonzero-butt-miter",
+        "name": "nonZero fill, butt cap, miter join",
+        "path": {
+          "closed": true,
+          "anchors": [
+            { "id": "q0", "position": { "x": 0.0, "y": 0.0 } },
+            { "id": "q1", "position": { "x": 80.0, "y": 0.0 } },
+            { "id": "q2", "position": { "x": 80.0, "y": 50.0 } },
+            { "id": "q3", "position": { "x": 0.0, "y": 50.0 } }
+          ]
+        },
+        "fills": [
+          {
+            "id": "p-fill-a",
+            "paint": { "type": "solid", "color": [1.0, 0.0, 0.0, 1.0] },
+            "rule": "nonZero",
+            "opacity": 1.0,
+            "visible": true
+          }
+        ],
+        "strokes": [
+          {
+            "id": "p-stroke-a",
+            "paint": { "type": "solid", "color": [0.0, 0.0, 0.0, 1.0] },
+            "width": 2.0,
+            "cap": "butt",
+            "join": "miter",
+            "miterLimit": 4.0,
+            "opacity": 1.0,
+            "visible": true
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-evenodd-round-round",
+        "name": "evenOdd fill, round cap, round join, a hidden second fill",
+        "transform": { "position": { "x": 100.0, "y": 0.0 } },
+        "path": {
+          "closed": true,
+          "anchors": [
+            { "id": "r0", "position": { "x": 0.0, "y": 0.0 } },
+            { "id": "r1", "position": { "x": 60.0, "y": 20.0 } },
+            { "id": "r2", "position": { "x": 20.0, "y": 60.0 } }
+          ]
+        },
+        "fills": [
+          {
+            "id": "p-fill-b",
+            "paint": { "type": "solid", "color": [0.0, 0.6, 0.4, 0.75] },
+            "rule": "evenOdd",
+            "opacity": 0.5,
+            "visible": true
+          },
+          {
+            "id": "p-fill-b2",
+            "paint": { "type": "solid", "color": [0.2, 0.2, 0.2, 1.0] },
+            "rule": "nonZero",
+            "opacity": 1.0,
+            "visible": false
+          }
+        ],
+        "strokes": [
+          {
+            "id": "p-stroke-b",
+            "paint": { "type": "solid", "color": [1.0, 1.0, 1.0, 1.0] },
+            "width": 6.25,
+            "cap": "round",
+            "join": "round",
+            "miterLimit": 4.0,
+            "opacity": 0.9,
+            "visible": true
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-square-bevel",
+        "name": "square cap, bevel join, non-default miterLimit",
+        "transform": { "position": { "x": 200.0, "y": 0.0 } },
+        "path": {
+          "closed": false,
+          "anchors": [
+            { "id": "b0", "position": { "x": 0.0, "y": 0.0 } },
+            { "id": "b1", "position": { "x": 40.0, "y": 70.0 } },
+            { "id": "b2", "position": { "x": 80.0, "y": 0.0 } }
+          ]
+        },
+        "fills": [],
+        "strokes": [
+          {
+            "id": "p-stroke-c",
+            "paint": { "type": "solid", "color": [0.95, 0.85, 0.1, 1.0] },
+            "width": 12.0,
+            "cap": "square",
+            "join": "bevel",
+            "miterLimit": 1.5,
+            "opacity": 1.0,
+            "visible": true
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-linear-gradient",
+        "name": "Linear gradient — rendered in v1, not authorable",
+        "transform": { "position": { "x": 0.0, "y": 100.0 } },
+        "path": {
+          "closed": true,
+          "anchors": [
+            { "id": "l0", "position": { "x": 0.0, "y": 0.0 } },
+            { "id": "l1", "position": { "x": 120.0, "y": 0.0 } },
+            { "id": "l2", "position": { "x": 120.0, "y": 80.0 } },
+            { "id": "l3", "position": { "x": 0.0, "y": 80.0 } }
+          ]
+        },
+        "fills": [
+          {
+            "id": "p-fill-lin",
+            "paint": {
+              "type": "linearGradient",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 120.0, "y": 80.0 },
+              "stops": [
+                { "id": "s-lin-0", "offset": 0.0, "color": [1.0, 0.0, 0.0, 1.0] },
+                { "id": "s-lin-1", "offset": 0.35, "color": [1.0, 1.0, 0.0, 1.0] },
+                { "id": "s-lin-2", "offset": 1.0, "color": [0.0, 0.0, 1.0, 0.25] }
+              ]
+            },
+            "rule": "nonZero",
+            "opacity": 1.0,
+            "visible": true
+          }
+        ],
+        "strokes": [
+          {
+            "id": "p-stroke-lin",
+            "paint": {
+              "type": "linearGradient",
+              "start": { "x": 0.0, "y": 80.0 },
+              "end": { "x": 120.0, "y": 0.0 },
+              "stops": [
+                { "id": "s-lst-0", "offset": 0.0, "color": [0.0, 0.0, 0.0, 1.0] },
+                { "id": "s-lst-1", "offset": 1.0, "color": [1.0, 1.0, 1.0, 1.0] }
+              ]
+            },
+            "width": 1.0,
+            "cap": "butt",
+            "join": "miter",
+            "miterLimit": 4.0,
+            "opacity": 1.0,
+            "visible": true
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-radial-gradient",
+        "name": "Radial gradient with an off-centre focus",
+        "transform": { "position": { "x": 200.0, "y": 100.0 } },
+        "path": {
+          "closed": true,
+          "anchors": [
+            { "id": "d0", "position": { "x": 0.0, "y": 0.0 } },
+            { "id": "d1", "position": { "x": 100.0, "y": 0.0 } },
+            { "id": "d2", "position": { "x": 100.0, "y": 100.0 } },
+            { "id": "d3", "position": { "x": 0.0, "y": 100.0 } }
+          ]
+        },
+        "fills": [
+          {
+            "id": "p-fill-rad",
+            "paint": {
+              "type": "radialGradient",
+              "center": { "x": 35.5, "y": 42.25 },
+              "radius": 68.75,
+              "stops": [
+                { "id": "s-rad-0", "offset": 0.0, "color": [1.0, 1.0, 1.0, 1.0] },
+                { "id": "s-rad-1", "offset": 0.6, "color": [0.5, 0.2, 0.8, 1.0] },
+                { "id": "s-rad-2", "offset": 1.0, "color": [0.0, 0.0, 0.0, 0.0] }
+              ]
+            },
+            "rule": "evenOdd",
+            "opacity": 0.8,
+            "visible": true
+          }
+        ],
+        "strokes": []
+      }
+    ]
+  },
+  "animations": []
+}

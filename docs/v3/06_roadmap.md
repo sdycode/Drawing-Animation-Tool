@@ -49,13 +49,19 @@
 | Contains | From 03 |
 | --- | --- |
 | All 60 types of 01 §2–§10; `Affine` is the **only** matrix | F1.1, F3.1 |
-| Strict decoder — missing required subtree throws with a path; every numeric read via `double d(Object? v)` | F10.2 |
+| Decoder split strictly by **required vs optional** (see the boundary below); every numeric read via `double d(Object? v)` | F10.2 |
 | `UnknownNode` verbatim re-emit; `rev` round-trip | AC-1.2.4, AC-1.2.3 |
-| **Round-trip property test over all 8 fixtures** + **golden transform test on 450.2 × 250.4** wired as a red-blocks-deploy CI gate | AC-12.1.4, AC-10.2.5, AC-1.1.2 |
+| **Round-trip property test over the 8 authored v3 fixtures** + **golden transform test on 450.2 × 250.4** wired as a red-blocks-deploy CI gate | AC-12.1.4, AC-10.2.5, AC-1.1.2 |
 
-> **Exit criterion:** `dart test` in `anim_core` is green with zero Flutter imports resolvable, both CI gate tests pass, and a push with a broken round-trip is blocked from deploying.
+> **The decoder boundary — required throws, everything else degrades.** 00 §7 ("strict decoder, missing required subtree throws with a path") and 08 §2 ("decode degrades, never validates-and-throws") are both in force; they are not in conflict once the line is drawn where it belongs, and it is drawn here and in 08 §2 in the same words.
+> **Throws `DocumentException` carrying a JSON path:** a missing or unusable **required root-level structure** — `schemaVersion`, `id`, `artboard`, `root` — and, transitively, every structure *they* require in turn (a node's `type` and `id`, a path node's `path`, an anchor's `id` and `position`, an animation's `id`). There is no document to show without them, and a silently empty canvas reads to the user as data loss. The path is the point: absent a location, "invalid document" is what makes a corrupt file unfixable.
+> **Degrades and is preserved, never throws:** unknown node `type` → `UnknownNode` verbatim · unknown `paint.type` → `UnknownPaint` · unknown `easing.kind` → `UnknownEasing` · a malformed or invariant-violating track → kept raw in `TrackSet.unknownKeys` and not evaluated · an orphan pose id → dropped with a warning · unknown keys at every level → re-emitted. This is the forward-compat contract of 02 §8: a field a newer client adds must never make the document unopenable in an older one.
 
-**Risk:** inventing test tracks. 04 §7 defines the gate as **exactly two** tests. Everything else is developer-local coverage. A third gate is scope creep with a test-shaped alibi.
+> **Which 8 fixtures — and why this had to be restated.** The gate round-trips **8 authored v3 fixtures checked into `packages/anim_core/test/fixtures/`**, chosen between them to cover the whole type surface (minimal document, nesting, geometry, paint, all five track types, the forward-compat unknowns, trim, and the 450.2 × 250.4 lopsided board). 00 §5 and 04 §7 originally read "all 8 legacy fixtures", which could not be satisfied at M1: `LegacyImporter` is **F11.3, milestone M8**, so at M1 there is nothing to import and the gate as worded could not exist. At **M8 the 8 imported legacy documents join this SAME test** — a ninth through sixteenth case in one file, not a third gate.
+
+> **Exit criterion:** `dart test` in `anim_core` is green with zero Flutter imports resolvable, both CI gate tests pass as their own named workflow steps ahead of `flutter build web`, and a push with a broken round-trip is blocked from deploying.
+
+**Risk:** inventing test tracks. 04 §7 defines the gate as **exactly two** tests. Everything else is developer-local coverage. A third gate is scope creep with a test-shaped alibi. The honest cost of holding that line: fixture *coverage* is asserted by the table at the head of the round-trip test, not mechanically, so adding a type to `anim_core` without extending a fixture fails nothing. Extending a fixture is part of adding a type — a coverage-completeness checker would be the third gate.
 
 ---
 
@@ -100,7 +106,7 @@
 
 | Contains | From 03 |
 | --- | --- |
-| Sparse per-node/per-property tracks; the exhaustive 16-member `kExpectedTrackType[PropKey]` mapping | F6.1 |
+| Sparse per-node/per-property tracks; the exhaustive **15**-member `kExpectedTrackType[PropKey]` mapping (`pivot` is excluded — 01 §4) | F6.1 |
 | `TrackOps.upsertKeyframe` / `moveKeyframe` (index resolved at command-construction) / `minSeparation` / `pinEndpoints` | F6.2 |
 | Edit-at-keyframe selection; pose editing (`PathOps.moveAnchor`, `setTangents`) is **keyframe-local** | F4.2, AC-6.2.6 |
 | Per-segment `Easing` — `LinearEasing` model default, `CubicEasing`, `HoldEasing`; presets lower at authoring time | F7.1 |

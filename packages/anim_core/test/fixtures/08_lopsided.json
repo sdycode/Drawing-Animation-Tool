@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 3,
+  "id": "88888888-8888-4888-8888-888888888888",
+  "name": "Lopsided 450.2 x 250.4",
+  "rev": 3,
+  "artboard": { "x": 450.2, "y": 250.4 },
+  "background": [0.5, 0.5, 0.5, 1.0],
+  "root": {
+    "type": "group",
+    "id": "n-root",
+    "name": "Root",
+    "children": [
+      {
+        "type": "path",
+        "id": "n-diagonal",
+        "name": "Corner-to-corner diagonal — y scaled by width lands at 450.2",
+        "path": {
+          "closed": false,
+          "anchors": [
+            { "id": "x0", "position": { "x": 0.0, "y": 0.0 } },
+            { "id": "x1", "position": { "x": 450.2, "y": 250.4 } }
+          ]
+        },
+        "fills": [],
+        "strokes": [
+          {
+            "id": "p-diag",
+            "paint": { "type": "solid", "color": [0.0, 0.0, 0.0, 1.0] },
+            "width": 1.0
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-edge-frame",
+        "name": "Frame on the exact artboard bounds",
+        "path": {
+          "closed": true,
+          "anchors": [
+            { "id": "y0", "position": { "x": 0.0, "y": 0.0 } },
+            { "id": "y1", "position": { "x": 450.2, "y": 0.0 } },
+            { "id": "y2", "position": { "x": 450.2, "y": 250.4 } },
+            { "id": "y3", "position": { "x": 0.0, "y": 250.4 } }
+          ]
+        },
+        "recipe": { "type": "rect", "w": 450.2, "h": 250.4, "cornerRadius": 0.0 },
+        "fills": [],
+        "strokes": [
+          {
+            "id": "p-frame",
+            "paint": { "type": "solid", "color": [1.0, 0.0, 1.0, 1.0] },
+            "width": 2.0
+          }
+        ]
+      },
+      {
+        "type": "group",
+        "id": "n-unit-scaled",
+        "name": "Unit square blown up by the artboard, per axis",
+        "transform": {
+          "position": { "x": 0.0, "y": 0.0 },
+          "scale": { "x": 450.2, "y": 250.4 },
+          "pivot": { "x": 0.0, "y": 0.0 },
+          "rotation": 0.0,
+          "skewX": 0.0
+        },
+        "children": [
+          {
+            "type": "path",
+            "id": "n-unit",
+            "name": "Unit square — its world height is 250.4, never 450.2",
+            "path": {
+              "closed": true,
+              "anchors": [
+                { "id": "z0", "position": { "x": 0.0, "y": 0.0 } },
+                { "id": "z1", "position": { "x": 1.0, "y": 0.0 } },
+                { "id": "z2", "position": { "x": 1.0, "y": 1.0 } },
+                { "id": "z3", "position": { "x": 0.0, "y": 1.0 } }
+              ]
+            },
+            "fills": [],
+            "strokes": []
+          }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-centre-ellipse",
+        "name": "Board-inscribed ellipse: rx 225.1, ry 125.2",
+        "transform": {
+          "position": { "x": 225.1, "y": 125.2 },
+          "scale": { "x": 1.0, "y": 1.0 },
+          "pivot": { "x": 225.1, "y": 125.2 },
+          "rotation": 0.0,
+          "skewX": 0.0
+        },
+        "path": {
+          "closed": true,
+          "anchors": [
+            {
+              "id": "e0",
+              "position": { "x": 0.0, "y": -125.2 },
+              "inTangent": { "x": -124.3, "y": 0.0 },
+              "outTangent": { "x": 124.3, "y": 0.0 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "e1",
+              "position": { "x": 225.1, "y": 0.0 },
+              "inTangent": { "x": 0.0, "y": -69.1 },
+              "outTangent": { "x": 0.0, "y": 69.1 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "e2",
+              "position": { "x": 0.0, "y": 125.2 },
+              "inTangent": { "x": 124.3, "y": 0.0 },
+              "outTangent": { "x": -124.3, "y": 0.0 },
+              "kind": "symmetric"
+            },
+            {
+              "id": "e3",
+              "position": { "x": -225.1, "y": 0.0 },
+              "inTangent": { "x": 0.0, "y": 69.1 },
+              "outTangent": { "x": 0.0, "y": -69.1 },
+              "kind": "symmetric"
+            }
+          ]
+        },
+        "recipe": { "type": "ellipse", "rx": 225.1, "ry": 125.2 },
+        "fills": [
+          {
+            "id": "p-ellipse",
+            "paint": {
+              "type": "radialGradient",
+              "center": { "x": 0.0, "y": 0.0 },
+              "radius": 125.2,
+              "stops": [
+                { "id": "s-e-0", "offset": 0.0, "color": [1.0, 1.0, 1.0, 1.0] },
+                { "id": "s-e-1", "offset": 1.0, "color": [0.0, 0.0, 0.0, 1.0] }
+              ]
+            }
+          }
+        ],
+        "strokes": []
+      },
+      {
+        "type": "path",
+        "id": "n-star",
+        "name": "Star recipe — an int-valued sides field on the wire",
+        "transform": { "position": { "x": 60.0, "y": 60.0 } },
+        "path": {
+          "closed": true,
+          "anchors": [
+            { "id": "k0", "position": { "x": 0.0, "y": -40.0 } },
+            { "id": "k1", "position": { "x": 12.0, "y": -12.0 } },
+            { "id": "k2", "position": { "x": 40.0, "y": 0.0 } },
+            { "id": "k3", "position": { "x": 12.0, "y": 12.0 } },
+            { "id": "k4", "position": { "x": 0.0, "y": 40.0 } },
+            { "id": "k5", "position": { "x": -12.0, "y": 12.0 } },
+            { "id": "k6", "position": { "x": -40.0, "y": 0.0 } },
+            { "id": "k7", "position": { "x": -12.0, "y": -12.0 } }
+          ]
+        },
+        "recipe": {
+          "type": "polygon",
+          "sides": 4,
+          "radius": 40,
+          "star": true,
+          "innerRatio": 0.42
+        },
+        "fills": [],
+        "strokes": []
+      }
+    ]
+  },
+  "animations": [
+    {
+      "id": "a-stretch",
+      "name": "Per-axis stretch",
+      "durationSeconds": 1.0,
+      "fps": 60,
+      "loop": "once",
+      "tracks": {
+        "n-unit-scaled": {
+          "scale": {
+            "type": "vec2",
+            "keys": [
+              {
+                "t": 0.0,
+                "value": { "x": 450.2, "y": 250.4 },
+                "easing": { "kind": "linear" }
+              },
+              {
+                "t": 1.0,
+                "value": { "x": 225.1, "y": 250.4 },
+                "easing": { "kind": "linear" }
+              }
+            ]
+          }
+        },
+        "n-centre-ellipse": {
+          "position": {
+            "type": "vec2",
+            "keys": [
+              {
+                "t": 0.0,
+                "value": { "x": 225.1, "y": 125.2 },
+                "easing": { "kind": "linear" }
+              },
+              {
+                "t": 1.0,
+                "value": { "x": 450.2, "y": 250.4 },
+                "easing": { "kind": "linear" }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "defaultAnimationId": "a-stretch"
+}

@@ -161,7 +161,7 @@
 | --- | --- | --- | --- |
 | AC-6.1.1 | Node A keyed at t = 0.0/0.5/1.0 and node B at t = 0.13/0.77 | Scrubbed | Both animate independently. There is **no** global keyframe grid and no shared key list |
 | AC-6.1.2 | One node with `position` keyed and `rotation` unkeyed | Scrubbed | `position` animates; `rotation` holds its `Transform2` pose value |
-| AC-6.1.3 | Any property keyed | The track is created | Its runtime type equals `kExpectedTrackType[prop]` — the exhaustive 16-member `PropKey` mapping. A mismatch is rejected at the decoder and returns null (never throws) from the typed accessor |
+| AC-6.1.3 | Any property keyed | The track is created | Its runtime type equals `kExpectedTrackType[prop]` — the exhaustive **15**-member `PropKey` mapping of 01 §7. `pivot` is **not** the sixteenth: 01 §4 rules it out of the v1 animatable set (it appears twice with opposite sign in `toAffine()`, so keying it while `scale != 1` translates the node), and 02 §3.9's `vec2` row listing it is the bug — 01 wins. A mismatch is rejected at the decoder and returns null (never throws) from the typed accessor |
 | AC-6.1.4 | A node absent from `Animation.tracks` | Evaluated | It is fully static. Tracks are per-node **sparse** |
 | AC-6.1.5 | 4 nodes each with keys, only node 1 selected | Play pressed | **All four animate.** No cache keyed by selection exists (the legacy defect where unselected sections rendered frozen at keyframe 0) |
 

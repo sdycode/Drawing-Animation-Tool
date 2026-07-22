@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 3,
+  "id": "55555555-5555-4555-8555-555555555555",
+  "name": "Tracks",
+  "rev": 23,
+  "artboard": { "x": 450.2, "y": 250.4 },
+  "background": [0.0, 0.0, 0.0, 0.0],
+  "root": {
+    "type": "group",
+    "id": "n-root",
+    "name": "Root",
+    "children": [
+      {
+        "type": "group",
+        "id": "n-spinner",
+        "name": "Spinner (transform channels)",
+        "transform": {
+          "position": { "x": 225.1, "y": 125.2 },
+          "scale": { "x": 1.0, "y": 1.0 },
+          "pivot": { "x": 0.0, "y": 0.0 },
+          "rotation": 0.0,
+          "skewX": 0.0
+        },
+        "children": [
+          {
+            "type": "path",
+            "id": "n-body",
+            "name": "Body (path, colour, width, visibility)",
+            "path": {
+              "closed": true,
+              "anchors": [
+                { "id": "t0", "position": { "x": -30.0, "y": -20.0 } },
+                { "id": "t1", "position": { "x": 30.0, "y": -20.0 } },
+                { "id": "t2", "position": { "x": 30.0, "y": 20.0 } },
+                { "id": "t3", "position": { "x": -30.0, "y": 20.0 } }
+              ]
+            },
+            "fills": [
+              {
+                "id": "p-body",
+                "paint": { "type": "solid", "color": [0.2, 0.4, 0.9, 1.0] }
+              }
+            ],
+            "strokes": [
+              {
+                "id": "p-body-edge",
+                "paint": { "type": "solid", "color": [1.0, 1.0, 1.0, 1.0] },
+                "width": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "animations": [
+    {
+      "id": "a-main",
+      "name": "Main",
+      "durationSeconds": 2.5,
+      "fps": 24,
+      "loop": "pingPong",
+      "tracks": {
+        "n-spinner": {
+          "position": {
+            "type": "vec2",
+            "keys": [
+              {
+                "t": 0.1,
+                "value": { "x": 60.0, "y": 200.0 },
+                "outTangent": { "x": 40.0, "y": -80.0 },
+                "easing": { "kind": "cubic", "p": [0.42, 0.0, 0.58, 1.0] }
+              },
+              {
+                "t": 0.55,
+                "value": { "x": 225.1, "y": 60.0 },
+                "inTangent": { "x": -40.0, "y": -20.0 },
+                "outTangent": { "x": 40.0, "y": 20.0 },
+                "easing": { "kind": "linear" }
+              },
+              {
+                "t": 0.8,
+                "value": { "x": 390.0, "y": 200.0 },
+                "inTangent": { "x": -40.0, "y": -80.0 },
+                "easing": { "kind": "linear" }
+              }
+            ]
+          },
+          "scale": {
+            "type": "vec2",
+            "keys": [
+              {
+                "t": 0.2,
+                "value": { "x": 1.0, "y": 1.0 },
+                "easing": { "kind": "hold" }
+              },
+              {
+                "t": 0.7,
+                "value": { "x": 2.5, "y": 0.4 },
+                "easing": { "kind": "linear" }
+              }
+            ]
+          },
+          "rotation": {
+            "type": "scalar",
+            "keys": [
+              {
+                "t": 0.15,
+                "value": 0.0,
+                "easing": { "kind": "cubic", "p": [0.36, 0.0, 0.66, -0.56] }
+              },
+              {
+                "t": 0.65,
+                "value": -12.5664,
+                "easing": { "kind": "linear" }
+              }
+            ]
+          },
+          "opacity": {
+            "type": "scalar",
+            "keys": [
+              {
+                "t": 0.0,
+                "value": 1.0,
+                "easing": { "kind": "hold" }
+              },
+              {
+                "t": 0.9,
+                "value": 0.25,
+                "easing": { "kind": "linear" }
+              }
+            ]
+          }
+        },
+        "n-body": {
+          "path": {
+            "type": "path",
+            "keys": [
+              {
+                "t": 0.25,
+                "value": {
+                  "anchors": {
+                    "t0": {
+                      "position": { "x": -30.0, "y": -20.0 },
+                      "inTangent": { "x": 0.0, "y": 0.0 },
+                      "outTangent": { "x": 0.0, "y": 0.0 }
+                    },
+                    "t1": {
+                      "position": { "x": 30.0, "y": -20.0 },
+                      "inTangent": { "x": 0.0, "y": 0.0 },
+                      "outTangent": { "x": 0.0, "y": 0.0 }
+                    },
+                    "t2": {
+                      "position": { "x": 30.0, "y": 20.0 },
+                      "inTangent": { "x": 0.0, "y": 0.0 },
+                      "outTangent": { "x": 0.0, "y": 0.0 }
+                    },
+                    "t3": {
+                      "position": { "x": -30.0, "y": 20.0 },
+                      "inTangent": { "x": 0.0, "y": 0.0 },
+                      "outTangent": { "x": 0.0, "y": 0.0 }
+                    }
+                  }
+                },
+                "easing": { "kind": "cubic", "p": [0.25, 0.1, 0.25, 1.0] }
+              },
+              {
+                "t": 0.75,
+                "value": {
+                  "anchors": {
+                    "t0": {
+                      "position": { "x": -45.5, "y": -12.25 },
+                      "inTangent": { "x": 0.0, "y": 0.0 },
+                      "outTangent": { "x": 18.0, "y": -6.0 }
+                    },
+                    "t1": {
+                      "position": { "x": 45.5, "y": -12.25 },
+                      "inTangent": { "x": -18.0, "y": -6.0 },
+                      "outTangent": { "x": 0.0, "y": 0.0 }
+                    },
+                    "t2": {
+                      "position": { "x": 30.0, "y": 44.75 },
+                      "inTangent": { "x": 0.0, "y": 0.0 },
+                      "outTangent": { "x": 0.0, "y": 0.0 }
+                    },
+                    "t3": {
+                      "position": { "x": -30.0, "y": 44.75 },
+                      "inTangent": { "x": 0.0, "y": 0.0 },
+                      "outTangent": { "x": 0.0, "y": 0.0 }
+                    }
+                  }
+                },
+                "easing": { "kind": "linear" }
+              }
+            ]
+          },
+          "visible": {
+            "type": "bool",
+            "keys": [
+              { "t": 0.05, "value": true, "easing": { "kind": "linear" } },
+              { "t": 0.45, "value": false, "easing": { "kind": "linear" } },
+              { "t": 0.6, "value": true, "easing": { "kind": "linear" } }
+            ]
+          },
+          "fillColor:p-body": {
+            "type": "color",
+            "keys": [
+              {
+                "t": 0.3,
+                "value": [0.2, 0.4, 0.9, 1.0],
+                "easing": { "kind": "cubic", "p": [0.34, 1.56, 0.64, 1.0] }
+              },
+              {
+                "t": 0.85,
+                "value": [0.95, 0.15, 0.35, 0.5],
+                "easing": { "kind": "linear" }
+              }
+            ]
+          },
+          "strokeWidth": {
+            "type": "scalar",
+            "keys": [
+              { "t": 0.4, "value": 1.0, "easing": { "kind": "hold" } },
+              { "t": 0.95, "value": 9.5, "easing": { "kind": "linear" } }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "defaultAnimationId": "a-main"
+}

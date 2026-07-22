@@ -10,12 +10,25 @@
 library;
 
 export 'src/affine.dart';
+export 'src/animation.dart';
+
+/// The `req*` helpers and the `json*` path builders stay internal: they are the
+/// decoder's vocabulary, not the domain's, and exporting them would invite a
+/// second decoder outside this package.
+export 'src/decode.dart' show DecodeWarning, DocumentException, onDecodeWarning;
 export 'src/document.dart';
+export 'src/easing.dart';
+export 'src/eval/evaluate.dart';
+export 'src/eval/scene.dart';
 export 'src/json.dart' show d, i;
 export 'src/node.dart';
+export 'src/ops/path_ops.dart';
+export 'src/ops/track_ops.dart';
 export 'src/paint.dart';
 export 'src/path.dart';
 export 'src/primitives.dart';
+export 'src/recipe.dart';
+export 'src/track.dart';
 export 'src/uuid.dart';
 
 /// The wire-format version this build reads and writes.

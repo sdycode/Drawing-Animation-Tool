@@ -113,7 +113,9 @@ v1 is **done** when a person who is not the owner can do all of this, on a deplo
 | 8 | Export a `.json` and replay it correctly in a plain Flutter app via the new **`anim_core`** runtime package. The legacy `annimation` v0.0.2 is not a fallback — it cannot read a v3 document. |
 | 9 | Import all 8 legacy `assets/library/*.json` files; each plays without NaN or empty geometry at 50 sampled `t` values |
 
-**Automated gate:** the round-trip property test over all 8 fixtures, plus the golden transform test on a deliberately non-square artboard (450.2 × 250.4 — the aspect ratio that exposed the legacy y-rescale bug), pass in CI.
+**Automated gate:** two tests, and only two. The round-trip property test, plus the golden transform test on a deliberately non-square artboard (450.2 × 250.4 — the aspect ratio that exposed the legacy y-rescale bug). Both land at **M1**, each as its own named CI step ahead of `flutter build web`, so a broken round-trip is blocked from deploying.
+
+*Which fixtures, when.* At M1 the round-trip runs over **8 authored v3 fixtures** checked into `packages/anim_core/test/fixtures/`, covering between them the whole type surface. It cannot run over the legacy library any earlier: the importer is F11.3, milestone M8. At **M8 the 8 imported `assets/library/*.json` documents join that same test** (criterion 9's replay assertions are separate developer coverage). The gate stays two tests through M8 and through ship — see 04 §7.
 
 **Not success criteria:** feature count, code elegance, matching After Effects.
 
@@ -166,7 +168,7 @@ v1 is **done** when a person who is not the owner can do all of this, on a deplo
 | **Absolute unclamped board pixels** | Artboard-relative coordinates; one `Affine` for document→screen. |
 | **Hand-rolled per-axis scaling** (the y-scaled-by-width bug) | One `Affine` type, golden-tested on a non-square artboard. |
 | **Copy constructor returning the same instance** | Fully immutable value types. |
-| **Null-coalescing that manufactures plausible-but-wrong data** | Strict decoder. Missing required subtree throws with a path. |
+| **Null-coalescing that manufactures plausible-but-wrong data** | Decoder split by required vs optional: a missing **required root structure** throws with a path; everything else degrades and is preserved. Stated once, identically, in 06 M1 and 08 §2. |
 | **Modal error dialogs inside the animation tick** | Validate at load and at mutation. The tick has no UI concerns. |
 | **`Map<String, dynamic>` hand-written serializers with silently dropped fields** | Code-generated serialization + round-trip test over all 8 fixtures. |
 | **No schema version; sequential colliding IDs (`Project_14` ×3)** | Mandatory `schemaVersion`; UUIDs. |

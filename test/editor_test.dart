@@ -1,10 +1,10 @@
 import 'dart:convert';
 
-import 'package:anim_core/anim_core.dart';
+import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
 import 'package:drawing_animation_tool/app/data/project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
-import 'package:drawing_animation_tool/app/features/editor/editor_screen.dart';
+import 'package:drawing_animation_tool/app/editor_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,7 +23,7 @@ void main() {
 
   Widget harness(String id) => ProviderScope(
         overrides: [projectStoreProvider.overrideWithValue(store)],
-        child: MaterialApp(home: EditorScreen(projectId: id)),
+        child: MaterialApp(home: EditorShell(projectId: id)),
       );
 
   Future<Document> reload(String id) async => Document.fromJson(
@@ -147,6 +147,33 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(StoreFailure.notFound.message), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a newer-schema document opens read-only and says so',
+      (tester) async {
+    // docs/v3/02 §1 rule 7: every save path is disabled. The gate itself lives
+    // in `DocumentController._save`, at the one place a write happens; this is
+    // the half the user can see, because a refusal you only discover by
+    // dragging something and reading a snackbar is a trap.
+    final doc = Document.create(name: 'Future', artboard: const Vec2(400, 400))
+        .bumpRev();
+    final json = jsonDecode(jsonEncode(doc.toJson())) as Map<String, Object?>;
+    json['schemaVersion'] = Document.currentSchemaVersion + 1;
+    store = MemoryProjectStore({doc.id: jsonEncode(json)});
+
+    await tester.pumpWidget(harness(doc.id));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('editor-readonly')), findsOneWidget);
+
+    final before = await store.load(doc.id);
+    await drawTriangle(tester);
+
+    expect(find.text(StoreFailure.readOnly.message), findsOneWidget);
+    expect(await store.load(doc.id), before,
+        reason: 'a v4 client must not reload its own document with the '
+            'semantics stripped out');
     expect(tester.takeException(), isNull);
   });
 

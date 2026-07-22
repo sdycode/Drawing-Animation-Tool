@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 3,
+  "id": "22222222-2222-4222-8222-222222222222",
+  "name": "Nested",
+  "rev": 4,
+  "artboard": { "x": 450.2, "y": 250.4 },
+  "background": [0.98, 0.98, 0.96, 1.0],
+  "root": {
+    "type": "group",
+    "id": "n-root",
+    "name": "Root",
+    "clipChildren": false,
+    "children": [
+      {
+        "type": "group",
+        "id": "n-back",
+        "name": "Back (paints first)",
+        "transform": {
+          "position": { "x": 10.5, "y": 20.25 },
+          "scale": { "x": 1.0, "y": 1.0 },
+          "pivot": { "x": 0.0, "y": 0.0 },
+          "rotation": 0.0,
+          "skewX": 0.0
+        },
+        "opacity": 1.0,
+        "visible": true,
+        "locked": false,
+        "clipChildren": false,
+        "children": [
+          {
+            "type": "path",
+            "id": "n-back-leaf",
+            "name": "Back leaf",
+            "path": {
+              "closed": true,
+              "anchors": [
+                { "id": "ba0", "position": { "x": 0.0, "y": 0.0 } },
+                { "id": "ba1", "position": { "x": 60.0, "y": 0.0 } },
+                { "id": "ba2", "position": { "x": 60.0, "y": 40.0 } }
+              ]
+            },
+            "fills": [],
+            "strokes": []
+          }
+        ]
+      },
+      {
+        "type": "group",
+        "id": "n-mid",
+        "name": "Mid (clips)",
+        "transform": {
+          "position": { "x": 120.0, "y": 60.0 },
+          "scale": { "x": 1.25, "y": 0.8 },
+          "pivot": { "x": 40.0, "y": 30.0 },
+          "rotation": 0.4,
+          "skewX": 0.0
+        },
+        "opacity": 0.9,
+        "visible": true,
+        "locked": false,
+        "clipChildren": true,
+        "children": [
+          {
+            "type": "group",
+            "id": "n-inner",
+            "name": "Inner",
+            "transform": {
+              "position": { "x": 0.0, "y": 0.0 },
+              "scale": { "x": 1.0, "y": 1.0 },
+              "pivot": { "x": 0.0, "y": 0.0 },
+              "rotation": 0.0,
+              "skewX": 0.15
+            },
+            "opacity": 0.8,
+            "visible": true,
+            "locked": false,
+            "clipChildren": false,
+            "children": [
+              {
+                "type": "group",
+                "id": "n-deep",
+                "name": "Deep",
+                "transform": {
+                  "position": { "x": 5.0, "y": -5.0 },
+                  "scale": { "x": 1.0, "y": 1.0 },
+                  "pivot": { "x": 0.0, "y": 0.0 },
+                  "rotation": -0.25,
+                  "skewX": 0.0
+                },
+                "opacity": 1.0,
+                "visible": false,
+                "locked": true,
+                "clipChildren": false,
+                "children": [
+                  {
+                    "type": "path",
+                    "id": "n-deep-leaf",
+                    "name": "Deep leaf",
+                    "transform": {
+                      "position": { "x": -3.5, "y": 7.25 },
+                      "scale": { "x": 0.5, "y": 2.0 },
+                      "pivot": { "x": 12.0, "y": 8.0 },
+                      "rotation": 1.0471975511965976,
+                      "skewX": -0.2
+                    },
+                    "opacity": 0.6,
+                    "visible": true,
+                    "locked": false,
+                    "path": {
+                      "closed": false,
+                      "anchors": [
+                        { "id": "da0", "position": { "x": 0.0, "y": 0.0 } },
+                        { "id": "da1", "position": { "x": 24.0, "y": 16.0 } }
+                      ]
+                    },
+                    "fills": [],
+                    "strokes": []
+                  }
+                ]
+              },
+              {
+                "type": "path",
+                "id": "n-inner-leaf",
+                "name": "Inner leaf (paints over Deep)",
+                "path": {
+                  "closed": true,
+                  "anchors": [
+                    { "id": "ia0", "position": { "x": 4.0, "y": 4.0 } },
+                    { "id": "ia1", "position": { "x": 44.0, "y": 4.0 } },
+                    { "id": "ia2", "position": { "x": 44.0, "y": 34.0 } },
+                    { "id": "ia3", "position": { "x": 4.0, "y": 34.0 } }
+                  ]
+                },
+                "fills": [],
+                "strokes": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "group",
+        "id": "n-front",
+        "name": "Front (paints last)",
+        "clipChildren": false,
+        "children": []
+      }
+    ]
+  },
+  "animations": [],
+  "defaultAnimationId": null
+}

@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:anim_core/anim_core.dart';
+import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:drawing_animation_tool/app/data/auth_service.dart';
 import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
 import 'package:drawing_animation_tool/app/data/project_store.dart';

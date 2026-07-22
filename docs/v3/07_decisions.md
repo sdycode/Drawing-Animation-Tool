@@ -376,6 +376,52 @@ Dart wins on every engineering axis and is rejected anyway. The **entire purpose
 
 ---
 
+## ADR-016 — The M1 round-trip gate runs over 8 **authored v3** fixtures; the legacy 8 join the same test at M8
+
+**Status:** Accepted
+
+**Context.** 00 §5 and 04 §7 both describe the automated gate as the round-trip property test "over all 8 legacy fixtures" — the `assets/library/*.json` files, which are also 00 §5 criterion 9 and 00 §3 item 15. 06 schedules that gate at **M1**. Those two statements cannot both hold: `LegacyImporter` is **F11.3, milestone M8**. At M1 there is no importer, so there are no legacy documents in v3 form to round-trip, and the gate as worded could not exist for seven milestones — precisely the seven milestones during which the serializer is being written and is most likely to silently drop a field.
+
+**Decision.** The gate round-trips **8 authored v3 fixtures**, real `.json` files checked into `packages/anim_core/test/fixtures/`, chosen between them to cover the whole type surface: minimal document, nesting/clip/z-order, geometry and all anchor kinds, paint including the rendered-but-not-authorable gradients, all five track types, the forward-compat unknowns, trim, and the 450.2 × 250.4 lopsided board. At **M8, the imported legacy documents join that same test** as additional cases. There is no second round-trip gate and no legacy-specific gate.
+
+**Reasoning.** The gate's job is to prove the serializer is a fixed point, and a fixture proves that whatever authored it. Legacy provenance adds *realism*, not *coverage* — and it subtracts coverage in the direction that matters, because the legacy format has no trim, no per-property tracks, no unknown-key forward compat and no gradients, so eight legacy documents would leave most of the v3 type surface unasserted. Authored fixtures are also adversarial by construction: 08_lopsided exists solely to make a y-scaled-by-width error numerically obvious, and no real legacy file was drawn to do that. Keeping the legacy documents in the *same* test at M8 is what stops this from becoming a second gate.
+
+**Consequences.**
+- The gate exists from M1 and blocks deploys for the whole build, instead of arriving at M8.
+- Fixture *coverage* is asserted by a table at the head of the test, not mechanically. Adding a type to `anim_core` without extending a fixture fails nothing. Extending a fixture is part of adding a type.
+- The test carries a presence check, so deleting a fixture or adding a ninth turns it red rather than quietly shrinking the gate.
+- 00 §5, 04 §7 and 06 M1 were corrected to say this; 00 §5's nine success criteria are unchanged, and criterion 9 still means the legacy library.
+
+**Cost.** Eight hand-authored JSON files are a maintenance surface that has to be edited by hand every time the format grows, and they are only as adversarial as whoever wrote them. A fixture that was never extended is a gate that quietly stops covering the thing it was named for.
+
+**Rejected.** Moving the gate to M8 (leaves the serializer ungated through the milestones that write it) · A separate legacy round-trip gate at M8 (the third gate 04 §7 forbids) · Generating fixtures from a property-based random document generator (a generator that shares the model's assumptions cannot falsify them, and a failure is not reproducible from a file you can read).
+
+---
+
+## ADR-017 — The decoder is strict at the required root and degrading everywhere below it
+
+**Status:** Accepted
+
+**Context.** Two rules, written in different documents for different reasons, read as a contradiction. 00 §7 and 06 M1 say **strict decoder — a missing required subtree throws with a path**, aimed at legacy's null-coalescing that manufactured plausible-but-wrong data. 08 §2 says **decode degrades, never validates-and-throws**, aimed at the cascade failure where a field one feature adds on Monday makes the document unopenable in another feature on Tuesday. Applied globally, each rule breaks the other's failure mode.
+
+**Decision.** Split by required versus optional, at the document root:
+
+- **Throws `DocumentException` carrying a JSON path:** a missing or unusable **required root-level structure** — `schemaVersion`, `id`, `artboard`, `root` — and, transitively, whatever those in turn require (a node's `type` and `id`, a path node's `path`, an anchor's `id` and `position`, an animation's `id`).
+- **Degrades and is preserved, and may never throw:** everything else. Unknown node `type` → `UnknownNode` verbatim · unknown `paint.type` → `UnknownPaint` · unknown `easing.kind` → `UnknownEasing` · a malformed or invariant-violating track → kept raw in `TrackSet.unknownKeys` and not evaluated · an orphan pose id → dropped with a warning · unknown keys at every level → re-emitted on save.
+
+**Reasoning.** The two rules are not general principles in competition; they are answers to two different questions, and the questions are separated exactly by whether a document still exists. Without `root` or `artboard` there is nothing to show, and degrading produces a blank canvas the user reads as *their artwork was deleted* — the loudest possible failure is the honest one, and the path in the exception is what makes it diagnosable. Below the root, every unknown is a *newer* document being opened by an *older* client, which is the normal, expected lifetime of a versioned format; throwing there converts forward compatibility into breakage. `schemaVersion` and `id` are on the strict side not because they are structural but because a document that cannot say what it is or be addressed cannot be saved back without inventing identity.
+
+**Consequences.**
+- 06 M1 and 08 §2 now state this boundary in the same words, so neither can be read alone and produce the wrong answer.
+- `anim_core` still contains **zero** `try/catch` (08 §1). Throwing is a decode-time act at the IO boundary; the evaluator remains total by construction, and the single catch lives one layer out at `ProjectStore`/decode per 08 §1's table.
+- A corrupt-below-the-root document opens **partially and visibly**, with warnings, and re-emits everything it did not understand.
+
+**Cost.** The strict set follows the *required* relation and nothing else, so a document whose `root` is intact but whose children are all unreadable-but-well-formed opens as an almost-empty canvas with warnings, not an error. That is the case where the strict rule would have been more useful and the degrading rule wins anyway — accepted, because widening strictness past "required" starts a slide that ends with the decoder validating the whole tree, which is the thing 08 §2 exists to prevent.
+
+**Rejected.** Strict everywhere (one unknown paint type from a newer client makes the whole document unopenable) · Degrading everywhere including the root (silent empty canvas; indistinguishable from data loss) · A `strict: bool` decode flag (two decoders, one of which is never exercised, and the caller has to know which one it wants before it knows what is in the file).
+
+---
+
 ## Cross-links
 
 - [00_vision_and_scope.md](00_vision_and_scope.md) — v1 scope contract, the written non-goals, success criteria.

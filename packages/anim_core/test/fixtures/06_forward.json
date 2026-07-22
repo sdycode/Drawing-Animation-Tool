@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 3,
+  "id": "66666666-6666-4666-8666-666666666666",
+  "name": "Forward compatibility",
+  "rev": 41,
+  "artboard": { "x": 450.2, "y": 250.4 },
+  "background": [0.12, 0.12, 0.14, 1.0],
+  "components": {
+    "cmp-1": { "name": "A v4 component library this build knows nothing about" }
+  },
+  "audio": [{ "src": "clap.wav", "at": 0.5 }],
+  "root": {
+    "type": "group",
+    "id": "n-root",
+    "name": "Root",
+    "blendMode": "multiply",
+    "children": [
+      {
+        "type": "bone",
+        "id": "n-bone",
+        "name": "A v2 bone",
+        "length": 42.5,
+        "constraint": { "kind": "ik", "target": "n-shape" },
+        "children": [
+          { "type": "bone", "id": "n-bone-child", "name": "Child bone", "length": 17.0 }
+        ]
+      },
+      {
+        "type": "path",
+        "id": "n-shape",
+        "name": "Shape with an unknown paint, easing and recipe key",
+        "motionBlur": { "samples": 8, "shutter": 0.5 },
+        "path": {
+          "closed": true,
+          "anchors": [
+            { "id": "f0", "position": { "x": 20.0, "y": 20.0 } },
+            { "id": "f1", "position": { "x": 120.0, "y": 20.0 } },
+            { "id": "f2", "position": { "x": 120.0, "y": 90.0 } },
+            { "id": "f3", "position": { "x": 20.0, "y": 90.0 } }
+          ]
+        },
+        "recipe": {
+          "type": "rect",
+          "w": 100.0,
+          "h": 70.0,
+          "cornerRadius": 0.0,
+          "cornerSmoothing": 0.6
+        },
+        "fills": [
+          {
+            "id": "p-noise",
+            "paint": {
+              "type": "noise",
+              "seed": 7,
+              "scale": 3.25,
+              "palette": [[0.0, 0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]]
+            }
+          }
+        ],
+        "strokes": []
+      },
+      {
+        "type": "path",
+        "id": "n-unknown-recipe",
+        "name": "A shape authored by a build with a spiral tool",
+        "path": {
+          "closed": false,
+          "anchors": [
+            { "id": "u0", "position": { "x": 300.0, "y": 40.0 } },
+            { "id": "u1", "position": { "x": 340.0, "y": 80.0 } }
+          ]
+        },
+        "recipe": { "type": "spiral", "turns": 3.5, "growth": 1.618 },
+        "fills": [],
+        "strokes": []
+      }
+    ]
+  },
+  "animations": [
+    {
+      "id": "a-main",
+      "name": "Main",
+      "durationSeconds": 3.0,
+      "fps": 30,
+      "loop": "once",
+      "markers": [{ "t": 0.5, "label": "impact" }],
+      "tracks": {
+        "n-shape": {
+          "opacity": {
+            "type": "scalar",
+            "keys": [
+              { "t": 0.0, "value": 0.0, "easing": { "kind": "elastic", "amplitude": 1.2, "period": 0.3 } },
+              { "t": 1.0, "value": 1.0, "easing": { "kind": "linear" } }
+            ]
+          },
+          "path": {
+            "type": "path",
+            "pins": ["f0", "f3"],
+            "keys": [
+              {
+                "t": 0.0,
+                "value": {
+                  "anchors": {
+                    "f0": { "position": { "x": 20.0, "y": 20.0 }, "inTangent": { "x": 0.0, "y": 0.0 }, "outTangent": { "x": 0.0, "y": 0.0 } },
+                    "f1": { "position": { "x": 120.0, "y": 20.0 }, "inTangent": { "x": 0.0, "y": 0.0 }, "outTangent": { "x": 0.0, "y": 0.0 } },
+                    "f2": { "position": { "x": 120.0, "y": 90.0 }, "inTangent": { "x": 0.0, "y": 0.0 }, "outTangent": { "x": 0.0, "y": 0.0 } },
+                    "f3": { "position": { "x": 20.0, "y": 90.0 }, "inTangent": { "x": 0.0, "y": 0.0 }, "outTangent": { "x": 0.0, "y": 0.0 } }
+                  }
+                },
+                "easing": { "kind": "linear" }
+              },
+              {
+                "t": 0.5,
+                "value": {
+                  "anchors": {
+                    "f0": { "position": { "x": 25.5, "y": 15.5 }, "inTangent": { "x": 0.0, "y": 0.0 }, "outTangent": { "x": 0.0, "y": 0.0 } },
+                    "f1": { "position": { "x": 130.0, "y": 20.0 }, "inTangent": { "x": 0.0, "y": 0.0 }, "outTangent": { "x": 0.0, "y": 0.0 } },
+                    "f2": { "position": { "x": 130.0, "y": 95.0 }, "inTangent": { "x": 0.0, "y": 0.0 }, "outTangent": { "x": 0.0, "y": 0.0 } },
+                    "f3": { "position": { "x": 25.5, "y": 95.0 }, "inTangent": { "x": 0.0, "y": 0.0 }, "outTangent": { "x": 0.0, "y": 0.0 } }
+                  }
+                },
+                "easing": { "kind": "linear" }
+              }
+            ]
+          },
+          "wobble": {
+            "type": "scalar",
+            "keys": [
+              { "t": 0.0, "value": 0.0, "easing": { "kind": "linear" } },
+              { "t": 1.0, "value": 4.0, "easing": { "kind": "linear" } }
+            ]
+          },
+          "position": {
+            "type": "spline",
+            "controls": [{ "x": 0.0, "y": 0.0 }, { "x": 10.0, "y": 10.0 }]
+          }
+        },
+        "n-bone": {
+          "rotation": {
+            "type": "scalar",
+            "keys": [
+              { "t": 0.0, "value": 0.0, "easing": { "kind": "linear" } },
+              { "t": 1.0, "value": 1.5707963267948966, "easing": { "kind": "linear" } }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "defaultAnimationId": "a-main"
+}

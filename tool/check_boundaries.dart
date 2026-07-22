@@ -27,10 +27,71 @@ String? _resolveTarget(String fileDir, String uri) {
 String? _featureOf(String path) =>
     RegExp(r'^lib/app/features/([^/]+)/').firstMatch(path)?.group(1);
 
+/// Every directive, with whatever combinator followed it.
+final _directiveRe = RegExp(
+    r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]([^;]*);''',
+    multiLine: true);
+
+/// `anim_core` names its animation type `Animation` (docs/v3/01 §10) and so
+/// does Flutter, and `package:flutter/material.dart` exports its one. Dart only
+/// errors when the ambiguous name is actually *referenced*, so a file importing
+/// both compiles green until someone writes `Animation` in it — and then fails
+/// to compile as a whole file, which reads to whoever trips it as an unrelated
+/// breakage rather than as a name clash.
+///
+/// The rule: a file that imports the `anim_core` barrel alongside Flutter must
+/// `hide Animation`, `show` an explicit list, or bind a prefix. Renaming the
+/// core type instead would put the code at odds with the authoritative doc, and
+/// asking every future file to remember the hide unaided is how the landmine
+/// stays live.
+const _coreBarrel = 'package:anim_core/anim_core.dart';
+
+bool _leaksAnimation(String combinators) {
+  final c = combinators.trim();
+  if (c.startsWith('as ')) return false;
+  if (RegExp(r'\bhide\b[^;]*\bAnimation\b').hasMatch(c)) return false;
+  if (RegExp(r'\bshow\b').hasMatch(c)) {
+    return RegExp(r'\bshow\b[^;]*\bAnimation\b').hasMatch(c);
+  }
+  return true;
+}
+
 void main() {
   final violations = <String>[];
-  final importRe =
-      RegExp(r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''', multiLine: true);
+  final importRe = _directiveRe;
+
+  final roots = <String>[
+    'lib',
+    'test',
+    'tool',
+    'packages/anim_core/lib',
+    'packages/anim_core/test',
+    'packages/anim_render/lib',
+    'packages/anim_render/test',
+  ];
+
+  for (final root in roots) {
+    final directory = Directory(root);
+    if (!directory.existsSync()) continue;
+    for (final entity in directory.listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) continue;
+
+      final path = entity.path.replaceFirst('${Directory.current.path}/', '');
+      final source = entity.readAsStringSync();
+      final directives = importRe.allMatches(source).toList();
+      final usesFlutter = directives.any((m) =>
+          m.group(1)!.startsWith('package:flutter/') ||
+          m.group(1)!.startsWith('package:flutter_test/'));
+
+      for (final match in directives) {
+        if (match.group(1) != _coreBarrel) continue;
+        if (!usesFlutter || !_leaksAnimation(match.group(2) ?? '')) continue;
+        violations.add('$path\n    import \'$_coreBarrel\'\n'
+            "    -> ambiguous-Animation: this file also imports Flutter; add "
+            "`hide Animation` (docs/v3/01 §10 names the core type)");
+      }
+    }
+  }
 
   for (final entity in Directory('lib').listSync(recursive: true)) {
     if (entity is! File || !entity.path.endsWith('.dart')) continue;
