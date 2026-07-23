@@ -3,6 +3,7 @@ import 'package:anim_render/anim_render.dart';
 import 'package:flutter/gestures.dart'
     show
         DragStartBehavior,
+        PointerHoverEvent,
         PointerScrollEvent,
         PointerSignalEvent,
         kMiddleMouseButton;
@@ -10,33 +11,49 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../state/command.dart';
 import '../../../state/editor_controller.dart';
 import '../../../state/tool_controller.dart';
 import '../commands.dart';
 import '../providers.dart';
 
-/// The canvas panel: three stacked painters, the Select tool, and the board's
-/// pan/zoom.
+/// The canvas panel: three stacked painters, the board's pan/zoom, and **the one
+/// place a pointer becomes a tool event**.
 ///
-/// **What M2 adds to the M0 canvas.** The pen (three clicks) and the anchor drag
-/// stay exactly as they were — they are the drawing affordance until M3 splits
-/// them into the Pen and Direct-select tools — and layered on top are: node
-/// selection and move for the Select tool (F3.1), and an *ephemeral* board
-/// pan/zoom (owner decision, docs/v3/05 §3).
+/// ## What M3 changes, and why it is the milestone's first task
+///
+/// M2 left the tool layer a dead seam: `SelectTool`'s pointer handlers were
+/// never invoked, `PointerCtx` was never constructed anywhere, and this file
+/// re-implemented select, move, the pen and the anchor drag inline while reading
+/// only `tool.id`. Four more tools arriving at that design would have been four
+/// more branches in these handlers — every tool coupled to every other, and to
+/// this widget.
+///
+/// Now there is one dispatch: build a [PointerCtx], hand it to whatever
+/// [ToolMode] is active, and act on what comes back — a [Command] to run through
+/// the command gate, a [ToolEffect] for the things a tool may not write itself
+/// (selection, a refusal, the pen exiting to Select), and a [ToolPreview] to
+/// paint. **This file names no tool.** It cannot: `features/canvas` may not
+/// import `features/tools` (docs/v3/08 §3), so the vocabulary comes from
+/// `state/tool_controller.dart` and the implementations are injected at
+/// composition.
+///
+/// A tap is dispatched as a **down immediately followed by an up** at the same
+/// point, so click-to-select and drag-to-move — or the pen's click versus its
+/// click-drag — are one code path in each tool rather than two that can disagree
+/// about what was hit.
 ///
 /// **One composed matrix, and only one.** `composedFit(viewport, artboard,
 /// size)` is computed once per build and is the single place the pan/zoom is
 /// combined with the letterbox (AC-3.1.4). Its result is handed to all three
-/// painters as their `fit`, and its inverse maps every pointer back to document
-/// space — the pen click, the anchor grab, the node hit-test and the move drag
-/// all invert the *same* matrix, so a click can never land where the shape is
-/// not. There is no second matrix and no per-axis scale helper anywhere.
+/// painters as their `fit`, ridden into every [PointerCtx], and inverted for
+/// every hit-test — so a click can never land where the shape is not. There is
+/// no second matrix and no per-axis scale helper anywhere.
 ///
 /// **The viewport mutates nothing the document owns.** A pan or a zoom writes
 /// only `EditorState.viewportTransform`; it pushes no command, bumps no `rev`,
 /// and undo never restores it (docs/v3/04 §6 — "nothing is more disorienting
-/// than undo moving the camera"). A pan/zoom *may* rebuild this subtree — it is
-/// not the 60 fps path — but it never touches the `Document`.
+/// than undo moving the camera").
 class CanvasView extends ConsumerStatefulWidget {
   const CanvasView({required this.projectId, super.key});
 
@@ -53,127 +70,10 @@ class CanvasView extends ConsumerStatefulWidget {
   ConsumerState<CanvasView> createState() => _CanvasViewState();
 }
 
-/// An anchor drag in flight (the M0 pose edit).
-///
-/// Private to the tool, exactly as docs/v3/08 §2 requires: never in `Document`
-/// (a document holding half a gesture cannot be reloaded, and autosave would
-/// persist it) and never in `EditorState` (every panel watching editor state
-/// would then rebuild 60 times a second while the pointer moves).
-@immutable
-class _AnchorDrag {
-  const _AnchorDrag({
-    required this.node,
-    required this.anchor,
-    required this.base,
-    required this.screenToArtboard,
-    required this.worldToLocal,
-    required this.position,
-  });
-
-  final NodeId node;
-  final AnchorId anchor;
-
-  /// The document the gesture started from, captured once, so the preview is a
-  /// function of what the user grabbed rather than of whatever arrives
-  /// underneath the pointer mid-drag.
-  final Document base;
-
-  /// Captured once, at drag start, from the *same* composed matrix the painters
-  /// used. Recomputing it per pointer event would be a second mapping, and two
-  /// mappings is how a drag lands where the pointer is not.
-  final Affine screenToArtboard;
-
-  /// The node's world matrix, inverted. `PathOps.moveAnchor` writes a **local**
-  /// position, so the artboard-space pointer has to come back through the node's
-  /// own transform.
-  final Affine worldToLocal;
-
-  /// Live pointer position in **document** space.
-  final Vec2 position;
-
-  _AnchorDrag at(Vec2 next) => _AnchorDrag(
-        node: node,
-        anchor: anchor,
-        base: base,
-        screenToArtboard: screenToArtboard,
-        worldToLocal: worldToLocal,
-        position: next,
-      );
-}
-
-/// A node move in flight — the Select tool's drag (docs/v3/05 §3, F3.1).
-///
-/// Private to the tool for the same reason [_AnchorDrag] is: an unfinished move
-/// must never reach `Document` (autosave) or `EditorState` (undo). The move
-/// translates the node's [Transform2.position] by the pointer's document-space
-/// delta mapped through the node's **parent-world inverse**, so the geometry
-/// follows the cursor exactly whatever the ancestor chain does to it.
-@immutable
-class _NodeDrag {
-  const _NodeDrag({
-    required this.node,
-    required this.path,
-    required this.base,
-    required this.original,
-    required this.current,
-    required this.parentInverse,
-    required this.screenToDoc,
-    required this.startDoc,
-  });
-
-  final NodeId node;
-  final ScenePath path;
-  final Document base;
-
-  /// The node's transform when the drag began, and the transform as posed by the
-  /// live delta. Only [current] is committed, and only on release.
-  final Transform2 original;
-  final Transform2 current;
-
-  /// `parentWorld⁻¹`, inverted from the parent's **evaluated** world.
-  ///
-  /// Its **linear part** (via `applyVector`) maps a document-space delta into
-  /// the parent's coordinate space, which is where [Transform2.position] lives —
-  /// so adding the mapped delta to `position` moves the node by exactly the
-  /// document-space delta, at any nesting depth.
-  ///
-  /// It is read off the parent's `ResolvedNode` rather than derived as
-  /// `authoredLocal · world⁻¹`: that identity only holds while the node's own
-  /// local transform is the authored one, so for a node carrying a
-  /// position/rotation/scale track the derived matrix was the wrong one and the
-  /// shape did not follow the pointer. The parent's evaluated world never
-  /// depends on the dragged node at all.
-  final Affine parentInverse;
-
-  final Affine screenToDoc;
-  final Vec2 startDoc;
-
-  _NodeDrag movedTo(Vec2 docNow) {
-    final delta = parentInverse.applyVector(docNow - startDoc);
-    return _NodeDrag(
-      node: node,
-      path: path,
-      base: base,
-      original: original,
-      current: original.copyWith(position: original.position + delta),
-      parentInverse: parentInverse,
-      screenToDoc: screenToDoc,
-      startDoc: startDoc,
-    );
-  }
-}
-
 class _CanvasViewState extends ConsumerState<CanvasView> {
-  /// Artboard-space clicks collected so far. Ephemeral by construction.
-  final List<Vec2> _pending = [];
-
-  _AnchorDrag? _anchorDrag;
-  _NodeDrag? _nodeDrag;
-
   /// True while a viewport pan (Space-drag or middle-drag) is in flight. A pan
   /// writes only `EditorState.viewportTransform`, so there is nothing to commit
-  /// on release — the flag just routes `onPanUpdate` away from the document
-  /// gestures.
+  /// on release — the flag just routes `onPanUpdate` away from the tool.
   bool _panning = false;
 
   /// Space is held: the Pan tool is armed and the cursor is a grab (docs/v3/05
@@ -192,21 +92,30 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
   /// canvas centre — and the fit scale for 100%.
   Size _lastSize = Size.zero;
 
-  /// The document as it *would* be if the in-flight drag were released now.
+  /// THE composed matrix, cached from the last build.
   ///
-  /// Ephemeral and speculative: painted, never saved, thrown away on release.
-  /// Produced by the *same* op the release commits (`PathOps.moveAnchor` for an
-  /// anchor, `NodeOps.setTransform` for a node), so the preview cannot drift from
-  /// the result — a second "preview-only" geometry path would be a second
-  /// evaluator (docs/v3/08 §4).
-  Document? _preview;
+  /// Cached rather than recomputed in each handler, and that is the point: a
+  /// handler that called `composedFit` itself would be a second call site for
+  /// the one mapping AC-3.1.4 says must have exactly one, and the two would
+  /// drift the first time a gutter or a min-zoom clamp appeared.
+  Affine _fit = Affine.identity;
+
+  /// Where the pointer was last seen, in canvas-local pixels. A drag end and a
+  /// key event have no position of their own, and a tool asked to finish a
+  /// gesture at `(0,0)` would close a pen path against the artboard's corner.
+  Offset _lastLocal = Offset.zero;
+
+  /// True between [_onPanStart] and the end (or cancel) that closes it.
+  ///
+  /// **`onPanCancel` fires on every tap.** The tap and pan recognizers both
+  /// track the pointer; the tap wins the arena, the pan is rejected, and
+  /// `GestureDetector` reports that rejection as a cancel — even though no drag
+  /// ever began. Cancelling the tool there wiped the pen's anchors after every
+  /// single click, so no path could ever reach a second anchor. The flag makes
+  /// the cancel mean what it says: *this drag* is being abandoned.
+  bool _dragLive = false;
 
   final FocusNode _focus = FocusNode(debugLabel: 'canvas');
-
-  static const int _clicksPerShape = 3;
-
-  /// Screen-space grab radius for anchors. Generous on purpose.
-  static const double _grabRadius = 14.0;
 
   @override
   void dispose() {
@@ -216,6 +125,8 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
 
   EditorController get _editor => ref.read(editorControllerProvider.notifier);
 
+  ToolMode get _tool => ref.read(toolControllerProvider);
+
   /// The playhead, normalised into the range every op and mix requires. One
   /// definition, used by the hit-test, the preview and the commit.
   double _playheadT() {
@@ -223,105 +134,105 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     return t.isNaN ? 0.0 : t.clamp(0.0, 1.0);
   }
 
-  List<AnimationMix> _mix(AnimationId? animation) {
-    final anim = animation;
-    if (anim == null) return const <AnimationMix>[];
-    return <AnimationMix>[AnimationMix(anim, _playheadT())];
+  // --- The one dispatch ----------------------------------------------------
+
+  /// Everything a tool may read, for the pointer at [local].
+  ///
+  /// Null when there is no document yet or the composed matrix is singular — an
+  /// **early return**, never `invert()!` (docs/v3/08 §1, §4). A degenerate
+  /// camera means there is nowhere on the artboard the click could have landed,
+  /// and inventing one is how a drag ends up somewhere the pointer is not.
+  PointerCtx? _ctx(Offset local) {
+    final doc = ref.read(canvasDocumentProvider(widget.projectId));
+    if (doc == null) return null;
+    final inverse = _fit.invert();
+    if (inverse == null) return null;
+
+    final animation = ref.read(activeAnimationProvider(widget.projectId));
+    final t = _playheadT();
+    final screen = Vec2(local.dx, local.dy);
+    final keyboard = HardwareKeyboard.instance;
+    return PointerCtx(
+      docPoint: inverse.apply(screen),
+      screenPoint: screen,
+      fit: _fit,
+      scene: evaluate(
+        doc,
+        animation == null
+            ? const <AnimationMix>[]
+            : <AnimationMix>[AnimationMix(animation, t)],
+      ),
+      doc: doc,
+      editor: ref.read(editorControllerProvider),
+      animation: animation,
+      playhead: t,
+      shift: keyboard.isShiftPressed,
+      alt: keyboard.isAltPressed,
+    );
   }
 
-  // --- Locked / lookup helpers (hit-test gates) ----------------------------
-
-  /// The set of nodes that are locked, directly or through a locked ancestor.
+  /// Perform what the tool asked for, and say whether it asked for anything.
   ///
-  /// Locked is a **hit-test gate, not a render gate** (docs/v3/01 §3), so it
-  /// lives here and not on the evaluated `Scene`. A locked group protects its
-  /// children, so lock inherits down the tree.
-  Set<NodeId> _lockedIds(Document doc) {
-    final out = <NodeId>{};
-    void walk(Node node, bool inheritedLock) {
-      final locked = inheritedLock || node.locked;
-      if (locked) out.add(node.id);
-      if (node is GroupNode) {
-        for (final child in node.children) {
-          walk(child, locked);
+  /// The order is fixed here rather than per tool: the effect (selection, a
+  /// refusal, a tool switch) first, then the document edit. A selection applied
+  /// after the command would briefly point at the document the edit replaced.
+  bool _emit(ToolMode tool, Command? command) {
+    var acted = false;
+
+    final effect = tool.takeEffect();
+    if (effect != null) {
+      acted = true;
+      final selection = effect.selection;
+      if (selection != null) _applySelection(selection);
+      final activate = effect.activate;
+      if (activate != null) {
+        ref.read(toolControllerProvider.notifier).activate(activate);
+      }
+      _report(effect.message);
+    }
+
+    if (command != null) {
+      acted = true;
+      _run(CanvasCommands(ref, widget.projectId).run(command));
+    }
+    return acted;
+  }
+
+  /// Selection is `EditorState`, so the **canvas** writes it and the tool only
+  /// asks (docs/v3/08 §2). Null fields mean "leave that half alone", which is
+  /// what lets a handle grab select its node without an anchor click wiping the
+  /// node selection out from under the inspector.
+  void _applySelection(ToolSelection selection) {
+    final nodes = selection.nodes;
+    if (nodes != null) {
+      if (selection.add) {
+        for (final node in nodes) {
+          _editor.addToSelection(node);
+        }
+      } else if (nodes.isEmpty) {
+        _editor.clearSelection();
+      } else {
+        _editor.selectNode(nodes.first);
+        for (final node in nodes.skip(1)) {
+          _editor.addToSelection(node);
         }
       }
     }
-
-    for (final child in doc.root.children) {
-      walk(child, false);
-    }
-    return out;
+    if (selection.setsAnchor) _editor.selectAnchor(selection.anchor);
   }
 
-  /// The id of [id]'s parent, or null when [id] is the root or is not in [doc].
+  /// Report the outcome **without awaiting it**.
   ///
-  /// Hierarchy comes from the document's own tree — the `Scene` flattens it and
-  /// `ScenePath.instancePath` is empty in v1, so there is nothing to read it
-  /// off. Only the *ancestry* is taken from here; every coordinate still comes
-  /// from the evaluated scene.
-  NodeId? _parentIdOf(Document doc, NodeId id) {
-    for (final node in doc.walk()) {
-      if (node is! GroupNode) continue;
-      for (final child in node.children) {
-        if (child.id == id) return node.id;
-      }
-    }
-    return null;
-  }
-
-  /// Whether [node] has a **transform** track — position, scale, rotation or
-  /// skewX — in the active animation.
-  ///
-  /// Any of the four masks the static `Transform2` the Select tool's move
-  /// writes, so a drag on such a node is refused rather than silently
-  /// overwriting a value the user cannot see the effect of (see
-  /// [_startNodeDrag]). The typed accessors are the right test: a malformed
-  /// stored track returns null, is not evaluated either, and so does not mask
-  /// anything.
-  bool _hasTransformTrack(Document doc, NodeId node, AnimationId? animation) {
-    final id = animation;
-    if (id == null) return false;
-    for (final anim in doc.animations) {
-      if (anim.id != id) continue;
-      final tracks = anim.tracksFor(node);
-      return tracks.vec2(PropKey.position) != null ||
-          tracks.vec2(PropKey.scale) != null ||
-          tracks.scalar(PropKey.rotation) != null ||
-          tracks.scalar(PropKey.skewX) != null;
-    }
-    return false;
-  }
-
-  // --- Previews ------------------------------------------------------------
-
-  /// Speculatively applies an anchor [drag]. The catch is at the **widget
-  /// boundary** (docs/v3/08 §1); losing the preview for one frame if a delete
-  /// landed mid-drag is the right cost, and the `assert` keeps it loud in debug.
-  Document? _previewOfAnchor(_AnchorDrag drag) {
-    try {
-      return PathOps.moveAnchor(
-        drag.base,
-        drag.node,
-        drag.anchor,
-        drag.worldToLocal.apply(drag.position),
-        atT: _playheadT(),
-      );
-    } on ArgumentError catch (e) {
-      assert(false, 'anchor drag preview rejected by an op: $e');
-      return null;
-    }
-  }
-
-  /// Speculatively applies a node move — the same `NodeOps.setTransform` the
-  /// release commits, so the moving shape cannot disagree with what lands.
-  Document? _previewOfNode(_NodeDrag drag) {
-    try {
-      return NodeOps.setTransform(drag.base, drag.node, drag.current);
-    } on ArgumentError catch (e) {
-      assert(false, 'node move preview rejected by an op: $e');
-      return null;
-    }
+  /// A gesture handler never `await`s the store (docs/v3/08 §2, last row): the
+  /// command is handed to the serialised chain in [DocumentController] and the
+  /// handler returns immediately, so a Firestore hiccup cannot freeze drawing.
+  /// `onError` is a net under the command gate's own catch — a rejected edit
+  /// must not escape as an unhandled async error.
+  void _run(Future<String?> pending) {
+    pending.then(
+      _report,
+      onError: (Object _, StackTrace __) => _report(kRejectedEditMessage),
+    );
   }
 
   void _report(String? message) {
@@ -330,7 +241,7 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // --- Keyboard: pan arming + zoom shortcuts -------------------------------
+  // --- Keyboard: pan arming, zoom shortcuts, Esc/Enter ---------------------
 
   bool get _cmdOrCtrl =>
       HardwareKeyboard.instance.isControlPressed ||
@@ -342,18 +253,17 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
   /// **Every document gesture asks this first, not just the drag.** The Pan tool
   /// "Mutates via: *Nothing. Ephemeral only.*", and a tap is a document gesture:
   /// while this gated `onPanStart` alone, a click with Space held fell through
-  /// to `clearSelection()` *and* deposited a pen point, so three of them minted
-  /// a node, bumped `rev` and pushed an undo entry — the camera authoring
-  /// geometry. [HardwareKeyboard] is re-read at gesture time so a key released
-  /// mid-frame cannot strand [_spaceHeld] armed.
+  /// to the drawing affordance and authored geometry with the camera.
+  /// [HardwareKeyboard] is re-read at gesture time so a key released mid-frame
+  /// cannot strand [_spaceHeld] armed.
   bool get _panArmed =>
       _spaceHeld ||
       HardwareKeyboard.instance.isLogicalKeyPressed(LogicalKeyboardKey.space) ||
       _pointerButtons & kMiddleMouseButton != 0;
 
-  /// Zoom shortcuts and Space-arming. Requires a focused `FocusNode` — CanvasKit
-  /// drops shortcuts without one (docs/v3/05 §5), which is why every canvas
-  /// pointer-down re-requests focus.
+  /// Zoom shortcuts, Space-arming, and the tool's two keys. Requires a focused
+  /// `FocusNode` — CanvasKit drops shortcuts without one (docs/v3/05 §5), which
+  /// is why every canvas pointer-down re-requests focus.
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event.logicalKey == LogicalKeyboardKey.space) {
       final held = event is! KeyUpEvent;
@@ -363,7 +273,22 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     }
 
     if (event is KeyUpEvent) return KeyEventResult.ignored;
-    if (!_cmdOrCtrl) return KeyEventResult.ignored;
+
+    // `Esc` / `Enter` reach the active tool — the pen finishes its path with
+    // them (docs/v3/05 §3). They are answered here rather than in the shell's
+    // shortcut scope because they need a [PointerCtx], and the canvas is the
+    // only place that exists.
+    if (!_cmdOrCtrl) {
+      final key = switch (event.logicalKey) {
+        LogicalKeyboardKey.escape => ToolKey.escape,
+        LogicalKeyboardKey.enter ||
+        LogicalKeyboardKey.numpadEnter =>
+          ToolKey.enter,
+        _ => null,
+      };
+      if (key == null) return KeyEventResult.ignored;
+      return _onToolKey(key);
+    }
 
     final size = _lastSize;
     if (size.isEmpty) return KeyEventResult.ignored;
@@ -397,17 +322,51 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     }
   }
 
+  /// `Esc` with nothing in progress **deselects** (docs/v3/05 §5). With a pen
+  /// path in progress the tool answers instead — which is why the fallback is
+  /// conditioned on the tool having done nothing, rather than on this file
+  /// knowing which tool is active.
+  KeyEventResult _onToolKey(ToolKey key) {
+    final ctx = _ctx(_lastLocal);
+    if (ctx == null) return KeyEventResult.ignored;
+    final tool = _tool;
+    final acted = _emit(tool, tool.onKey(key, ctx));
+    if (!acted && key == ToolKey.escape) _editor.clearSelection();
+    setState(() {});
+    return KeyEventResult.handled;
+  }
+
   // --- Raw pointer: scroll-zoom + middle-drag pan --------------------------
 
   void _onPointerDown(PointerDownEvent event) {
     _pointerButtons = event.buttons;
+    _lastLocal = event.localPosition;
     _focus.requestFocus();
+  }
+
+  /// The cursor moving with no button down.
+  ///
+  /// Tracked for exactly one reason: the pen's live segment has to follow the
+  /// pointer *between* clicks, and a tool is only handed a `PointerCtx` on an
+  /// event of its own. So the canvas keeps the position and hands it to the
+  /// overlay as [DraftPath.cursor] — inverted through THE composed matrix, not
+  /// a second one.
+  ///
+  /// **The repaint is gated on there being a draft in flight.** A `setState` per
+  /// mouse move with nothing in progress is the rebuild storm docs/v3/04 §4
+  /// exists to prevent, and it would run on every hover over the canvas for the
+  /// whole session.
+  void _onPointerHover(PointerHoverEvent event) {
+    _lastLocal = event.localPosition;
+    if (_tool.preview.path == null) return;
+    setState(() {});
   }
 
   void _onPointerMove(PointerMoveEvent event) {
     _pointerButtons = event.buttons;
+    _lastLocal = event.localPosition;
     // Middle-drag pans (docs/v3/05 §3). Left-drag is left to the GestureDetector
-    // (anchor / node / Space-pan), so the two never both fire.
+    // (the tool, or the Space-pan), so the two never both fire.
     if (event.buttons & kMiddleMouseButton != 0) {
       _editor.panBy(Vec2(event.delta.dx, event.delta.dy));
     }
@@ -425,204 +384,42 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     );
   }
 
-  // --- Tap: pen click (M0) + node selection (M2) ---------------------------
+  // --- Tool gestures -------------------------------------------------------
 
-  Future<void> _onTapUp(
-    TapUpDetails details,
-    Document doc,
-    AnimationId? animation,
-    Affine full,
-  ) async {
+  /// A tap is a **down and an up at the same point**, so a tool never has to
+  /// implement clicking twice.
+  void _onTapUp(TapUpDetails details) {
     _focus.requestFocus();
+    if (_panArmed) return; // the camera authors nothing
 
-    // The Pan tool mutates nothing, and a tap is a mutation (it clears the
-    // selection and feeds the pen). Same gate `_onPanStart` uses, asked in the
-    // same order — a click that ends a Space-drag must not deposit a point.
-    if (_panArmed) return;
+    final ctx = _ctx(details.localPosition);
+    if (ctx == null) return;
+    _lastLocal = details.localPosition;
 
-    final inverse = full.invert();
-    if (inverse == null) return; // degenerate: nothing to draw into
-    final docPoint = inverse.apply(_vec(details.localPosition));
-
-    // Hit-test the front-most visible, unlocked node under the cursor.
-    final locked = _lockedIds(doc);
-    final scene = evaluate(doc, _mix(animation));
-    final hit =
-        hitTestScene(scene, doc, docPoint, (p) => !locked.contains(p.nodeId));
-
-    if (hit != null) {
-      // A node: select it (Shift adds). Selection is `EditorState`, not a
-      // Command (docs/v3/08 §2) — the canvas applies it through the controller,
-      // and a tap on a node is never a pen click.
-      if (HardwareKeyboard.instance.isShiftPressed) {
-        _editor.addToSelection(hit);
-      } else {
-        _editor.selectNode(hit);
-      }
-      return;
-    }
-
-    // Empty space: clear the selection, and (M0 drawing affordance) drop a pen
-    // point. Both are honest — clicking away deselects, and the pen still draws.
-    _editor.clearSelection();
-
-    setState(() => _pending.add(docPoint));
-    if (_pending.length < _clicksPerShape) return;
-
-    final points = List<Vec2>.from(_pending);
-    setState(_pending.clear);
-    _report(await CanvasCommands(ref, widget.projectId).addPath(points));
+    final tool = _tool;
+    _emit(tool, tool.onPointerDown(ctx));
+    _emit(tool, tool.onPointerUp(ctx));
+    setState(() {});
   }
 
-  // --- Pan gestures: viewport / anchor / node ------------------------------
-
-  void _onPanStart(
-    DragStartDetails details,
-    Document doc,
-    AnimationId? animation,
-    Set<ScenePath> selection,
-    Affine full,
-  ) {
+  void _onPanStart(DragStartDetails details) {
     _focus.requestFocus();
 
-    // 1. Viewport pan wins whenever Space is held or the middle button drags.
-    //    Ephemeral: it mutates nothing the document owns.
+    // The viewport pan wins whenever Space is held or the middle button drags.
+    // Ephemeral: it mutates nothing the document owns.
     if (_panArmed) {
       _panning = true;
       return;
     }
 
-    final inverse = full.invert();
-    if (inverse == null) return; // never `invert()!`
-    final docPoint = inverse.apply(_vec(details.localPosition));
+    final ctx = _ctx(details.localPosition);
+    if (ctx == null) return;
+    _lastLocal = details.localPosition;
+    _dragLive = true;
 
-    // 2. Anchor drag (M0) — proximity to a handle wins over a node body, because
-    //    the handle is the finer target the user is aiming at.
-    if (_startAnchorDrag(details, doc, animation, full, inverse)) return;
-
-    // 3. Node move (Select tool). A drag on empty space still mutates nothing
-    //    (M0/M1), but a press-drag on a node moves it whether or not it was
-    //    already selected.
-    _startNodeDrag(doc, animation, selection, inverse, docPoint);
-  }
-
-  bool _startAnchorDrag(
-    DragStartDetails details,
-    Document doc,
-    AnimationId? animation,
-    Affine full,
-    Affine inverse,
-  ) {
-    // Stages 1–3 only, matching [OverlayPainter] exactly — the handles the user
-    // is aiming at are drawn from this frame, so the hit-test is drawn from it.
-    final frame =
-        composeWorldA(resolvePose(sampleTracks(doc, _mix(animation))));
-
-    _AnchorDrag? best;
-    var bestDistance = _grabRadius;
-
-    for (final node in frame.nodes) {
-      final geometry = node.geometry;
-      if (geometry == null) continue;
-      final worldToLocal = node.world.invert();
-      if (worldToLocal == null) continue;
-
-      final toScreen = full.mul(node.world);
-      for (final anchor in geometry.anchors) {
-        final at = toScreen.apply(anchor.position);
-        if (!at.x.isFinite || !at.y.isFinite) continue;
-        final distance = (Offset(at.x, at.y) - details.localPosition).distance;
-        if (distance >= bestDistance) continue;
-        bestDistance = distance;
-        best = _AnchorDrag(
-          node: node.path.nodeId,
-          anchor: anchor.id,
-          base: doc,
-          screenToArtboard: inverse,
-          worldToLocal: worldToLocal,
-          position: inverse.apply(_vec(details.localPosition)),
-        );
-      }
-    }
-
-    final started = best;
-    if (started == null) return false;
-    setState(() {
-      _anchorDrag = started;
-      _preview = _previewOfAnchor(started);
-    });
-    return true;
-  }
-
-  /// Begins the Select tool's move on whatever is under the press.
-  ///
-  /// **A press-drag selects and moves in one gesture.** This used to require
-  /// `selection.contains(hit)`, so the first press-drag on any shape was
-  /// silently inert and the user had to click, release, then drag — the exact
-  /// opposite of every editor's muscle memory, on the one gesture M2 exists to
-  /// deliver. Selection is still `EditorState`, never a command.
-  ///
-  /// A **group** is moved like any other node: `hitTestScene` gives it the hit
-  /// area the overlay outlines, and `NodeOps.setTransform` writes a group's
-  /// transform as readily as a leaf's.
-  bool _startNodeDrag(
-    Document doc,
-    AnimationId? animation,
-    Set<ScenePath> selection,
-    Affine inverse,
-    Vec2 docPoint,
-  ) {
-    final locked = _lockedIds(doc);
-    final scene = evaluate(doc, _mix(animation));
-    final hit =
-        hitTestScene(scene, doc, docPoint, (p) => !locked.contains(p.nodeId));
-    if (hit == null) return false; // empty space: a drag there mutates nothing
-
-    final node = doc.nodeIndex[hit.nodeId];
-    if (node == null) return false; // resolved, never repaired
-
-    // A node whose transform is driven by a track: the static `Transform2` this
-    // drag writes is masked by that track at every `t`, so the move would be
-    // invisible while still costing an undo entry and a `rev` bump. Refuse it
-    // out loud instead — a legal document property is not a programming error,
-    // so it is never an `assert` (docs/v3/08 §1). At M4 this same branch keys
-    // the move at the playhead through `TrackOps.upsertKeyframe(atT:)`
-    // (docs/v3/05 §3, Select row) and the refusal goes away.
-    if (_hasTransformTrack(doc, hit.nodeId, animation)) {
-      _editor.selectNode(hit); // selecting it is still honest
-      _report(kAnimatedTransformMessage);
-      return false;
-    }
-
-    // A press-drag on an unselected node selects it and moves it in the same
-    // gesture. An already-selected node keeps the rest of the selection.
-    if (!selection.contains(hit)) _editor.selectNode(hit);
-
-    // parentWorld⁻¹, from the parent's EVALUATED world — never from the dragged
-    // node's authored local (see [_NodeDrag.parentInverse]).
-    final parentId = _parentIdOf(doc, hit.nodeId);
-    if (parentId == null) return false; // the root is not draggable
-    final parent = scene.byPath[ScenePath(parentId)];
-    if (parent == null) return false;
-    final parentInverse = parent.world.invert();
-    if (parentInverse == null) return false; // collapsed: nothing to grab
-
-    final drag = _NodeDrag(
-      node: hit.nodeId,
-      path: hit,
-      base: doc,
-      original: node.transform,
-      current: node.transform,
-      parentInverse: parentInverse,
-      screenToDoc: inverse,
-      startDoc: docPoint,
-    );
-    setState(() {
-      _nodeDrag = drag;
-      _preview =
-          null; // delta is zero at start: the base document already shows
-    });
-    return true;
+    final tool = _tool;
+    _emit(tool, tool.onPointerDown(ctx));
+    setState(() {});
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
@@ -631,70 +428,46 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
       return;
     }
 
-    final anchor = _anchorDrag;
-    if (anchor != null) {
-      final moved =
-          anchor.at(anchor.screenToArtboard.apply(_vec(details.localPosition)));
-      setState(() {
-        _anchorDrag = moved;
-        _preview = _previewOfAnchor(moved);
-      });
-      return;
-    }
+    final ctx = _ctx(details.localPosition);
+    if (ctx == null) return;
+    _lastLocal = details.localPosition;
 
-    final node = _nodeDrag;
-    if (node != null) {
-      final moved =
-          node.movedTo(node.screenToDoc.apply(_vec(details.localPosition)));
-      setState(() {
-        _nodeDrag = moved;
-        _preview = _previewOfNode(moved);
-      });
-    }
+    final tool = _tool;
+    _emit(tool, tool.onPointerMove(ctx));
+    setState(() {});
   }
 
-  Future<void> _onPanEnd(DragEndDetails details) async {
+  void _onPanEnd(DragEndDetails details) {
     if (_panning) {
       _panning = false; // viewport already written live; nothing to commit
       return;
     }
 
-    final anchor = _anchorDrag;
-    if (anchor != null) {
-      setState(() {
-        _anchorDrag = null;
-        _preview = null;
-      });
-      // ONE command, on release, at the live playhead (F4.2 + F6.1, thin).
-      _report(await CanvasCommands(ref, widget.projectId).moveAnchorAt(
-        anchor.node,
-        anchor.anchor,
-        anchor.worldToLocal.apply(anchor.position),
-        atT: _playheadT(),
-      ));
+    _dragLive = false;
+
+    // The end carries no position of its own, so the gesture finishes where the
+    // last move left it.
+    final ctx = _ctx(_lastLocal);
+    if (ctx == null) return;
+
+    final tool = _tool;
+    _emit(tool, tool.onPointerUp(ctx));
+    setState(() {});
+  }
+
+  /// A cancelled gesture (the pointer left, the app lost focus) drops the tool's
+  /// in-flight state and its preview. Nothing was committed, so there is nothing
+  /// to undo.
+  void _onPanCancel() {
+    if (_panning) {
+      _panning = false;
       return;
     }
-
-    final node = _nodeDrag;
-    if (node != null) {
-      setState(() {
-        _nodeDrag = null;
-        _preview = null;
-      });
-      // A click that never moved leaves position unchanged; committing it would
-      // be an empty undo entry, so skip it.
-      if (node.current.position == node.original.position) return;
-
-      // Nothing is re-checked here: a node with a transform track never starts a
-      // drag (see [_startNodeDrag]), so the commit has exactly one path. The
-      // check that used to live here was an `assert` on a legal document
-      // property — it threw out of this handler in debug and discarded the
-      // edit, and in release wrote a static transform the track masks.
-
-      // ONE SetTransformCommand → ONE undo entry (docs/v3/04 §6).
-      _report(await CanvasCommands(ref, widget.projectId)
-          .setTransform(node.node, node.current));
-    }
+    // Only a drag that really started may be cancelled — see [_dragLive].
+    if (!_dragLive) return;
+    _dragLive = false;
+    _tool.cancel();
+    setState(() {});
   }
 
   @override
@@ -712,34 +485,28 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     final playhead = ref.watch(playheadProvider);
     final viewport = ref.watch(canvasViewportProvider);
     final selection = ref.watch(canvasSelectionProvider);
-    // The active tool. Only Select exists at M2 (pen/shape fall back to it), so
-    // node selection/move is always live; watching keeps the seam honest for M3.
+    // The active tool — watched, so switching tools repaints the affordances
+    // that belong to it. Its in-flight gesture state is private to the tool and
+    // reaches the painters only through [ToolPreview], which the pointer
+    // handlers pick up with `setState`.
     final tool = ref.watch(toolControllerProvider);
     final selectActive = tool.id == ToolId.select;
 
     if (doc == null || board == null) return const SizedBox.expand();
     final scheme = Theme.of(context).colorScheme;
 
-    final preview = _preview;
+    final preview = tool.preview;
 
     // WHAT THE PAINTERS SEE. During a drag this is the speculative document, so
     // the whole shape follows the anchor/node live. It is the committed document
     // at every other moment, and it is never the thing that gets saved.
-    final painted = preview ?? doc;
+    final painted = preview.document ?? doc;
 
-    // Only the anchor-drag preview mints its own `Animation` (when the document
-    // had none), so only it needs to name that minted id; the node-move preview
-    // keeps the document's animations, so it keeps the resolved `animation`.
-    final paintedAnimation = (_anchorDrag != null && preview != null)
-        ? preview.defaultAnimationId
-        : animation;
-
-    final markers = <Vec2>[
-      ..._pending,
-      // The grabbed anchor keeps a marker on top of the moved geometry: it says
-      // *which* anchor the gesture owns, which the geometry alone cannot.
-      if (_anchorDrag case final drag?) drag.position,
-    ];
+    // A pose preview may mint an `Animation` on a document that had none, and
+    // the painters must then name *that* id or they would render the rest pose
+    // while the drag moves. The resolved id wins whenever there is one, so an
+    // editor override is never overruled by a speculative default.
+    final paintedAnimation = animation ?? preview.document?.defaultAnimationId;
 
     final cursor = _panning
         ? SystemMouseCursors.grabbing
@@ -754,8 +521,31 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
               _lastSize = size;
 
               // THE ONE composed matrix: viewport ∘ artboardFit, built once,
-              // handed to all three painters and inverted for every hit-test.
+              // handed to all three painters, to every PointerCtx, and inverted
+              // for every hit-test.
               final full = composedFit(viewport, doc.artboard, size);
+              _fit = full;
+
+              // The in-progress geometry channel: the tool supplies the path it
+              // is building, the canvas supplies where the pointer is. Null when
+              // no tool is building one, which is every moment between strokes.
+              //
+              // The cursor rides the inverse of `full` — the same matrix the
+              // painters are handed and the same one every hit-test inverts
+              // (AC-3.1.4). A singular camera yields a null inverse and
+              // therefore no live segment: an EARLY RETURN, never `invert()!`
+              // (docs/v3/08 §4). The placed anchors still draw, because they do
+              // not need the inverse.
+              final drawing = preview.path;
+              final draft = drawing == null
+                  ? null
+                  : DraftPath(
+                      path: drawing,
+                      cursor: full
+                          .invert()
+                          ?.apply(Vec2(_lastLocal.dx, _lastLocal.dy)),
+                      handle: preview.liveHandle,
+                    );
 
               return Focus(
                 focusNode: _focus,
@@ -765,6 +555,7 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
                   child: Listener(
                     onPointerDown: _onPointerDown,
                     onPointerMove: _onPointerMove,
+                    onPointerHover: _onPointerHover,
                     onPointerSignal: _onPointerSignal,
                     child: GestureDetector(
                       key: const Key('canvas'),
@@ -772,11 +563,11 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
                       // Grab by what was under the pointer on DOWN, before the
                       // touch slop drifts it 20 px along the gesture.
                       dragStartBehavior: DragStartBehavior.down,
-                      onTapUp: (d) => _onTapUp(d, doc, animation, full),
-                      onPanStart: (d) =>
-                          _onPanStart(d, doc, animation, selection, full),
+                      onTapUp: _onTapUp,
+                      onPanStart: _onPanStart,
                       onPanUpdate: _onPanUpdate,
                       onPanEnd: _onPanEnd,
+                      onPanCancel: _onPanCancel,
                       // Three painters, and they stay three (docs/v3/08 §2),
                       // each in its own RepaintBoundary. All three take the same
                       // composed `full`, so the board, the geometry and the
@@ -822,14 +613,40 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
                                 anchor: scheme.surface,
                                 anchorBorder: scheme.primary,
                                 pendingColor: scheme.tertiary,
-                                pending: markers,
+                                // The in-progress gesture: the shape tools' drag
+                                // preview and direct select's grabbed point.
+                                // Drawn over the document rather than inserted
+                                // into it — a document that contains half a
+                                // gesture cannot be reloaded, and autosave would
+                                // persist it.
+                                pending: preview.markers,
+                                // The same gesture when it is a *shape* rather
+                                // than a set of points: the pen's half-drawn
+                                // path, stroked, with the segment that follows
+                                // the cursor and the handle being pulled. Dots
+                                // could not say any of that, which is the defect
+                                // this channel closes.
+                                draft: draft,
                                 fit: full,
                                 // Same mode as layer 2, always: handles must
                                 // never outlive the geometry they belong to.
                                 mode: RenderMode.editor,
-                                // Node selection is shown only for the Select
-                                // tool; anchor handles are the M3 direct-select
-                                // affordance (docs/v3/05 §3).
+                                // Anchor handles are Direct select's affordance
+                                // (docs/v3/05 §3), so they are drawn for that
+                                // tool and no other — a dot the active tool
+                                // cannot grab is an invitation to a gesture that
+                                // does nothing.
+                                //
+                                // Said outright. This used to be expressed by
+                                // handing `selected` the geometry-less **root
+                                // id**, leaning on the painter's "an empty set
+                                // means every node" convention to make one
+                                // impossible id mean "no node at all". It read
+                                // as a bug at both ends, and simplifying it to
+                                // `const {}` — the obvious tidy-up — would have
+                                // meant the exact opposite.
+                                showAnchors: tool.id == ToolId.directSelect,
+                                // Node selection is shown only for Select.
                                 selectedPaths:
                                     selectActive ? selection : const {},
                                 selectionColor: scheme.primary,
@@ -845,19 +662,37 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
             },
           ),
         ),
-        _ToolHint(remaining: _clicksPerShape - _pending.length, nodes: nodes),
+        _ToolHint(tool: tool.id, nodes: nodes),
       ],
     );
   }
-
-  static Vec2 _vec(Offset o) => Vec2(o.dx, o.dy);
 }
 
+/// One sentence, naming the active tool and what it does next.
+///
+/// It is the only on-canvas discoverability the editor has: the tools are modal,
+/// so a user who pressed a key by accident needs to be told which mode they are
+/// in before they wonder why clicking does something else.
 class _ToolHint extends StatelessWidget {
-  const _ToolHint({required this.remaining, required this.nodes});
+  const _ToolHint({required this.tool, required this.nodes});
 
-  final int remaining;
+  final ToolId tool;
   final int nodes;
+
+  /// A map with a `?? ` fallback, not an exhaustive `switch` (docs/v3/08 §2): a
+  /// tool added in v2 gets a generic hint, not a compile error in the canvas.
+  static const Map<ToolId, String> _hints = <ToolId, String>{
+    ToolId.select: 'Select · click a shape to select it, drag to move it',
+    ToolId.directSelect: 'Direct select · drag an anchor or a handle · '
+        'Alt+drag a handle breaks symmetry, Alt+click an anchor cycles its kind',
+    ToolId.pen: 'Pen · click for a corner, click-drag for a curve, click the '
+        'first anchor to close · Esc or Enter leaves it open',
+    ToolId.rect: 'Rectangle · drag a box · Shift for a square, Alt from centre',
+    ToolId.ellipse:
+        'Ellipse · drag a box · Shift for a circle, Alt from centre',
+    ToolId.polygon:
+        'Polygon · drag a box · Shift to square it, Alt from centre',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -867,8 +702,7 @@ class _ToolHint extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
       color: scheme.surfaceContainerHighest,
       child: Text(
-        'Click $remaining more time${remaining == 1 ? '' : 's'} to add a '
-        'triangle, click a shape to select it, or drag it to move · '
+        '${_hints[tool] ?? 'Tool'} · '
         '$nodes shape${nodes == 1 ? '' : 's'} in this document',
         key: const Key('tool-hint'),
         style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),

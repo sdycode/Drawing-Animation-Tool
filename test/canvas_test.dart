@@ -6,8 +6,15 @@ import 'package:anim_render/anim_render.dart';
 import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/editor_shell.dart';
-import 'package:drawing_animation_tool/app/features/canvas/commands.dart'
+// The refusal moved with the behaviour that raises it: M3 dispatches every
+// pointer event through the active `ToolMode`, so declining to move a node
+// whose transform is animated is now the Select tool's decision, and the
+// sentence lives beside it. `features/canvas` may not import `features/tools`
+// (docs/v3/08 §3), which is what forced — and settled — where it belongs.
+import 'package:drawing_animation_tool/app/features/tools/registry.dart';
+import 'package:drawing_animation_tool/app/features/tools/select/select_tool.dart'
     show kAnimatedTransformMessage;
+import 'package:drawing_animation_tool/app/state/tool_controller.dart';
 import 'package:drawing_animation_tool/app/state/document_controller.dart';
 import 'package:drawing_animation_tool/app/state/editor_controller.dart';
 import 'package:flutter/gestures.dart'
@@ -89,8 +96,19 @@ void main() {
     );
   }
 
+  /// **The tool registry, installed exactly as `main.dart` installs it.**
+  ///
+  /// At M3 the canvas implements no direct manipulation of its own: every
+  /// pointer event becomes a `PointerCtx` dispatched through the active
+  /// `ToolMode`. Without this override `toolResolverProvider` resolves to the
+  /// inert default — total, so nothing crashes, and a canvas that ignores every
+  /// click. A fresh registry per container also keeps one test's in-progress
+  /// gesture out of the next one's tool.
   ProviderContainer containerFor(MemoryProjectStore store) => ProviderContainer(
-        overrides: [projectStoreProvider.overrideWithValue(store)],
+        overrides: [
+          projectStoreProvider.overrideWithValue(store),
+          toolResolverProvider.overrideWithValue(toolRegistry()),
+        ],
       );
 
   Widget harness(ProviderContainer container, String id) =>
@@ -530,11 +548,16 @@ void main() {
         reason: 'nor does it clear the selection');
 
     // The gate is the pan arming, not a dead tap handler: with Space released
-    // the same three clicks draw the shape they always did.
+    // the same clicks reach the active tool and draw. (M0's three-click
+    // triangle is gone — the Pen tool replaced it — so this is the same
+    // property, asserted through the tool that owns drawing now.)
+    c.read(toolControllerProvider.notifier).activate(ToolId.pen);
+    await tester.pumpAndSettle();
     for (final p in [
       const Vec2(20, 20),
       const Vec2(40, 30),
-      const Vec2(30, 45)
+      const Vec2(30, 45),
+      const Vec2(20, 20), // back to the first anchor: closes and commits
     ]) {
       await tester.tapAt(toScreen(p, box));
       await tester.pumpAndSettle();
@@ -703,5 +726,32 @@ void main() {
         reason: 'viewport∘artboardFit is combined in exactly one spot');
     expect(perAxis, isEmpty,
         reason: 'the fit computes the one uniform scale; nobody re-derives it');
+  });
+
+  // --- What the overlay is asked to draw -----------------------------------
+
+  test('the canvas says "no anchor handles" outright, never with the root id',
+      () {
+    // Structural guard, in the same spirit as the one above. The canvas used to
+    // tell `OverlayPainter` to draw no anchors by passing the geometry-less
+    // **root id** through `selected`, leaning on that painter's "an empty set
+    // means every node" convention to make one impossible id mean "no node at
+    // all". Nothing at either end said so; the first person to tidy it into
+    // `const {}` would have turned handles on for every tool.
+    //
+    // A grep is the right shape of test for this because the defect is not a
+    // behaviour — the pixels were correct — it is a spelling that reads as a
+    // bug and invites the wrong fix.
+    final source = File('lib/app/features/canvas/widgets/canvas_view.dart')
+        .readAsStringSync();
+
+    expect(source, contains('showAnchors:'),
+        reason: 'the question is asked by name');
+    expect(source.contains('root.id'), isFalse,
+        reason: 'the sentinel is gone: the canvas has no reason to name the '
+            'root when talking to the overlay');
+    expect(source.contains('selected:'), isFalse,
+        reason: 'and it no longer narrows the set either — narrowing was only '
+            'ever the vehicle for the sentinel');
   });
 }

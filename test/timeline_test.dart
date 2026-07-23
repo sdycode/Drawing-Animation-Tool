@@ -7,7 +7,10 @@ import 'package:drawing_animation_tool/app/data/project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/editor_shell.dart';
 import 'package:drawing_animation_tool/app/features/canvas/widgets/canvas_view.dart';
+import 'package:drawing_animation_tool/app/features/tools/registry.dart';
+import 'package:drawing_animation_tool/app/state/tool_controller.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,8 +31,13 @@ void main() {
     return doc.id;
   }
 
+  /// The registry `main.dart` installs — M3 dispatches every canvas gesture
+  /// through the active `ToolMode`, so without it nothing on the canvas answers.
   Widget harness(String id) => ProviderScope(
-        overrides: [projectStoreProvider.overrideWithValue(store)],
+        overrides: [
+          projectStoreProvider.overrideWithValue(store),
+          toolResolverProvider.overrideWithValue(toolRegistry()),
+        ],
         child: MaterialApp(home: EditorShell(projectId: id)),
       );
 
@@ -42,16 +50,33 @@ void main() {
   Future<Document> reload(String id) async =>
       Document.fromJson(jsonDecode(await raw(id)) as Map<String, Object?>);
 
+  /// Draws a triangle with the **Pen** (`P`) and leaves the editor in **Direct
+  /// select** (`A`).
+  ///
+  /// Both halves are M3's doing. M0's three-click affordance is gone — the pen
+  /// replaced it (F4.1) — and the anchor drag every test below performs is
+  /// Direct select's, not something the canvas does inline for whatever tool
+  /// happens to be active. Switching here, once, is what keeps each test about
+  /// its keyframe assertion rather than about tool modality.
   Future<void> drawTriangle(WidgetTester tester) async {
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.pumpAndSettle();
+
     final box = tester.getRect(find.byKey(const Key('canvas')));
+    final first =
+        Offset(box.left + box.width * 0.3, box.top + box.height * 0.3);
     for (final o in [
-      Offset(box.left + box.width * 0.3, box.top + box.height * 0.3),
+      first,
       Offset(box.left + box.width * 0.7, box.top + box.height * 0.3),
       Offset(box.left + box.width * 0.5, box.top + box.height * 0.7),
+      first, // closes the path and exits to Select
     ]) {
       await tester.tapAt(o);
       await tester.pumpAndSettle();
     }
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.pumpAndSettle();
   }
 
   /// Where the overlay draws [anchor], in global coordinates.
@@ -384,15 +409,21 @@ void main() {
     expect(committed?.position.y, closeTo(posed.position.y, 1e-9));
   });
 
-  testWidgets('an unhurried anchor drag deposits no pen click', (tester) async {
+  testWidgets('an unhurried anchor drag mints no phantom node', (tester) async {
     // `BaseTapGestureRecognizer` fires `onTapDown` from `didExceedDeadline()`
     // after `kPressTimeout` (100 ms) whether or not the tap goes on to lose the
-    // arena to the pan. Wiring the pen to tap-down therefore meant that any
-    // drag where the user pressed and hesitated left a stray point in the pen's
-    // pending list — and three unhurried drags committed a phantom triangle
+    // arena to the pan. Wiring the drawing affordance to tap-down therefore
+    // meant that any drag where the user pressed and hesitated left a stray
+    // point behind — and three unhurried drags committed a phantom triangle
     // whose vertices were the three grab points. On the deployed URL that is
-    // M0's exit-criterion gesture: a stranger drags an anchor at a human pace
-    // and gets an unexplained blue triangle in their document.
+    // the exit-criterion gesture: a stranger drags an anchor at a human pace and
+    // gets an unexplained blue triangle in their document.
+    //
+    // M3 makes the class of bug unrepresentable rather than merely absent: the
+    // tools are modal, so the tool that owns anchors (Direct select) is not the
+    // tool that places them (Pen), and a press dispatches `onPointerDown` on
+    // tap-UP or pan-START — never on the tap deadline. The test stays, because
+    // "unrepresentable" is a claim worth re-checking.
     //
     // `tester.dragFrom` cannot see this — it synthesizes down/move/up with no
     // elapsed time, so the deadline never fires. Hence the explicit pump.
@@ -418,8 +449,9 @@ void main() {
     final after = await reload(id);
     expect(after.root.children, hasLength(1),
         reason: 'three slow drags must not commit a fourth-wall triangle');
-    expect(find.textContaining('Click 3 more times'), findsOneWidget,
-        reason: 'and the pen must not be counting down mid-shape');
+    expect(find.textContaining('Direct select'), findsOneWidget,
+        reason: 'and the modal state is unchanged — a slow drag is a drag, not '
+            'a tool switch and not a click');
 
     // The drags themselves still did their job.
     expect(onlyPathTrack(after).keyCount, 2);

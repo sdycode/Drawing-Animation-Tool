@@ -226,7 +226,7 @@ Figma/Illustrator/After Effects convention, so the tool is learnable without doc
 | `P` | Pen |
 | `R` / `O` / `G` | Rectangle / Ellipse / Polygon |
 | `Esc` | Deselect, or exit the in-progress pen path (leaving it open) |
-| `Enter` | Close the in-progress pen path |
+| `Enter` | **Finish** the in-progress pen path, leaving it **open** — same as `Esc`. It does **not** close the path; closing is clicking the first anchor (§3). Only reaches the pen while the canvas has focus — see the transport table below, where `Enter` is play/pause with the canvas unfocused |
 | `Cmd/Ctrl+A` | Select all nodes (Select tool) / all anchors of the selected path (Direct select) |
 | `Del` / `Backspace` | Delete selected nodes, or `PathOps.deleteAnchor` on selected anchors |
 
@@ -262,6 +262,8 @@ Figma/Illustrator/After Effects convention, so the tool is learnable without doc
 | `Shift+K` | Delete the keyframe under the playhead |
 
 **Decision: `Space` is pan, not play.** After Effects uses `Space` for play; Figma and Illustrator use it for pan. This is a drawing tool where the pointer lives on the canvas, so pan wins, and `Enter` takes play/pause. Stated because the conflict is real and picking silently would produce a tool that feels wrong to users of either convention.
+
+**Decision: `Enter` is resolved by focus, and finishing a path never closes it.** `Enter` appears three times in this document — finish the pen path (§3), "close the in-progress pen path" (Edit table), and play/pause (above) — and the middle one was simply wrong. It is now stated once, in §3's terms: **`Esc` and `Enter` both finish the path and leave it open; only clicking the first anchor closes it.** Two keys for one action is deliberate (either reflex works, and neither destroys the shape), whereas a key that silently *closes* a path is destructive and unguessable — the user has to undo to find out what it did. Focus disambiguates the third: with the canvas focused the pen owns `Enter`, otherwise the transport does. Recorded because M3's implementation had to pick, and a contradiction left in the spec is one an implementer "fixes" back later.
 
 ### Flutter Web browser conflicts — real ones only
 

@@ -5,6 +5,7 @@ import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
+import 'group_clip.dart';
 import 'paint_translation.dart';
 import 'path_geometry.dart';
 import 'render_faults.dart';
@@ -17,33 +18,51 @@ import 'render_faults.dart';
 /// source, collapsed matrix) is reachable from a three-line test rather than
 /// from a pumped widget.
 ///
-/// It draws what the [Scene] says and asks the [Document] nothing. A painter
-/// that reaches into the document to decide what to draw is a second evaluator
-/// that will disagree with the real one (docs/v3/08 §4), and the disagreement
-/// surfaces as "the canvas is right until you scrub".
+/// Every **coordinate** comes from the [Scene] and the [document] supplies
+/// exactly one thing: **hierarchy**, for `clipChildren` (AC-2.1.6). A clip
+/// applies to a subtree, and `drawOrder` is flat — it carries the groups, but
+/// nothing in it says where a group's subtree ends. That is the same split
+/// [hitTestScene] and [selectionBounds] already make, and it is *not* the
+/// second evaluator docs/v3/08 §4 names: no position, opacity or visibility is
+/// re-derived here, so there is nothing this walk could disagree with
+/// `composeWorldA` about. A painter that read the document to decide *what to
+/// draw* would be, and the symptom would be "the canvas is right until you
+/// scrub".
 ///
 /// [fit] is the document→screen transform, normally [artboardFit]. It is a
 /// parameter rather than something computed here because hit-testing must
 /// invert the *same* matrix; computing the fit twice is how a click lands where
 /// the shape is not.
-void paintScene(Canvas canvas, Scene scene, {Affine fit = Affine.identity}) {
+void paintScene(
+  Canvas canvas,
+  Scene scene,
+  Document document, {
+  Affine fit = Affine.identity,
+}) {
+  final base = canvas.getSaveCount();
   canvas.save();
   canvas.transform(affineToMatrix4(fit));
+
+  // Built after the fit is on the canvas, so a group's window is placed by the
+  // very matrix its geometry is drawn through.
+  final clips = GroupClipStack.forCanvas(canvas, document, scene);
 
   // The guard is INSIDE the loop, never around it (docs/v3/08 §1). One bad
   // node vanishes; the other 113 render. A try around the whole loop is the
   // same defect as legacy's per-frame modal wearing a quieter coat: it erases
   // the artboard the user needs in order to recover from the bug.
   for (final node in scene.drawOrder) {
-    final depth = canvas.getSaveCount();
     try {
+      clips.enter(canvas, node.path);
       _drawNode(canvas, node);
     } catch (error, stack) {
-      // A throw between `save` and `restore` leaves the canvas transformed for
-      // every *subsequent* node, so the failure would smear across nodes that
-      // are individually fine. Unwinding to the depth recorded before the item
-      // is what keeps "one node vanishes" literally true.
-      canvas.restoreToCount(depth);
+      // A throw between `save` and `restore` leaves the canvas transformed —
+      // or worse, CLIPPED — for every subsequent node, so the failure would
+      // smear across nodes that are individually fine. Unwinding to the
+      // stack's floor drops everything this item leaked while keeping the
+      // clips its ancestors legitimately opened, which is what keeps "one node
+      // vanishes" literally true.
+      canvas.restoreToCount(clips.floor);
       final watched = RenderFaults.report(RenderFault(
         stage: 'drawNode',
         path: node.path,
@@ -54,7 +73,9 @@ void paintScene(Canvas canvas, Scene scene, {Affine fit = Affine.identity}) {
     }
   }
 
-  canvas.restore();
+  // Closes the fit save and any clip still open, in one call: a group whose
+  // subtree ends the document has nothing after it to close it.
+  canvas.restoreToCount(base);
 }
 
 void _drawNode(Canvas canvas, ResolvedNode node) {
@@ -182,14 +203,19 @@ class ArtboardPainter extends CustomPainter {
     // shape they cannot see and can still drag. The export preview *does* clip,
     // because there the board is the frame — one rect, from
     // [artboardClipRect], shared with the overlay.
+    //
+    // A clipping **group** is a different question and is not conflated with
+    // this one: `clipChildren` is authored content, so it is honoured in BOTH
+    // modes, inside [paintScene], against the group's own window
+    // ([groupClipWindow]) rather than against the board.
     final clip = artboardClipRect(mode, document.artboard, fit);
     if (clip == null) {
-      paintScene(canvas, scene, fit: fit);
+      paintScene(canvas, scene, document, fit: fit);
       return;
     }
     canvas.save();
     canvas.clipRect(clip);
-    paintScene(canvas, scene, fit: fit);
+    paintScene(canvas, scene, document, fit: fit);
     canvas.restore();
   }
 

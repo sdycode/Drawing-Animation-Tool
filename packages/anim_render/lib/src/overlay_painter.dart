@@ -5,11 +5,13 @@ import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
+import 'draft_path.dart';
+import 'group_clip.dart';
 import 'path_geometry.dart';
 import 'render_faults.dart';
 
-/// Draws the editing affordances: authored anchors, and the pen tool's pending
-/// click markers.
+/// Draws the editing affordances: authored anchors, the in-progress geometry a
+/// tool is building, and a gesture's pending click markers.
 ///
 /// **This stays a separate painter forever.** Merging it into [ArtboardPainter]
 /// is a named antipattern (docs/v3/08 §2, §4): the overlay is the least-tested
@@ -54,6 +56,8 @@ class OverlayPainter extends CustomPainter {
     required this.pendingColor,
     required this.fit,
     required this.mode,
+    required this.showAnchors,
+    this.draft,
     this.pending = const <Vec2>[],
     this.selected = const <NodeId>{},
     this.selectedPaths = const <ScenePath>{},
@@ -102,10 +106,43 @@ class OverlayPainter extends CustomPainter {
   /// contains half a gesture is a document that cannot be reloaded. It is also
   /// why they live here and not in `Document` (docs/v3/08 §2 — in-progress drag
   /// state is private to the tool).
+  ///
+  /// **Points only, and that is the whole of what this channel can say.** A
+  /// gesture whose feedback is a *shape* — the pen's half-drawn path — goes
+  /// through [draft] instead; see [DraftPath] for the defect that split them.
   final List<Vec2> pending;
 
-  /// Empty means "every path node", which is M0's behaviour because there is no
-  /// selection model yet.
+  /// The path a tool is building right now, or null when no tool is building
+  /// one. Stroked, never filled, in the same composed [fit] space as everything
+  /// else this painter draws.
+  ///
+  /// This is a **rendering** channel and not a place to park state: the anchors
+  /// themselves stay a private field of the tool (docs/v3/08 §2), and what
+  /// arrives here is a copy the tool hands out once per paint.
+  final DraftPath? draft;
+
+  /// Whether authored anchor handles are drawn **at all**.
+  ///
+  /// **Required, and separate from [selected], because conflating the two was a
+  /// live defect.** Anchor handles belong to Direct select (docs/v3/05 §3), so
+  /// every other tool wants none — and with [selected]'s "empty means every
+  /// node" convention there was no set that meant *none*. The canvas said it by
+  /// passing the one id guaranteed to exist and to have no geometry: the
+  /// document **root**. That sentinel reads as a bug at the call site, reads as
+  /// a bug here, and would have been "cleaned up" into `const {}` — which means
+  /// the exact opposite — by the first person to touch either end.
+  ///
+  /// So the question is asked directly. `false` draws no anchor dot anywhere;
+  /// selection outlines are a different affordance and are unaffected (they are
+  /// governed by [selectedPaths] and [selectionColor]), which is what keeps
+  /// Select showing node outlines while offering no handles.
+  final bool showAnchors;
+
+  /// *Which* path nodes get anchors, when [showAnchors] is on. Empty means
+  /// every one of them.
+  ///
+  /// Empty-means-all is safe here and was not safe as a way to say "none": this
+  /// set only ever narrows an affordance [showAnchors] has already turned on.
   ///
   /// Ids in here are **resolved, never repaired**: a dangling id is legal and is
   /// filtered at this read site rather than scrubbed out of `EditorState`, so
@@ -122,6 +159,15 @@ class OverlayPainter extends CustomPainter {
   /// the failure that makes users zoom in to click and then lose their place.
   static const double anchorRadius = 3.5;
   static const double pendingRadius = 4.0;
+
+  /// Screen-space too, and for the same reason: a preview stroke that scaled
+  /// with the zoom would be a hairline at 25% — invisible at exactly the zoom
+  /// where the user is placing anchors across the whole board.
+  static const double draftWidth = 1.5;
+
+  /// The dot on the far end of a tangent handle. Smaller than an anchor,
+  /// because it is the thing you drag and not the thing you aim at to close.
+  static const double handleRadius = 2.5;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -145,6 +191,14 @@ class OverlayPainter extends CustomPainter {
       canvas.clipRect(clip);
     }
 
+    // A clipping group clips the overlay exactly as it clips the geometry, for
+    // the reason the artboard clip is shared one line above: a handle must
+    // never outlive the shape it belongs to. `base` is the fit because this
+    // painter draws in SCREEN space — it never puts the fit on the canvas, it
+    // maps each point through it — so the window has to be mapped the same way
+    // or the handles would be clipped by a window in the wrong place.
+    final clips = GroupClipStack.forCanvas(canvas, document, frame, base: fit);
+
     final fillPaint = Paint()..color = anchor;
     final borderPaint = Paint()
       ..style = PaintingStyle.stroke
@@ -162,14 +216,14 @@ class OverlayPainter extends CustomPainter {
     // whose handles cannot be placed loses its handles, not the whole overlay,
     // and certainly not the artboard underneath it.
     for (final node in frame.drawOrder) {
-      final depth = canvas.getSaveCount();
       try {
-        _drawHandles(canvas, node, fillPaint, borderPaint);
+        clips.enter(canvas, node.path);
+        if (showAnchors) _drawHandles(canvas, node, fillPaint, borderPaint);
         if (outlinePaint != null && selectedPaths.contains(node.path)) {
           _drawSelection(canvas, frame, node, outlinePaint);
         }
       } catch (error, stack) {
-        canvas.restoreToCount(depth);
+        canvas.restoreToCount(clips.floor);
         final watched = RenderFaults.report(RenderFault(
           stage: 'drawHandles',
           path: node.path,
@@ -178,6 +232,32 @@ class OverlayPainter extends CustomPainter {
         ));
         assert(
             watched, 'anim_render: unreported overlay fault on ${node.path}');
+      }
+    }
+
+    // Before the draft and the pending markers, never after: an in-progress
+    // gesture is tool state, not a child of any group, so it must not inherit
+    // the last group's window — and it must not be drawn into a clip nothing
+    // will close.
+    clips.closeAll(canvas);
+
+    // The draft is one item, so it gets one guard — the same shape the loop's
+    // per-item catch has, for the same reason. Without it a throw here would
+    // skip the `restore` below and leak the export preview's artboard clip into
+    // whatever paints next, which is invisible on the layer that caused it.
+    final sketch = draft;
+    if (sketch != null) {
+      final floor = canvas.getSaveCount();
+      try {
+        _drawDraft(canvas, sketch);
+      } catch (error, stack) {
+        canvas.restoreToCount(floor);
+        final watched = RenderFaults.report(RenderFault(
+          stage: 'drawDraft',
+          error: error,
+          stack: stack,
+        ));
+        assert(watched, 'anim_render: unreported draft fault');
       }
     }
 
@@ -190,6 +270,107 @@ class OverlayPainter extends CustomPainter {
     }
 
     if (clip != null) canvas.restore();
+  }
+
+  /// The in-progress path: the curve so far, the segment chasing the cursor,
+  /// the anchors placed, and the handle being pulled.
+  ///
+  /// ### Screen space, mapped — never a second matrix on the canvas
+  ///
+  /// Like every other mark this painter makes, the draft is mapped **through**
+  /// [fit] rather than drawn under it: `canvas.transform(fit)` would scale the
+  /// stroke width and the handle dots with the zoom, and this layer's whole
+  /// convention is that affordances are a constant physical size. [fit] is the
+  /// one composed `viewport ∘ artboardFit` the canvas built (AC-3.1.4) — the
+  /// same object the artboard layer under it is drawn with, so the preview
+  /// cannot land anywhere the committed shape would not.
+  ///
+  /// `Path.transform` maps the already-built cubics, so the curve here comes
+  /// out of the very same [buildPath] the artboard layer commits through. A
+  /// second cubic emitter for previews is how a preview ends up disagreeing
+  /// with what lands.
+  void _drawDraft(Canvas canvas, DraftPath sketch) {
+    final data = sketch.path;
+    if (data.anchors.isEmpty) return;
+
+    // Early return, never `invert()!` (docs/v3/08 §4). A collapsed camera has
+    // nowhere on screen to put the draft, and `Path.transform` with a NaN
+    // poisons the layer rather than this one item.
+    if (!isPlaceable(fit)) return;
+    final toScreen = affineToMatrix4(fit);
+
+    final strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = draftWidth
+      ..color = pendingColor;
+
+    // **Stroked, never filled.** The path is open and half-authored; filling it
+    // would show the user a solid blob whose boundary is a segment they have
+    // not drawn yet — `ui.Path` closes an open contour implicitly to fill it.
+    if (data.segmentCount > 0) {
+      canvas.drawPath(buildPath(data).transform(toScreen), strokePaint);
+    }
+
+    // The live segment. Built as a cubic like every other segment (AC-4.1.2 —
+    // there is no polyline branch anywhere): it leaves the last anchor along
+    // that anchor's own outgoing tangent, so what the user sees is what the
+    // next click commits, and arrives at the cursor straight because the anchor
+    // that will own the incoming tangent does not exist yet.
+    final cursor = sketch.cursor;
+    final last = data.anchors.last;
+    if (cursor != null && sketch.handle == null) {
+      final out = last.position + last.outTangent;
+      final live = Path()
+        ..moveTo(last.position.x, last.position.y)
+        ..cubicTo(out.x, out.y, cursor.x, cursor.y, cursor.x, cursor.y);
+      canvas.drawPath(live.transform(toScreen), strokePaint);
+    }
+
+    // The anchors placed so far. Same dot the `pending` channel drew before
+    // this type existed — the first anchor is the target the user aims at to
+    // close the path, so it has to stay visible and stay the same size.
+    final dot = Paint()..color = pendingColor;
+    for (final a in data.anchors) {
+      final at = _offset(fit.apply(a.position));
+      if (!at.dx.isFinite || !at.dy.isFinite) continue;
+      canvas.drawCircle(at, pendingRadius, dot);
+    }
+
+    _drawDraftHandle(canvas, sketch, dot);
+  }
+
+  /// The tangent handles of the anchor currently being dragged.
+  ///
+  /// Kept, and deliberately: a line from the anchor to each tangent end with a
+  /// dot on it is the pen convention every vector editor shares, and it is the
+  /// only feedback that says *how far* the curve will bulge before the user
+  /// releases. It is the one thing the old markers channel got right.
+  ///
+  /// A zero tangent draws nothing. `Alt` leaves the incoming handle at zero on
+  /// purpose (an asymmetric corner), and a zero-length line under a dot that
+  /// sits exactly on the anchor would read as a handle the user could grab.
+  void _drawDraftHandle(Canvas canvas, DraftPath sketch, Paint dot) {
+    final live = sketch.handle;
+    if (live == null) return;
+
+    final linePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = pendingColor;
+
+    for (final a in sketch.path.anchors) {
+      if (a.id != live) continue; // ids join, never indices (docs/v3/01 §5)
+      final from = _offset(fit.apply(a.position));
+      if (!from.dx.isFinite || !from.dy.isFinite) return;
+      for (final tangent in <Vec2>[a.outTangent, a.inTangent]) {
+        if (tangent.x == 0 && tangent.y == 0) continue;
+        final to = _offset(fit.apply(a.position + tangent));
+        if (!to.dx.isFinite || !to.dy.isFinite) continue;
+        canvas.drawLine(from, to, linePaint);
+        canvas.drawCircle(to, handleRadius, dot);
+      }
+      return; // ids are unique (invariant P1): there is no second match
+    }
   }
 
   /// The selected node's **world-space AABB**, stroked in screen space.
@@ -230,6 +411,8 @@ class OverlayPainter extends CustomPainter {
     Paint fillPaint,
     Paint borderPaint,
   ) {
+    // Whether handles are drawn at all is [showAnchors]'s question, asked at
+    // the call site. This one only narrows: empty is every node.
     if (selected.isNotEmpty && !selected.contains(node.path.nodeId)) return;
     final geometry = node.geometry;
     if (geometry == null) return; // a group has no anchors to offer
@@ -259,7 +442,9 @@ class OverlayPainter extends CustomPainter {
   /// [pending] is compared element-wise because it is a short list rebuilt by
   /// the tool on every click; identity would miss a mutation-in-place and the
   /// marker for the click the user just made would not appear until the next
-  /// unrelated repaint.
+  /// unrelated repaint. [draft] carries value equality for the same reason —
+  /// the pen mints a fresh `PathData` per paint, so identity would say "changed"
+  /// on every rebuild and "unchanged" never.
   @override
   bool shouldRepaint(OverlayPainter old) =>
       !identical(old.document, document) ||
@@ -271,6 +456,8 @@ class OverlayPainter extends CustomPainter {
       old.selectionColor != selectionColor ||
       old.mode != mode || // editor ↔ export preview changes the clip
       old.fit != fit ||
+      old.showAnchors != showAnchors ||
+      old.draft != draft ||
       !setEquals(old.selected, selected) ||
       !setEquals(old.selectedPaths, selectedPaths) ||
       !listEquals(old.pending, pending);

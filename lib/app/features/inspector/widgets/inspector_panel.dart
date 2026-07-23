@@ -1,9 +1,13 @@
 import 'dart:math' as math;
 
 import 'package:anim_core/anim_core.dart' hide Animation;
-import 'package:flutter/material.dart';
+// `StrokeCap` and `StrokeJoin` are `dart:ui`'s here and anim_core's in the
+// domain — the same landmine `hide Animation` defuses one line up. The
+// inspector authors the *domain* enums and paints nothing, so Flutter's lose.
+import 'package:flutter/material.dart' hide StrokeCap, StrokeJoin;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../common/color_field.dart';
 import '../../../common/number_field.dart';
 import '../commands.dart';
 import '../providers.dart';
@@ -176,11 +180,18 @@ class InspectorPanel extends ConsumerWidget {
           onCommit: (percent) => _commitOpacity(context, ref, view.id, percent),
         ),
         const SizedBox(height: 16),
+        // Fill above stroke, because **fills paint before strokes, always**
+        // (docs/v3/01 §6, AC-5.1.5). The ordering is the renderer's, expressed
+        // by `fills` and `strokes` being two fields — so the panel reads top to
+        // bottom in paint order and offers no reorder, no z-index and no "bring
+        // to front" to disagree with it.
+        _PaintSection(projectId: projectId),
+        _ShapeSection(projectId: projectId),
+        const SizedBox(height: 16),
         Text('Not yet available',
             key: const Key('inspector-seams'),
             style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
         const SizedBox(height: 4),
-        _seam(context, 'Fill and stroke colours'),
         _seam(context, 'Draw-on trim'),
         _seam(context, 'Easing between keyframes'),
         _seam(context, 'Corner and smooth anchors'),
@@ -202,22 +213,6 @@ class InspectorPanel extends ConsumerWidget {
       BuildContext context, WidgetRef ref, NodeId id, double percent) {
     _report(context,
         InspectorCommands(ref, projectId).setOpacity(id, percent / 100));
-  }
-
-  /// Capture the messenger before the await, and **handle `onError`**: anything
-  /// that escapes `InspectorCommands._guard` would otherwise complete this
-  /// dropped future with an error nobody listens for, which Flutter reports as
-  /// an unhandled async error instead of the snackbar this method exists for.
-  void _report(BuildContext context, Future<String?> pending) {
-    final messenger = ScaffoldMessenger.of(context);
-    void show(String message) =>
-        messenger.showSnackBar(SnackBar(content: Text(message)));
-    pending.then(
-      (message) {
-        if (message != null) show(message);
-      },
-      onError: (Object _, StackTrace __) => show(kRejectedInspectorEditMessage),
-    );
   }
 
   Widget _pair({
@@ -327,3 +322,564 @@ class InspectorPanel extends ConsumerWidget {
     );
   }
 }
+
+/// Capture the messenger before the await, and **handle `onError`**: anything
+/// that escapes `InspectorCommands._guard` would otherwise complete this dropped
+/// future with an error nobody listens for, which Flutter reports as an
+/// unhandled async error instead of the snackbar this function exists for.
+///
+/// Top-level and shared by every section in this file, so a new control cannot
+/// be wired up with a bare `unawaited(...)` that loses the refusal — which is
+/// the only way a user would ever learn that an edit did not take.
+void _report(BuildContext context, Future<String?> pending) {
+  final messenger = ScaffoldMessenger.of(context);
+  void show(String message) =>
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+  pending.then(
+    (message) {
+      if (message != null) show(message);
+    },
+    onError: (Object _, StackTrace __) => show(kRejectedInspectorEditMessage),
+  );
+}
+
+/// Solid fill and solid stroke authoring — F5.1.
+///
+/// **Its own `ConsumerWidget` reading its own named slice**
+/// ([inspectorPaintProvider]), so a transform commit and a paint commit rebuild
+/// different sub-trees and neither rebuilds the other (docs/v3/08 §2). It is
+/// absent entirely for a group: paint hangs off path nodes only, and an "Add
+/// fill" button that threw would be a stub that reads as a bug.
+///
+/// **One fill and one stroke, and no more** (docs/v3/01 §6). They are lists in
+/// the model so widening is additive, but this build authors the first of each
+/// and *says so* when a document from a newer client carries more — AC-5.1.6's
+/// requirement is round-trip plus no silent truncation, and silence is the half
+/// that makes a user delete work they cannot see.
+class _PaintSection extends ConsumerWidget {
+  const _PaintSection({required this.projectId});
+
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final view = ref.watch(inspectorPaintProvider(projectId));
+    if (view == null) return const SizedBox.shrink();
+    return Column(
+      key: const Key('inspector-paint'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _groupLabel(context, 'Fill'),
+        _fill(context, ref, view),
+        const SizedBox(height: 12),
+        _groupLabel(context, 'Stroke'),
+        _stroke(context, ref, view),
+      ],
+    );
+  }
+
+  InspectorCommands _commands(WidgetRef ref) =>
+      InspectorCommands(ref, projectId);
+
+  Widget _fill(BuildContext context, WidgetRef ref, NodePaintView view) {
+    final fill = view.fill;
+    if (fill == null) {
+      return _addButton(
+        keyName: 'inspector-add-fill',
+        label: 'Add fill',
+        onPressed: () => _report(context, _commands(ref).addFill(view.node)),
+      );
+    }
+    final reason = fill.readOnlyReason;
+    if (reason != null) {
+      return _readOnlyPaint(context, 'inspector-fill-readonly', reason);
+    }
+
+    final commands = _commands(ref);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (view.fillCount > 1) _extraPaints(context, 'fill', view.fillCount),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: CommittedColorField(
+            key: const Key('inspector-fill-color'),
+            value: fill.color!,
+            onCommit: (color) => _report(
+                context, commands.setFillColor(view.node, fill.id, color)),
+          ),
+        ),
+        _labelled(
+          'Opacity (%)',
+          CommittedNumberField(
+            key: const Key('inspector-fill-opacity'),
+            value: fill.opacity * 100,
+            onCommit: (percent) => _report(context,
+                commands.setFillOpacity(view.node, fill.id, percent / 100)),
+          ),
+        ),
+        // AC-5.1.4 — the winding rule of a self-intersecting outline. It is a
+        // property of the fill, not of the path: two fills on one shape may
+        // legitimately disagree about it.
+        _enumRow<FillRule>(
+          label: 'Rule',
+          keyPrefix: 'inspector-fill-rule',
+          values: FillRule.values,
+          selected: fill.rule,
+          labels: _fillRuleLabels,
+          onSelect: (rule) =>
+              _report(context, commands.setFillRule(view.node, fill.id, rule)),
+        ),
+        _toggleRow(
+          label: 'Visible',
+          keyName: 'inspector-fill-visible',
+          value: fill.visible,
+          onChanged: (visible) => _report(
+              context, commands.setFillVisible(view.node, fill.id, visible)),
+        ),
+        _removeButton(
+          keyName: 'inspector-fill-remove',
+          label: 'Remove fill',
+          onPressed: () =>
+              _report(context, commands.removeFill(view.node, fill.id)),
+        ),
+      ],
+    );
+  }
+
+  Widget _stroke(BuildContext context, WidgetRef ref, NodePaintView view) {
+    final stroke = view.stroke;
+    if (stroke == null) {
+      return _addButton(
+        keyName: 'inspector-add-stroke',
+        label: 'Add stroke',
+        onPressed: () => _report(context, _commands(ref).addStroke(view.node)),
+      );
+    }
+    final reason = stroke.readOnlyReason;
+    if (reason != null) {
+      return _readOnlyPaint(context, 'inspector-stroke-readonly', reason);
+    }
+
+    final commands = _commands(ref);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (view.strokeCount > 1)
+          _extraPaints(context, 'stroke', view.strokeCount),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: CommittedColorField(
+            key: const Key('inspector-stroke-color'),
+            value: stroke.color!,
+            onCommit: (color) => _report(
+                context, commands.setStrokeColor(view.node, stroke.id, color)),
+          ),
+        ),
+        _labelled(
+          'Width',
+          CommittedNumberField(
+            key: const Key('inspector-stroke-width'),
+            value: stroke.width,
+            onCommit: (width) => _report(
+                context, commands.setStrokeWidth(view.node, stroke.id, width)),
+          ),
+        ),
+        _enumRow<StrokeCap>(
+          label: 'Cap',
+          keyPrefix: 'inspector-stroke-cap',
+          values: StrokeCap.values,
+          selected: stroke.cap,
+          labels: _capLabels,
+          onSelect: (cap) => _report(
+              context, commands.setStrokeCap(view.node, stroke.id, cap)),
+        ),
+        _enumRow<StrokeJoin>(
+          label: 'Join',
+          keyPrefix: 'inspector-stroke-join',
+          values: StrokeJoin.values,
+          selected: stroke.join,
+          labels: _joinLabels,
+          onSelect: (join) => _report(
+              context, commands.setStrokeJoin(view.node, stroke.id, join)),
+        ),
+        // A ratio of miter length to stroke width, so it is meaningless below 1
+        // and the op refuses it there. Shown next to `Join` because it only does
+        // anything for a miter join.
+        _labelled(
+          'Miter limit',
+          CommittedNumberField(
+            key: const Key('inspector-stroke-miter'),
+            value: stroke.miterLimit,
+            onCommit: (limit) => _report(context,
+                commands.setStrokeMiterLimit(view.node, stroke.id, limit)),
+          ),
+        ),
+        _labelled(
+          'Opacity (%)',
+          CommittedNumberField(
+            key: const Key('inspector-stroke-opacity'),
+            value: stroke.opacity * 100,
+            onCommit: (percent) => _report(context,
+                commands.setStrokeOpacity(view.node, stroke.id, percent / 100)),
+          ),
+        ),
+        _toggleRow(
+          label: 'Visible',
+          keyName: 'inspector-stroke-visible',
+          value: stroke.visible,
+          onChanged: (visible) => _report(context,
+              commands.setStrokeVisible(view.node, stroke.id, visible)),
+        ),
+        _removeButton(
+          keyName: 'inspector-stroke-remove',
+          label: 'Remove stroke',
+          onPressed: () =>
+              _report(context, commands.removeStroke(view.node, stroke.id)),
+        ),
+      ],
+    );
+  }
+
+  /// A gradient or an unrecognised paint: **shown, explained, and left alone**
+  /// (AC-5.1.3).
+  ///
+  /// There is no control at all here — not a colour field, not opacity, not
+  /// even a remove button. `PaintOps.setFillColor` throws on a non-solid paint
+  /// on purpose, and every control this section could draw would either trip
+  /// that throw or invite the user to discard authoring this build has no way to
+  /// recreate. The row says which, in a sentence, and stops.
+  Widget _readOnlyPaint(BuildContext context, String keyName, String reason) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      key: Key(keyName),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(reason,
+          style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+    );
+  }
+
+  /// AC-5.1.6's anti-truncation notice.
+  Widget _extraPaints(BuildContext context, String what, int count) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      key: Key('inspector-extra-${what}s'),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        'This layer has $count ${what}s. The first is shown here; the others '
+        'are kept exactly as they were saved.',
+        style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+/// Shape-parameter re-editing — AC-4.1.5.
+///
+/// A [ShapeRecipe] is inert metadata about how a shape tool generated the node's
+/// anchors, so "make that rectangle 20 units wider" stays a one-field edit
+/// instead of a manual drag of four anchors. Editing one regenerates the
+/// geometry through the **one sanctioned route**, `PathOps.regenerateRecipe`.
+///
+/// **Disabled, with the reason on screen, on a node whose path is animated.**
+/// The op refuses that case because regeneration mints fresh `AnchorId`s while
+/// every existing keyframe poses the old ones; the correct answer is arc-length
+/// correspondence, which does not exist yet. The predicate and its sentence come
+/// from `state/recipe_guard.dart` — the same ones the command gate uses — so a
+/// field can never look editable while the write behind it is refused.
+class _ShapeSection extends ConsumerWidget {
+  const _ShapeSection({required this.projectId});
+
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final view = ref.watch(inspectorShapeProvider(projectId));
+    if (view == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final enabled = view.refusal == null;
+
+    void commit(ShapeRecipe next) => _report(context,
+        InspectorCommands(ref, projectId).regenerateRecipe(view.node, next));
+
+    return Column(
+      key: const Key('inspector-shape'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 12),
+        _groupLabel(context, 'Shape'),
+        if (view.refusal != null)
+          Padding(
+            key: const Key('inspector-shape-disabled'),
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(view.refusal!,
+                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+          ),
+        ..._fields(view.recipe, enabled, commit),
+      ],
+    );
+  }
+
+  /// Dispatch by recipe kind **without an exhaustive switch** (docs/v3/08 §2):
+  /// a fourth shape added in v2 must fall through to "no fields", not stop this
+  /// panel compiling. An `UnknownRecipe` has no readable parameters at all, so
+  /// the section above it is the whole answer.
+  List<Widget> _fields(
+      ShapeRecipe recipe, bool enabled, ValueChanged<ShapeRecipe> commit) {
+    if (recipe is RectRecipe) {
+      return [
+        _number(
+            'Width',
+            'inspector-shape-w',
+            recipe.w,
+            enabled,
+            (v) => commit(RectRecipe(
+                w: v, h: recipe.h, cornerRadius: recipe.cornerRadius))),
+        _number(
+            'Height',
+            'inspector-shape-h',
+            recipe.h,
+            enabled,
+            (v) => commit(RectRecipe(
+                w: recipe.w, h: v, cornerRadius: recipe.cornerRadius))),
+        _number(
+            'Corner radius',
+            'inspector-shape-corner',
+            recipe.cornerRadius,
+            enabled,
+            (v) =>
+                commit(RectRecipe(w: recipe.w, h: recipe.h, cornerRadius: v))),
+      ];
+    }
+    if (recipe is EllipseRecipe) {
+      return [
+        _number('Radius X', 'inspector-shape-rx', recipe.rx, enabled,
+            (v) => commit(EllipseRecipe(rx: v, ry: recipe.ry))),
+        _number('Radius Y', 'inspector-shape-ry', recipe.ry, enabled,
+            (v) => commit(EllipseRecipe(rx: recipe.rx, ry: v))),
+      ];
+    }
+    if (recipe is PolygonRecipe) {
+      PolygonRecipe next(
+              {int? sides, double? radius, bool? star, double? inner}) =>
+          PolygonRecipe(
+            // The one deliberate `int` in the recipe types — a polygon with 5.5
+            // sides is not a shape, so the field's double is rounded here rather
+            // than truncated at the wire.
+            sides: sides ?? recipe.sides,
+            radius: radius ?? recipe.radius,
+            star: star ?? recipe.star,
+            innerRatio: inner ?? recipe.innerRatio,
+          );
+      return [
+        _number('Sides', 'inspector-shape-sides', recipe.sides.toDouble(),
+            enabled, (v) => commit(next(sides: v.round()))),
+        _number('Radius', 'inspector-shape-radius', recipe.radius, enabled,
+            (v) => commit(next(radius: v))),
+        _toggleRow(
+          label: 'Star',
+          keyName: 'inspector-shape-star',
+          value: recipe.star,
+          onChanged: enabled ? (v) => commit(next(star: v)) : null,
+        ),
+        _number('Inner ratio', 'inspector-shape-inner', recipe.innerRatio,
+            enabled, (v) => commit(next(inner: v))),
+      ];
+    }
+    return const <Widget>[];
+  }
+
+  Widget _number(String label, String keyName, double value, bool enabled,
+          ValueChanged<double> onCommit) =>
+      _labelled(
+        label,
+        CommittedNumberField(
+          key: Key(keyName),
+          value: value,
+          enabled: enabled,
+          onCommit: onCommit,
+        ),
+      );
+}
+
+// ---------------------------------------------------------------------------
+// Row helpers shared by the sections above
+// ---------------------------------------------------------------------------
+
+/// Enum labels as **maps with a fallback**, never an exhaustive `switch`
+/// (docs/v3/08 §2): a `StrokeCap.squareRound` added in v2 should render as
+/// `squareRound` and still be selectable, not break the build of five panels.
+const Map<FillRule, String> _fillRuleLabels = {
+  FillRule.nonZero: 'Nonzero',
+  FillRule.evenOdd: 'Even-odd',
+};
+
+const Map<StrokeCap, String> _capLabels = {
+  StrokeCap.butt: 'Butt',
+  StrokeCap.round: 'Round',
+  StrokeCap.square: 'Square',
+};
+
+const Map<StrokeJoin, String> _joinLabels = {
+  StrokeJoin.miter: 'Miter',
+  StrokeJoin.round: 'Round',
+  StrokeJoin.bevel: 'Bevel',
+};
+
+Widget _groupLabel(BuildContext context, String text) => Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(text,
+          style: TextStyle(
+              fontSize: 10,
+              color: Theme.of(context).colorScheme.onSurfaceVariant)),
+    );
+
+Widget _labelled(String label, Widget field) => Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Builder(
+            builder: (context) => Text(label,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ),
+          const SizedBox(height: 4),
+          field,
+        ],
+      ),
+    );
+
+/// One row of mutually exclusive choices, one button per enum value.
+///
+/// Buttons rather than a dropdown because every option is visible without a
+/// gesture — three short words fit the rail, and a menu that has to be opened to
+/// see what the current join even is costs more than it saves.
+Widget _enumRow<T extends Enum>({
+  required String label,
+  required String keyPrefix,
+  required List<T> values,
+  required T selected,
+  required Map<T, String> labels,
+  required ValueChanged<T> onSelect,
+}) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Builder(
+            builder: (context) => Text(label,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              for (final value in values)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Builder(builder: (context) {
+                      final scheme = Theme.of(context).colorScheme;
+                      final isSelected = value == selected;
+                      return OutlinedButton(
+                        key: Key('$keyPrefix-${value.name}'),
+                        onPressed: () => onSelect(value),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                          minimumSize: const Size(0, 28),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          backgroundColor: isSelected
+                              ? scheme.secondaryContainer
+                              : Colors.transparent,
+                          foregroundColor: isSelected
+                              ? scheme.onSecondaryContainer
+                              : scheme.onSurfaceVariant,
+                        ),
+                        child: Text(
+                          labels[value] ?? value.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+/// A labelled switch. `null` [onChanged] is the disabled state — Flutter's own
+/// idiom, so there is no second "enabled" flag to disagree with it.
+Widget _toggleRow({
+  required String label,
+  required String keyName,
+  required bool value,
+  required ValueChanged<bool>? onChanged,
+}) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Builder(
+              builder: (context) => Text(label,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ),
+          ),
+          Switch(
+            key: Key(keyName),
+            value: value,
+            onChanged: onChanged,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+    );
+
+Widget _addButton({
+  required String keyName,
+  required String label,
+  required VoidCallback onPressed,
+}) =>
+    Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton(
+        key: Key(keyName),
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 30),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 11)),
+      ),
+    );
+
+Widget _removeButton({
+  required String keyName,
+  required String label,
+  required VoidCallback onPressed,
+}) =>
+    Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton(
+        key: Key(keyName),
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(0, 28),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 11)),
+      ),
+    );

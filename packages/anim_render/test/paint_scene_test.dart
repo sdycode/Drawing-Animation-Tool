@@ -46,6 +46,19 @@ ResolvedNode _node(
 Scene _scene(List<ResolvedNode> nodes) =>
     Scene(nodes, {for (final n in nodes) n.path: n});
 
+/// The hierarchy the painter is allowed to ask about, and the *only* thing it
+/// may ask: which groups clip (AC-2.1.6). The scenes below are hand-built
+/// rather than evaluated — that is the point of `paintScene` being a plain
+/// function — so this document deliberately holds no nodes at all, and every
+/// coordinate still comes from the `Scene`. Clipping itself is pinned in
+/// `group_clip_test.dart`, on real evaluated documents.
+const _noClips = Document(
+  id: 'd',
+  name: 'd',
+  artboard: Vec2(100, 100),
+  root: GroupNode(id: NodeId('root'), name: 'root'),
+);
+
 PathData _square() => PathData(anchors: [
       const Anchor(id: AnchorId('a'), position: Vec2(0, 0)),
       const Anchor(id: AnchorId('b'), position: Vec2(10, 0)),
@@ -79,6 +92,7 @@ void main() {
             _node('zero', geometry: zero, fills: const [_solid]),
             _node('one', geometry: one, fills: const [_solid]),
           ]),
+          _noClips,
         );
       });
 
@@ -101,6 +115,7 @@ void main() {
                   id: PaintId('s'), paint: UnknownPaint({'type': 'mesh'})),
             ]),
           ]),
+          _noClips,
         );
       });
 
@@ -119,6 +134,7 @@ void main() {
                 world: const Affine.scale(0, 0),
                 fills: const [_solid]),
           ]),
+          _noClips,
         );
       });
 
@@ -139,6 +155,7 @@ void main() {
                 world: const Affine(double.nan, 0, 0, 1, 0, 0),
                 fills: const [_solid]),
           ]),
+          _noClips,
         );
       });
 
@@ -155,6 +172,7 @@ void main() {
                 opacity: double.nan,
                 fills: const [_solid]),
           ]),
+          _noClips,
         );
       });
 
@@ -169,7 +187,7 @@ void main() {
         worldVisible: true,
       );
 
-      _record((canvas) => paintScene(canvas, _scene([group])));
+      _record((canvas) => paintScene(canvas, _scene([group]), _noClips));
 
       expect(captured, isEmpty);
     });
@@ -207,6 +225,7 @@ void main() {
             _node('bad', geometry: _square(), fills: [badGradient()]),
             _node('good-after', geometry: _square(), fills: const [_solid]),
           ]),
+          _noClips,
         );
         painted++;
       });
@@ -228,6 +247,7 @@ void main() {
             _node('bad1', geometry: _square(), fills: [badGradient()]),
             _node('bad2', geometry: _square(), fills: [badGradient()]),
           ]),
+          _noClips,
         );
       });
 
@@ -247,6 +267,7 @@ void main() {
             _node('bad', geometry: _square(), fills: [badGradient()]),
             _node('good', geometry: _square(), fills: const [_solid]),
           ]),
+          _noClips,
         );
         expect(canvas.getSaveCount(), before);
       });
@@ -373,6 +394,7 @@ void main() {
         anchor: const Color(0xFFFFFFFF),
         anchorBorder: const Color(0xFF000000),
         pendingColor: const Color(0xFFFFAB40),
+        showAnchors: true,
         pending: const [Vec2(5, 5)],
         fit: artboardFit(doc.artboard, const ui.Size(200, 200)),
         mode: RenderMode.editor,
@@ -401,6 +423,7 @@ void main() {
         anchor: const Color(0xFFFFFFFF),
         anchorBorder: const Color(0xFF000000),
         pendingColor: const Color(0xFFFFAB40),
+        showAnchors: true,
         selected: {const NodeId('deleted-by-undo')},
         fit: artboardFit(doc.artboard, const ui.Size(200, 200)),
         mode: RenderMode.editor,

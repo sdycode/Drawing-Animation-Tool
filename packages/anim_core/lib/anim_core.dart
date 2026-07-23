@@ -23,12 +23,14 @@ export 'src/eval/scene.dart';
 export 'src/json.dart' show d, i;
 export 'src/node.dart';
 export 'src/ops/node_ops.dart';
+export 'src/ops/paint_ops.dart';
 export 'src/ops/path_ops.dart';
 export 'src/ops/track_ops.dart';
 export 'src/paint.dart';
 export 'src/path.dart';
 export 'src/primitives.dart';
 export 'src/recipe.dart';
+export 'src/shape_geometry.dart';
 export 'src/track.dart';
 export 'src/uuid.dart';
 

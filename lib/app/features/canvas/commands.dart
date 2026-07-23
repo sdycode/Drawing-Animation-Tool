@@ -1,12 +1,15 @@
 /// Every document mutation the canvas can cause, and the only place it catches.
 ///
 /// docs/v3/08 §1: ops throw loudly and the **command layer** catches — one
-/// catch, one site. At M2 this file becomes calls into `CommandStack.run` and
-/// gains undo for free, because every mutation below is already a pure
-/// `Document → Document` call made by [DocumentController]. Nothing here builds
-/// a new document by hand, and nothing here touches `EditorState`: an op that
-/// grows a dependency on editor state inverts docs/v3/04 §1 for every future op
-/// (docs/v3/08 §4).
+/// catch, one site. Nothing here builds a new document by hand, and nothing here
+/// touches `EditorState`: an op that grows a dependency on editor state inverts
+/// docs/v3/04 §1 for every future op (docs/v3/08 §4).
+///
+/// **M3 collapsed four typed methods into [CanvasCommands.run].** The canvas no
+/// longer knows which edit a gesture produces — the active [ToolMode] returns a
+/// [Command] and this file runs it — so a method per edit here would have been a
+/// method per tool, in a file the tools may not import. The gate is unchanged:
+/// one `try`, one site, and a `Document → Document` command underneath it.
 ///
 /// Commands return a **message or null**, never a `BuildContext` and never a
 /// widget. The caller decides that a message means a `SnackBar`; this file
@@ -14,11 +17,13 @@
 /// testable without pumping a tree.
 library;
 
-import 'package:anim_core/anim_core.dart';
+import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/project_store.dart';
+import '../../state/command.dart';
 import '../../state/document_controller.dart';
+import '../../state/recipe_guard.dart';
 
 /// The message shown when an op rejected the edit.
 ///
@@ -27,23 +32,6 @@ import '../../state/document_controller.dart';
 /// deleted. It is a programming error, so it also trips an `assert`; in release
 /// the user gets a sentence and keeps their document instead of a red screen.
 const String kRejectedEditMessage = 'That edit could not be applied.';
-
-/// The message shown when the canvas **declines** to move a node.
-///
-/// A node whose position / rotation / scale is driven by a track in the active
-/// animation reads its transform from that track at every `t`, so the static
-/// `Transform2` a canvas drag writes would be masked: the shape would not
-/// follow the pointer, and the release would still record an undo entry and bump
-/// `rev` for a change nobody can see.
-///
-/// A refusal, not an `assert`: a document carrying transform tracks is a legal
-/// document, and `assert(false, …)` is for programming errors, not for user data
-/// (docs/v3/08 §1). Keyframing the move at the playhead is the M4 answer
-/// (docs/v3/05 §3, Select row); until then the user gets a sentence instead of a
-/// silent no-op.
-const String kAnimatedTransformMessage =
-    'This layer’s transform is animated — move it by keyframing it, not by '
-    'dragging.';
 
 final class CanvasCommands {
   const CanvasCommands(this._ref, this._projectId);
@@ -54,70 +42,41 @@ final class CanvasCommands {
   DocumentController get _controller =>
       _ref.read(documentControllerProvider(_projectId).notifier);
 
-  /// Commits a finished pen gesture as one closed [PathNode].
+  /// Run a [Command] a tool produced — the **one** route from a gesture to the
+  /// document.
   ///
-  /// The whole node is built and appended in one call, so a document never
-  /// contains half a gesture — an unfinished shape is ephemeral editor state
-  /// and a document holding one cannot be meaningfully reloaded.
-  Future<String?> addPath(List<Vec2> points) {
-    final node = PathNode(
-      id: NodeId(uuidV4()),
-      name: 'Path',
-      // One fresh AnchorId per point. Minted here, once, and never derived from
-      // the loop index — an index-derived id is the legacy defect wearing a
-      // different hat, and it is what makes a keyframe pose join to the wrong
-      // anchor after an insert.
-      path: PathData(
-        anchors: [
-          for (final p in points) Anchor(id: AnchorId(uuidV4()), position: p),
-        ],
-        closed: true,
-      ),
-      fills: const [
-        // One hard-coded colour at M0. A paint UI is M3.
-        Fill(
-          id: PaintId('p-body'),
-          paint: SolidPaint(Rgba(0.35, 0.55, 0.95, 1.0)),
-        ),
-      ],
-      strokes: const [
-        Stroke(
-          id: PaintId('p-ink'),
-          paint: SolidPaint(Rgba(0.05, 0.05, 0.08, 1.0)),
-          width: 2.0,
-          join: StrokeJoin.round,
-        ),
-      ],
-    );
-    return _guard(() => _controller.addNode(node));
-  }
+  /// One command per completed gesture, never one per pointer event: the pen
+  /// builds a whole [PathNode] and commits it on exit, a drag commits on
+  /// release. That is what makes a 200-event drag one undo entry and one save
+  /// (docs/v3/04 §6), and it is enforced in the tools — a tool that returned a
+  /// command from `onPointerMove` would get 200 of each, and this method would
+  /// dutifully run them all.
+  Future<String?> run(Command command) =>
+      _guard(() => _controller.run(command));
 
-  /// **One** command per drag, issued on drag *end* (docs/v3/04 §6).
+  /// Regenerate a node's geometry from an edited [ShapeRecipe] (AC-4.1.5).
   ///
-  /// A 200-event anchor drag is one entry, not 200. That is why the live
-  /// position stays a private field of the tool and only the released position
-  /// reaches here: a command per pointer move would make undo useless and would
-  /// write 200 documents to storage.
+  /// **The refusal is checked here, not caught from the op.** A node carrying
+  /// path keyframes is legal data, so the answer is a sentence the user can act
+  /// on ([kAnimatedPathRecipeMessage]) rather than an `ArgumentError` through the
+  /// gate's `assert`. The op still throws — that is its contract, and it is what
+  /// stops a future call site from bypassing this check — but nothing reaches it
+  /// in that state from here.
   ///
-  /// [atT] is the playhead. Non-null is the M0 exit criterion — the drag writes
-  /// a `PathTrack` keyframe rather than the rest pose, and the first one seeds
-  /// a `t = 0.0` key so there are two keys that differ.
-  Future<String?> moveAnchorAt(
-    NodeId node,
-    AnchorId anchor,
-    Vec2 to, {
-    required double? atT,
-  }) {
-    return _guard(() => _controller.moveAnchorAt(node, anchor, to, atT: atT));
-  }
-
-  /// **One** command per node move, on drag *end* — the Select tool's move
-  /// (docs/v3/05 §3, F3.1). The live drag is a private field of the canvas and
-  /// only the released transform reaches here, so the whole gesture is a single
-  /// undo entry (docs/v3/04 §6). The reparent/duplicate exit criterion's "undo
-  /// as one entry" is the same shape.
-  Future<String?> setTransform(NodeId node, Transform2 transform) {
-    return _guard(() => _controller.setTransform(node, transform));
+  /// **Call site:** the inspector's shape-parameter fields. It lives in the
+  /// canvas's command file because `PathOps` edits the geometry the canvas
+  /// paints, and because the shape *tools* — which construct whole nodes and
+  /// need no op at all — are the other half of AC-4.1.4 and are one feature away.
+  Future<String?> regenerateRecipe(NodeId node, ShapeRecipe recipe) {
+    final doc = _ref.read(documentControllerProvider(_projectId)).valueOrNull;
+    if (doc == null) return Future<String?>.value(kRejectedEditMessage);
+    // ONE predicate, in `state/` where both features can reach it. The inspector
+    // asks the same question twice — once to disable the fields, once to gate the
+    // write — and a second copy here is how the control and the write end up
+    // disagreeing about whether an edit is allowed.
+    final refusal = recipeRegenerationRefusal(doc, node);
+    if (refusal != null) return Future<String?>.value(refusal);
+    return run(RegenerateRecipeCommand(node, recipe));
   }
 
   /// The one catch site.

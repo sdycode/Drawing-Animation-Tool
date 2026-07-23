@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/document_controller.dart';
 import '../../state/editor_controller.dart';
+import '../../state/recipe_guard.dart';
 
 /// The selected nodes as `NodeId`s — the same shared editor slice the canvas and
 /// layers panel read, projected off `ScenePath` (`instancePath` is `const []` in
@@ -121,4 +122,297 @@ final inspectorTargetProvider =
   return view == null
       ? const InspectorTarget.summary(1)
       : InspectorTarget.node(view);
+});
+
+// ---------------------------------------------------------------------------
+// Paint — F5.1
+// ---------------------------------------------------------------------------
+
+/// Why a paint is shown read-only instead of with a colour control, or null when
+/// it is an ordinary solid colour.
+///
+/// **This is the gradient guard, at the UI end** (AC-5.1.3).
+/// `PaintOps.setFillColor` / `setStrokeColor` *throw* on a non-solid paint,
+/// deliberately: overwriting a gradient with one flat colour is a destructive
+/// edit this build could not undo by re-authoring, because there is no gradient
+/// UI to put it back with. So the panel does not offer a control that would
+/// throw — it says why in plain language and leaves the paint alone.
+///
+/// No exhaustive `switch` (docs/v3/08 §2 bans them in `lib/app/`): a fourth
+/// `PaintSource` variant added in v2 must degrade to the last line here, not
+/// stop this file compiling.
+String? paintReadOnlyReason(PaintSource paint) {
+  if (paint is SolidPaint) return null;
+  if (paint is LinearGradientPaint || paint is RadialGradientPaint) {
+    return kGradientPaintMessage;
+  }
+  return kUnreadablePaintMessage;
+}
+
+/// Shown in place of the colour control for a gradient-painted node.
+///
+/// Names no roadmap code and makes no promise about when — the person
+/// docs/v3/00 §5 sends through the ship gate needs to know that what they see is
+/// the file's real appearance and that this editor will not damage it, which is
+/// the whole answer.
+const String kGradientPaintMessage =
+    'This paint is a gradient. It is drawn exactly as it was saved, but it '
+    'cannot be edited here — replacing it with a single colour would throw away '
+    'colours this editor has no way to put back.';
+
+/// Shown for a `paint.type` this build has never heard of (docs/v3/02 §7).
+const String kUnreadablePaintMessage =
+    'This paint was written by a newer editor. It is kept exactly as it was '
+    'saved, and it cannot be edited here.';
+
+/// One fill, projected to values the panel can compare (`Fill` has no `==`).
+@immutable
+final class FillView {
+  const FillView({
+    required this.id,
+    required this.color,
+    required this.readOnlyReason,
+    required this.rule,
+    required this.opacity,
+    required this.visible,
+  });
+
+  /// The **`PaintId`, never a list index** — a `PaintId` is a track's
+  /// `subjectId` and it is what every edit is addressed by. Indices shift the
+  /// moment a document from a newer client carries two fills (AC-5.1.6), and an
+  /// index-addressed edit would then land on the wrong paint.
+  final PaintId id;
+
+  /// Null exactly when [readOnlyReason] is non-null.
+  final Rgba? color;
+  final String? readOnlyReason;
+
+  final FillRule rule;
+  final double opacity;
+  final bool visible;
+
+  @override
+  bool operator ==(Object other) =>
+      other is FillView &&
+      other.id == id &&
+      other.color == color &&
+      other.readOnlyReason == readOnlyReason &&
+      other.rule == rule &&
+      other.opacity == opacity &&
+      other.visible == visible;
+
+  @override
+  int get hashCode =>
+      Object.hash(id, color, readOnlyReason, rule, opacity, visible);
+}
+
+/// One stroke, projected to values the panel can compare (`Stroke` has no `==`).
+@immutable
+final class StrokeView {
+  const StrokeView({
+    required this.id,
+    required this.color,
+    required this.readOnlyReason,
+    required this.width,
+    required this.cap,
+    required this.join,
+    required this.miterLimit,
+    required this.opacity,
+    required this.visible,
+  });
+
+  final PaintId id;
+  final Rgba? color;
+  final String? readOnlyReason;
+  final double width;
+  final StrokeCap cap;
+  final StrokeJoin join;
+  final double miterLimit;
+  final double opacity;
+  final bool visible;
+
+  @override
+  bool operator ==(Object other) =>
+      other is StrokeView &&
+      other.id == id &&
+      other.color == color &&
+      other.readOnlyReason == readOnlyReason &&
+      other.width == width &&
+      other.cap == cap &&
+      other.join == join &&
+      other.miterLimit == miterLimit &&
+      other.opacity == opacity &&
+      other.visible == visible;
+
+  @override
+  int get hashCode => Object.hash(id, color, readOnlyReason, width, cap, join,
+      miterLimit, opacity, visible);
+}
+
+/// The selected path node's paint — **at most one fill and one stroke**, plus
+/// the honest counts.
+///
+/// The v1 UI caps each list at 0 or 1 (docs/v3/01 §6) and edits the *first*
+/// (AC-5.1.6). [fillCount] / [strokeCount] exist so a document from a newer
+/// client with two fills can say so rather than pretending the second is not
+/// there — the acceptance criterion is "both fills round-trip, the UI edits only
+/// the first, **no silent truncation**", and silence is the part that would make
+/// a user delete work they cannot see.
+@immutable
+final class NodePaintView {
+  const NodePaintView({
+    required this.node,
+    required this.fill,
+    required this.stroke,
+    required this.fillCount,
+    required this.strokeCount,
+  });
+
+  final NodeId node;
+  final FillView? fill;
+  final StrokeView? stroke;
+  final int fillCount;
+  final int strokeCount;
+
+  @override
+  bool operator ==(Object other) =>
+      other is NodePaintView &&
+      other.node == node &&
+      other.fill == fill &&
+      other.stroke == stroke &&
+      other.fillCount == fillCount &&
+      other.strokeCount == strokeCount;
+
+  @override
+  int get hashCode => Object.hash(node, fill, stroke, fillCount, strokeCount);
+}
+
+/// Paint for the one selected `PathNode`, or null when the selection is not
+/// exactly one path node.
+///
+/// A **second named slice** rather than a wider [inspectorTargetProvider]: a
+/// transform commit and a paint commit then rebuild different sub-trees, which
+/// is the whole point of reading slices (docs/v3/08 §2). A group is null here
+/// because paint hangs off path nodes only — `PaintOps` refuses anything else,
+/// and offering an "Add fill" button that throws would be a stub that reads as a
+/// bug.
+final inspectorPaintProvider =
+    Provider.autoDispose.family<NodePaintView?, String>((ref, projectId) {
+  final ids = ref.watch(inspectorSelectionProvider);
+  if (ids.length != 1) return null;
+  final id = ids.single;
+
+  return ref.watch(documentControllerProvider(projectId).select((async) {
+    final node = async.valueOrNull?.nodeIndex[id];
+    if (node is! PathNode) return null;
+
+    final fill = node.fills.isEmpty ? null : node.fills.first;
+    final stroke = node.strokes.isEmpty ? null : node.strokes.first;
+    return NodePaintView(
+      node: id,
+      fill: fill == null
+          ? null
+          : FillView(
+              id: fill.id,
+              color: fill.paint is SolidPaint
+                  ? (fill.paint as SolidPaint).color
+                  : null,
+              readOnlyReason: paintReadOnlyReason(fill.paint),
+              rule: fill.rule,
+              opacity: fill.opacity,
+              visible: fill.visible,
+            ),
+      stroke: stroke == null
+          ? null
+          : StrokeView(
+              id: stroke.id,
+              color: stroke.paint is SolidPaint
+                  ? (stroke.paint as SolidPaint).color
+                  : null,
+              readOnlyReason: paintReadOnlyReason(stroke.paint),
+              width: stroke.width,
+              cap: stroke.cap,
+              join: stroke.join,
+              miterLimit: stroke.miterLimit,
+              opacity: stroke.opacity,
+              visible: stroke.visible,
+            ),
+      fillCount: node.fills.length,
+      strokeCount: node.strokes.length,
+    );
+  }));
+});
+
+// ---------------------------------------------------------------------------
+// Shape parameters — AC-4.1.5
+// ---------------------------------------------------------------------------
+
+/// Shown for a recipe this build cannot read (docs/v3/02 §7).
+///
+/// `PathOps.regenerateRecipe` refuses an `UnknownRecipe` because regenerating
+/// from one would replace real geometry with nothing — the user's artwork
+/// vanishing on a re-edit. There are also no parameters to draw fields for, so
+/// the section is a sentence and nothing else.
+const String kUnreadableRecipeMessage =
+    'This shape was created by a newer editor. Its outline is kept exactly as '
+    'it was saved, but its settings cannot be changed here.';
+
+/// The selected node's `ShapeRecipe` and whether it may be regenerated.
+@immutable
+final class NodeShapeView {
+  const NodeShapeView({
+    required this.node,
+    required this.recipe,
+    required this.refusal,
+  });
+
+  final NodeId node;
+
+  /// Value-equal for all four variants, so this view dedups like the rest.
+  final ShapeRecipe recipe;
+
+  /// Non-null means **the fields render disabled and carry this sentence**.
+  ///
+  /// The same string is what `InspectorCommands.regenerateRecipe` would return,
+  /// from the same predicate — so the control the user sees and the write they
+  /// cannot make can never disagree.
+  final String? refusal;
+
+  @override
+  bool operator ==(Object other) =>
+      other is NodeShapeView &&
+      other.node == node &&
+      other.recipe == recipe &&
+      other.refusal == refusal;
+
+  @override
+  int get hashCode => Object.hash(node, recipe, refusal);
+}
+
+/// The one selected node's shape parameters, or null when it has no recipe.
+///
+/// Null is the normal state: everything the pen tool draws has no recipe, and
+/// `PathOps.moveAnchor` nulls it the moment an anchor is edited by hand
+/// (docs/v3/01 §5's authority rule). The section simply is not there, rather
+/// than being there and empty.
+final inspectorShapeProvider =
+    Provider.autoDispose.family<NodeShapeView?, String>((ref, projectId) {
+  final ids = ref.watch(inspectorSelectionProvider);
+  if (ids.length != 1) return null;
+  final id = ids.single;
+
+  return ref.watch(documentControllerProvider(projectId).select((async) {
+    final doc = async.valueOrNull;
+    final node = doc?.nodeIndex[id];
+    if (doc == null || node is! PathNode) return null;
+    final recipe = node.recipe;
+    if (recipe == null) return null;
+    return NodeShapeView(
+      node: id,
+      recipe: recipe,
+      refusal: recipe is UnknownRecipe
+          ? kUnreadableRecipeMessage
+          : recipeRegenerationRefusal(doc, id),
+    );
+  }));
 });

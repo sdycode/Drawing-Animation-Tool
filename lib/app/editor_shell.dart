@@ -11,8 +11,10 @@ import 'features/layers/commands.dart';
 import 'features/layers/providers.dart';
 import 'features/layers/widgets/layers_panel.dart';
 import 'features/timeline/widgets/timeline_bar.dart';
+import 'features/tools/widgets/tool_rail.dart';
 import 'state/document_controller.dart';
 import 'state/editor_controller.dart';
+import 'state/tool_controller.dart';
 
 /// Screen 2 — the editor (docs/v3/05 §2).
 ///
@@ -288,6 +290,14 @@ class _EditorBody extends ConsumerWidget {
             _duplicate(context, ref, projectId),
         const SingleActivator(LogicalKeyboardKey.keyD, control: true): () =>
             _duplicate(context, ref, projectId),
+        // docs/v3/05 §5's tool bindings. They live here, beside the panel row
+        // that contains the rail and the canvas, because a tool switch must fire
+        // while the pointer is anywhere in the editor — and because the rail
+        // and these keys must call the **same** `activate`, or the highlighted
+        // button and the live tool drift apart.
+        for (final entry in kToolButtons.entries)
+          SingleActivator(_toolKeys[entry.key] ?? LogicalKeyboardKey.keyV):
+              () => _activate(ref, entry.key),
       },
       // **The scope that catches released focus** (docs/v3/05 §5).
       //
@@ -315,6 +325,11 @@ class _EditorBody extends ConsumerWidget {
             Expanded(
               child: Row(
                 children: [
+                  // The tool rail, left of everything, exactly as docs/v3/05 §2
+                  // draws it. It is modal state and nothing else — it never
+                  // reads the selection or the document.
+                  const ToolRail(),
+                  VerticalDivider(width: 1, color: scheme.outlineVariant),
                   SizedBox(
                     width: EditorShell.layersWidth,
                     child: LayersPanel(projectId: projectId),
@@ -338,6 +353,45 @@ class _EditorBody extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// The bare-letter tool bindings of docs/v3/05 §5, keyed by the tool they
+/// select. `V` `A` `P` `R` `O` `G` — Figma/Illustrator convention, so the tool
+/// is learnable without documentation.
+const Map<ToolId, LogicalKeyboardKey> _toolKeys = <ToolId, LogicalKeyboardKey>{
+  ToolId.select: LogicalKeyboardKey.keyV,
+  ToolId.directSelect: LogicalKeyboardKey.keyA,
+  ToolId.pen: LogicalKeyboardKey.keyP,
+  ToolId.rect: LogicalKeyboardKey.keyR,
+  ToolId.ellipse: LogicalKeyboardKey.keyO,
+  ToolId.polygon: LogicalKeyboardKey.keyG,
+};
+
+/// Switch tools — the same call the rail's buttons make.
+///
+/// **Refused while a text field has focus.** These are unmodified letters, and
+/// `CallbackShortcuts` sees a key event that travels up from the primary focus
+/// whether or not an `EditableText` is going to turn it into a character. Without
+/// this gate, renaming a layer to "Gear" silently selected the polygon tool on
+/// the `G` — the shortcut firing *and* the letter being typed, which reads as
+/// the editor having a mind of its own.
+void _activate(WidgetRef ref, ToolId id) {
+  if (_typingInAField()) return;
+  ref.read(toolControllerProvider.notifier).activate(id);
+}
+
+/// True when the primary focus is inside an [EditableText].
+///
+/// The ancestor walk is the load-bearing part. A `TextField`'s focus node is
+/// attached by a `Focus` widget **inside** `EditableText`'s own subtree, so the
+/// node's context is that `Focus` — testing `context.widget is EditableText`
+/// alone is always false and the guard silently does nothing, which is worse
+/// than no guard because it reads as one.
+bool _typingInAField() {
+  final context = FocusManager.instance.primaryFocus?.context;
+  if (context == null) return false;
+  return context.widget is EditableText ||
+      context.findAncestorWidgetOfExactType<EditableText>() != null;
 }
 
 /// `Cmd/Ctrl+G` — group the current multi-selection (docs/v3/05 §4.5 step 4,

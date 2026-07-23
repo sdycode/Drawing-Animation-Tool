@@ -41,15 +41,15 @@ Future<void> main() async {
   // dependency arrow pointing one way: `state/tool_controller.dart` owns the
   // `ToolMode` contract and imports nothing from `features/`, while
   // `features/tools` supplies the implementations here at composition. Without
-  // this override the controller resolves to an inert tool — total, and
-  // behaviourally identical while nothing calls the pointer handlers — so a
-  // widget test that drives a real tool (M3, once the pen and shape tools have
-  // handlers) must install this same override.
+  // this override the controller resolves to an inert tool — total, so nothing
+  // crashes — and the canvas ignores every click, because at M3 the canvas
+  // dispatches *all* direct manipulation through the active tool. A widget test
+  // that drives any tool installs this same override.
   runApp(
     ProviderScope(
       overrides: [
         themeStoreProvider.overrideWithValue(PrefsThemeStore()),
-        toolResolverProvider.overrideWithValue(resolveTool),
+        toolResolverProvider.overrideWithValue(toolRegistry()),
       ],
       child: const DrawingAnimationToolApp(),
     ),

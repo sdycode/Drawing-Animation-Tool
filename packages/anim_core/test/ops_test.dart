@@ -345,6 +345,433 @@ void main() {
     });
   });
 
+  group('PathOps.setTangents — rest pose (atT == null)', () {
+    test('writes the handles onto the node and touches no track', () {
+      final out = PathOps.setTangents(
+          _doc(), const NodeId('p'), const AnchorId('a1'),
+          inT: const Vec2(-5, 0), outT: const Vec2(5, 0));
+
+      final node = out.nodeIndex[const NodeId('p')]! as PathNode;
+      expect(node.path.anchors[1].inTangent, const Vec2(-5, 0));
+      expect(node.path.anchors[1].outTangent, const Vec2(5, 0));
+      expect(out.defaultAnimation!.tracksFor(const NodeId('p')).isEmpty, isTrue,
+          reason: 'AC-4.2.3: no track is silently created');
+    });
+
+    test('the AnchorId sequence is untouched (AC-4.2.2)', () {
+      final before = _doc();
+      final out = PathOps.setTangents(
+          before, const NodeId('p'), const AnchorId('a2'),
+          outT: const Vec2(3, 3), kind: AnchorKind.symmetric);
+
+      List<String> ids(Document d) =>
+          (d.nodeIndex[const NodeId('p')]! as PathNode)
+              .path
+              .anchors
+              .map((a) => a.id.v)
+              .toList();
+      expect(ids(out), ids(before));
+      expect(ids(out), ['a0', 'a1', 'a2', 'a3']);
+    });
+
+    test('a manual handle edit NULLS the recipe (docs/v3/01 §5 authority)', () {
+      final d = _docOf(_recipeNode());
+      expect((d.nodeIndex[const NodeId('p')]! as PathNode).recipe, isNotNull);
+
+      final out = PathOps.setTangents(
+          d, const NodeId('p'), const AnchorId('a1'),
+          outT: const Vec2(4, 0));
+      expect((out.nodeIndex[const NodeId('p')]! as PathNode).recipe, isNull,
+          reason: 'a hand-curved corner is no longer regenerable from w and h');
+    });
+
+    test('a call supplying nothing is a no-op and keeps the recipe', () {
+      final d = _docOf(_recipeNode());
+      final out =
+          PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'));
+      expect(identical(out, d), isTrue);
+      expect((out.nodeIndex[const NodeId('p')]! as PathNode).recipe, isNotNull);
+    });
+
+    test(
+        'unknown node, group node, unknown anchor and a non-finite handle all '
+        'throw', () {
+      final d = _doc();
+      expect(
+          () => PathOps.setTangents(
+              d, const NodeId('nope'), const AnchorId('a1'),
+              outT: Vec2.zero),
+          throwsArgumentError);
+      expect(
+          () => PathOps.setTangents(
+              d, const NodeId('root'), const AnchorId('a1'),
+              outT: Vec2.zero),
+          throwsArgumentError,
+          reason: 'a group is not a path node');
+      expect(
+          () => PathOps.setTangents(
+              d, const NodeId('p'), const AnchorId('ghost'),
+              outT: Vec2.zero),
+          throwsArgumentError);
+      expect(
+          () => PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'),
+              outT: const Vec2(double.nan, 0)),
+          throwsArgumentError);
+      expect(
+          () => PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'),
+              inT: const Vec2(0, double.infinity)),
+          throwsArgumentError);
+      expect(
+          () => PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'),
+              outT: Vec2.zero, atT: 1.5),
+          throwsArgumentError);
+    });
+  });
+
+  group('AnchorKind is baked into the STORED tangents (AC-4.1.3)', () {
+    Anchor edited(Document d) =>
+        (d.nodeIndex[const NodeId('p')]! as PathNode).path.anchors[1];
+
+    test('corner zeroes both handles', () {
+      var d = PathOps.setTangents(
+          _doc(), const NodeId('p'), const AnchorId('a1'),
+          inT: const Vec2(-9, -2),
+          outT: const Vec2(9, 2),
+          kind: AnchorKind.symmetric);
+      d = PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'),
+          kind: AnchorKind.corner);
+
+      expect(edited(d).kind, AnchorKind.corner);
+      expect(edited(d).inTangent, Vec2.zero);
+      expect(edited(d).outTangent, Vec2.zero,
+          reason: 'the segment must render straight, as the degenerate cubic');
+    });
+
+    test('smooth keeps the follower length and re-aims it opposite the driver',
+        () {
+      // in is 10 long pointing left; dragging `out` up must leave `in` 10 long
+      // pointing down, not mirror its length.
+      var d = PathOps.setTangents(
+          _doc(), const NodeId('p'), const AnchorId('a1'),
+          inT: const Vec2(-10, 0), kind: AnchorKind.smooth);
+      d = PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'),
+          outT: const Vec2(0, 4));
+
+      final a = edited(d);
+      expect(a.kind, AnchorKind.smooth);
+      expect(a.outTangent, const Vec2(0, 4));
+      expect(a.inTangent.x, closeTo(0, 1e-12));
+      expect(a.inTangent.y, closeTo(-10, 1e-12));
+      // Collinear and opposed, independent lengths.
+      expect(_cross(a.inTangent, a.outTangent), closeTo(0, 1e-12));
+      expect(_dot(a.inTangent, a.outTangent), lessThan(0));
+      expect(a.inTangent.length, isNot(closeTo(a.outTangent.length, 1e-9)));
+    });
+
+    test('symmetric stores the exact negation, whichever handle drives', () {
+      var d = PathOps.setTangents(
+          _doc(), const NodeId('p'), const AnchorId('a1'),
+          inT: const Vec2(-10, 0),
+          outT: const Vec2(1, 7),
+          kind: AnchorKind.symmetric);
+      // Both supplied: `out` drives, `in` is corrected — not stored verbatim.
+      expect(edited(d).outTangent, const Vec2(1, 7));
+      expect(edited(d).inTangent, const Vec2(-1, -7));
+
+      d = PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'),
+          inT: const Vec2(2, 2));
+      expect(edited(d).inTangent, const Vec2(2, 2));
+      expect(edited(d).outTangent, const Vec2(-2, -2));
+    });
+
+    test('a bare kind change re-aims the handles it finds', () {
+      var d = PathOps.setTangents(
+          _doc(), const NodeId('p'), const AnchorId('a1'),
+          inT: const Vec2(-3, 1), outT: const Vec2(6, 6));
+      // Stored as authored while the anchor is a corner-kind free-for-all…
+      expect(edited(d).inTangent, const Vec2(-3, 1));
+
+      // …and reconciled the moment the anchor claims to be symmetric.
+      d = PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'),
+          kind: AnchorKind.symmetric);
+      expect(edited(d).outTangent, const Vec2(6, 6));
+      expect(edited(d).inTangent, const Vec2(-6, -6));
+    });
+
+    test(
+        'a zero-length driver leaves both handles zero rather than inventing '
+        'an angle', () {
+      final d = PathOps.setTangents(
+          _doc(), const NodeId('p'), const AnchorId('a1'),
+          outT: Vec2.zero, inT: const Vec2(-5, 0), kind: AnchorKind.smooth);
+      expect(edited(d).outTangent, Vec2.zero);
+      expect(edited(d).inTangent, Vec2.zero);
+    });
+  });
+
+  group('PathOps.setTangents — keyframe-local (atT != null)', () {
+    test(
+        'only that keyframe changes; the others stay byte-identical '
+        '(AC-4.2.1/2)', () {
+      final d = _docWith(PathTrack([
+        Keyframe(t: 0.0, value: _poseOf(_square(), 0)),
+        Keyframe(t: 0.5, value: _poseOf(_square(), 10)),
+        Keyframe(t: 1.0, value: _poseOf(_square(), 20)),
+      ]));
+      final before =
+          d.defaultAnimation!.tracksFor(const NodeId('p')).pathTrack()!;
+
+      final out = PathOps.setTangents(
+          d, const NodeId('p'), const AnchorId('a2'),
+          outT: const Vec2(0, 6), kind: AnchorKind.symmetric, atT: 0.5);
+      final track =
+          out.defaultAnimation!.tracksFor(const NodeId('p')).pathTrack()!;
+
+      expect(track.keyCount, 3);
+      for (final t in const [0.0, 1.0]) {
+        final a = before.keys.firstWhere((k) => k.t == t).value.anchors;
+        final b = track.keys.firstWhere((k) => k.t == t).value.anchors;
+        expect(b.length, a.length);
+        for (final id in a.keys) {
+          expect(b[id]!.position, a[id]!.position);
+          expect(b[id]!.inTangent, a[id]!.inTangent);
+          expect(b[id]!.outTangent, a[id]!.outTangent);
+        }
+      }
+
+      final keyed = track.keys[1].value.anchors[const AnchorId('a2')]!;
+      expect(keyed.outTangent, const Vec2(0, 6));
+      expect(keyed.inTangent, const Vec2(0, -6));
+      expect(keyed.position, const Vec2(30, 20),
+          reason: 'the pose at t is preserved; only the handles moved');
+    });
+
+    test('every keyframe still holds the identical AnchorId SEQUENCE', () {
+      var d = _docWith(PathTrack([
+        Keyframe(t: 0.0, value: _poseOf(_square(), 0)),
+        Keyframe(t: 1.0, value: _poseOf(_square(), 20)),
+      ]));
+      for (final t in const [0.5, 0.25, 0.9, 0.5]) {
+        d = PathOps.setTangents(d, const NodeId('p'), const AnchorId('a1'),
+            outT: Vec2(t * 10, 0), kind: AnchorKind.symmetric, atT: t);
+      }
+
+      final node = d.nodeIndex[const NodeId('p')]! as PathNode;
+      final topology = node.path.anchors.map((a) => a.id.v).toList();
+      final track =
+          d.defaultAnimation!.tracksFor(const NodeId('p')).pathTrack()!;
+      for (final k in track.keys) {
+        expect(k.value.anchors.keys.map((i) => i.v).toList(), topology);
+      }
+    });
+
+    test(
+        'kind lands on the topology document-wide; the handle correction stays '
+        'keyframe-local', () {
+      final d = _docWith(PathTrack([
+        Keyframe(
+            t: 0.0,
+            value: PathPose({
+              for (final a in _square())
+                a.id:
+                    AnchorPose(a.position, const Vec2(-7, 0), const Vec2(7, 0))
+            })),
+        Keyframe(t: 1.0, value: _poseOf(_square(), 20)),
+      ]));
+
+      final out = PathOps.setTangents(
+          d, const NodeId('p'), const AnchorId('a1'),
+          kind: AnchorKind.corner, atT: 1.0);
+
+      // Document-wide: the hint is not animatable and has nowhere else to live.
+      final node = out.nodeIndex[const NodeId('p')]! as PathNode;
+      expect(node.path.anchors[1].kind, AnchorKind.corner);
+      // Keyframe-local: t = 0 keeps the handles its author gave it. Retro-
+      // actively zeroing them would deform a keyframe nobody was looking at.
+      final track =
+          out.defaultAnimation!.tracksFor(const NodeId('p')).pathTrack()!;
+      expect(track.keys[0].value.anchors[const AnchorId('a1')]!.outTangent,
+          const Vec2(7, 0));
+      expect(track.keys[1].value.anchors[const AnchorId('a1')]!.outTangent,
+          Vec2.zero);
+    });
+
+    test('the node rest pose keeps its tangents, and the recipe is nulled', () {
+      final d = _docOf(
+        _recipeNode(),
+        PathTrack([
+          Keyframe(t: 0.0, value: _poseOf(_square(), 0)),
+          Keyframe(t: 1.0, value: _poseOf(_square(), 20)),
+        ]),
+      );
+
+      final out = PathOps.setTangents(
+          d, const NodeId('p'), const AnchorId('a1'),
+          outT: const Vec2(0, 9), atT: 1.0);
+
+      final node = out.nodeIndex[const NodeId('p')]! as PathNode;
+      expect(node.path.anchors[1].outTangent, Vec2.zero,
+          reason: 'a pose edit is keyframe-local');
+      expect(node.recipe, isNull);
+    });
+  });
+
+  group('PathOps.regenerateRecipe', () {
+    test('an untracked node is replaced cleanly and stores the recipe', () {
+      final out = PathOps.regenerateRecipe(
+          _doc(), const NodeId('p'), const EllipseRecipe(rx: 30, ry: 20));
+
+      final node = out.nodeIndex[const NodeId('p')]! as PathNode;
+      expect(node.recipe, const EllipseRecipe(rx: 30, ry: 20));
+      expect(node.path.anchors, hasLength(4));
+      expect(node.path.closed, isTrue);
+      expect(node.path.anchors[0].outTangent, const Vec2(0, 20 * kKappa));
+      // Fresh ids: none of the square's four survive.
+      expect(
+          node.path.anchors
+              .map((a) => a.id.v)
+              .toSet()
+              .intersection({'a0', 'a1', 'a2', 'a3'}),
+          isEmpty);
+    });
+
+    test('regenerating twice in a row is legal and re-mints every id', () {
+      var d = PathOps.regenerateRecipe(
+          _doc(), const NodeId('p'), const PolygonRecipe(sides: 5, radius: 50));
+      final first = (d.nodeIndex[const NodeId('p')]! as PathNode)
+          .path
+          .anchors
+          .map((a) => a.id.v)
+          .toSet();
+
+      d = PathOps.regenerateRecipe(
+          d,
+          const NodeId('p'),
+          const PolygonRecipe(
+              sides: 5, radius: 50, star: true, innerRatio: 0.4));
+      final node = d.nodeIndex[const NodeId('p')]! as PathNode;
+      expect(node.path.anchors, hasLength(10));
+      expect(node.path.anchors.map((a) => a.id.v).toSet().intersection(first),
+          isEmpty);
+    });
+
+    test('a node with path keyframes is REFUSED, naming M5 (the ruling)', () {
+      final d = _docWith(PathTrack([
+        Keyframe(t: 0.0, value: _poseOf(_square(), 0)),
+        Keyframe(t: 1.0, value: _poseOf(_square(), 20)),
+      ]));
+
+      expect(
+        () => PathOps.regenerateRecipe(
+            d, const NodeId('p'), const EllipseRecipe(rx: 30, ry: 20)),
+        throwsA(isA<ArgumentError>()
+            .having((e) => '${e.message}', 'message', contains('retopologize'))
+            .having((e) => '${e.message}', 'message', contains('M5'))),
+        reason: 'a raw replacement would leave the topology and its keyframes '
+            'disjoint — the one state v3 exists to make unrepresentable',
+      );
+    });
+
+    test('a track under a NON-default animation refuses just as loudly', () {
+      final base = _doc();
+      final other = Animation(
+        id: const AnimationId('a2'),
+        name: 'Second',
+        tracks: {
+          const NodeId('p'): TrackSet({
+            const PropertyKey(PropKey.path): PathTrack([
+              Keyframe(t: 0.0, value: _poseOf(_square(), 0)),
+            ]),
+          }),
+        },
+      );
+      final d = base.copyWith(animations: [...base.animations, other]);
+
+      expect(
+          () => PathOps.regenerateRecipe(
+              d, const NodeId('p'), const EllipseRecipe(rx: 5, ry: 5)),
+          throwsArgumentError);
+    });
+
+    test(
+        'the refusal never leaves a keyframe posing an anchor the topology '
+        'lacks (the M5 invariant)', () {
+      var d = _docWith(PathTrack([
+        Keyframe(t: 0.0, value: _poseOf(_square(), 0)),
+        Keyframe(t: 1.0, value: _poseOf(_square(), 20)),
+      ]));
+
+      expect(
+          () => d = PathOps.regenerateRecipe(
+              d, const NodeId('p'), const PolygonRecipe(sides: 5, radius: 50)),
+          throwsArgumentError);
+
+      final node = d.nodeIndex[const NodeId('p')]! as PathNode;
+      final topology = node.path.anchors.map((a) => a.id.v).toList();
+      expect(topology, ['a0', 'a1', 'a2', 'a3']);
+      for (final animation in d.animations) {
+        final track = animation.tracksFor(const NodeId('p')).pathTrack();
+        if (track == null) continue;
+        for (final k in track.keys) {
+          expect(k.value.anchors.keys.map((i) => i.v).toList(), topology,
+              reason:
+                  'AC-4.3.6 holds across every keyframe of every animation');
+        }
+      }
+    });
+
+    test('an untracked regeneration leaves no orphan pose behind', () {
+      // The node has tracks — just not a PATH track — so the op must proceed
+      // and must not disturb them.
+      final base = _doc();
+      final animation = base.defaultAnimation!.copyWith(tracks: {
+        const NodeId('p'): TrackSet({
+          const PropertyKey(PropKey.rotation): ScalarTrack([
+            const Keyframe(t: 0.0, value: 0.0),
+            const Keyframe(t: 1.0, value: 3.0),
+          ]),
+        }),
+      });
+      final d = base.copyWith(animations: [animation]);
+
+      final out = PathOps.regenerateRecipe(
+          d, const NodeId('p'), const RectRecipe(w: 10, h: 10));
+      final tracks = out.defaultAnimation!.tracksFor(const NodeId('p'));
+      expect(tracks.pathTrack(), isNull);
+      expect(tracks.scalar(PropKey.rotation)!.keyCount, 2);
+      expect((out.nodeIndex[const NodeId('p')]! as PathNode).path.anchors,
+          hasLength(4));
+    });
+
+    test('an unknown node, a group, and an UnknownRecipe all throw', () {
+      final d = _doc();
+      expect(
+          () => PathOps.regenerateRecipe(
+              d, const NodeId('nope'), const RectRecipe(w: 1, h: 1)),
+          throwsArgumentError);
+      expect(
+          () => PathOps.regenerateRecipe(
+              d, const NodeId('root'), const RectRecipe(w: 1, h: 1)),
+          throwsArgumentError);
+      expect(
+          () => PathOps.regenerateRecipe(d, const NodeId('p'),
+              ShapeRecipe.fromJson(const {'type': 'spiral'})),
+          throwsArgumentError,
+          reason: 'regenerating from a recipe this build cannot read would '
+              'replace the artwork with nothing');
+    });
+
+    test('a degenerate recipe empties the geometry without throwing', () {
+      // The shape tool passes through this on the first frame of every drag.
+      final out = PathOps.regenerateRecipe(
+          _doc(), const NodeId('p'), const RectRecipe(w: 0, h: 0));
+      final node = out.nodeIndex[const NodeId('p')]! as PathNode;
+      expect(node.path.anchors, isEmpty);
+      expect(node.path.isEmpty, isTrue);
+      expect(node.recipe, const RectRecipe(w: 0, h: 0));
+    });
+  });
+
   group('rotation stays unbounded', () {
     test('0 → -12.5664 plays two full reverse turns, never shortest-arc', () {
       const twoTurns = -12.5664;
@@ -412,6 +839,36 @@ PathNode _node() => PathNode(
       name: 'p',
       path: PathData(anchors: _square()),
     );
+
+/// The same node, but drawn by the (M3) shape tool — so it carries the inert
+/// recipe the authority rule has to null.
+PathNode _recipeNode() =>
+    _node().copyWith(recipe: const RectRecipe(w: 20, h: 20));
+
+/// A one-node document holding [node], optionally already carrying [track].
+Document _docOf(PathNode node, [PathTrack? track]) {
+  final animation = Animation(
+    id: const AnimationId('a1'),
+    name: 'Main',
+    tracks: track == null
+        ? const <NodeId, TrackSet>{}
+        : <NodeId, TrackSet>{
+            node.id: TrackSet({const PropertyKey(PropKey.path): track}),
+          },
+  );
+  return Document(
+    id: 'doc',
+    name: 'test',
+    artboard: const Vec2(450.2, 250.4),
+    root: GroupNode(id: const NodeId('root'), name: 'Root', children: [node]),
+    animations: [animation],
+    defaultAnimationId: animation.id,
+  );
+}
+
+double _cross(Vec2 a, Vec2 b) => a.x * b.y - a.y * b.x;
+
+double _dot(Vec2 a, Vec2 b) => a.x * b.x + a.y * b.y;
 
 /// The same document, already carrying [track] on node `p`.
 Document _docWith(PathTrack track) {

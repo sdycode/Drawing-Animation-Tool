@@ -34,7 +34,7 @@
 | | `CommandStack` snapshot undo — depth 100, one command = one entry, gesture coalescing, undo **persists**, `rev` monotonic | 🟢 |
 | | Three controllers complete — `ToolController` contract in `state/`, tools injected at composition | 🟢 |
 | | **Viewport pan/zoom** (ADR-018) — one composed `Affine`, zoom-at-cursor, ephemeral-only | 🟢 |
-| | `clipChildren` — data + decode only; AC-2.1.6 clipping not implemented | 🟡 M3 |
+| | `clipChildren` — data + decode only at M2; **clipping shipped in M3** (AC-2.1.6) | 🟢 |
 | | Reparent of a *transform-animated* node refused (exact per-keyframe rewrite is M4) | 🟡 M4 |
 | **M3** | F4.1 Pen tool, `AnchorKind`, closed paths | ⚪ |
 | | F5.1 Solid fill & stroke | ⚪ |
@@ -56,9 +56,14 @@
 - **Owner-requested capabilities, so their landing is visible:** select a whole object and move it → **shipped, M2**. Play/transport → **M6** (F9.1).
 - **Live drag feedback** (owner: a drag should show the new shape, not just a moving dot) → **shipped**; the preview re-applies the *same* op the release commits, so what you see cannot disagree with what lands.
 
-**Carried into M3** — found by M2's audit, deliberately not fixed in M2:
-- `clipChildren` renders nothing (AC-2.1.6). The field round-trips; no painter honours it.
-- The tool layer is a **seam, not a feature**: `SelectTool`'s pointer handlers are never invoked (the canvas implements select/move inline), `PointerCtx` is never constructed, and there is no toolbar to switch tools. M3 builds the pen and shape tools and should wire the registry properly then.
+**Carried into M3** — found by M2's audit:
+- ~~`clipChildren` renders nothing~~ **FIXED in M3.** A clipping group's window is the **artboard rect in the group's own local space** (the AE precomp rule) — union-of-descendants is self-defeating, since it contains everything by construction. Hierarchy comes from one `clipChains(Document)` walk (topology only, no coordinates, so it is not a second evaluator); a stack diffs chains along the flat `drawOrder` so nested clips compose and none leaks to a sibling.
+- ~~The tool layer is a **seam, not a feature**~~ — being wired in M3 along with the pen and shape tools.
 - `CommandStack`'s gesture coalescing (`beginGesture`/`commitGesture`) is correct and tested but **has no call site** — the canvas gets one-entry-per-drag from a local preview plus a single command on release, which also satisfies `v3/04 §6`. Wire it only if a gesture needs to issue *multiple* commands; putting in-progress state into `Document` would violate `v3/08 §2`.
+
+**Known limits recorded in M3, needing a decision later:**
+- **A clipping group's window is always the artboard's size/aspect.** `GroupNode` has no extent of its own, so `position`/`scale`/`rotation` move and resize the window *and* its children together. A 100×50 window independent of its content needs a new `GroupNode` rect — a field in `anim_core`, the wire format and the decoder. Not invented; recorded.
+- **Hit-testing is not clip-aware.** Geometry clipped away is invisible but still clickable and selectable. Making it consistent means intersecting `selectionBounds` with the clip chain, or the pinned property *"the outline you see is the box the hit-test answers for"* breaks for clipping groups.
+- **Recipe regeneration is refused on a path-tracked node** (`PathOps.regenerateRecipe` throws, naming M5). AC-4.1.5 routes it through `retopologize`, which `v3/06` schedules at **M5**; a cheap approximation shipped under the real name is a defect M5 would inherit invisibly. Shape-parameter fields must be disabled, with M5 named, on a node that has path keyframes.
 
 Detail: [v3/03_features.md](v3/03_features.md) · [v3/06_roadmap.md](v3/06_roadmap.md) · isolation rules: [v3/08_feature_isolation.md](v3/08_feature_isolation.md)

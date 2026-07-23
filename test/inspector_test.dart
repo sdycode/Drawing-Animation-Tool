@@ -470,9 +470,21 @@ void main() {
       '(docs/v3/00 §5)', (tester) async {
     await open(tester);
 
-    // The seams sit below the transform and appearance rows, so scroll them
-    // into the viewport first — a `ListView` builds only what is visible.
-    await tester.drag(find.text('Appearance'), const Offset(0, -300));
+    // The seams sit below the transform, appearance, paint and shape rows, so
+    // scroll them into the viewport first — a `ListView` builds only what is
+    // visible. `scrollUntilVisible` rather than a fixed drag: M3 added the fill
+    // and stroke sections between the two, and a hard-coded 300 px stopped
+    // reaching the rows this test is about.
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('inspector-seams')),
+      100,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const Key('inspector-transform')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.pumpAndSettle();
 
     // "Fill / M3" tells the stranger who runs the ship gate nothing: is the

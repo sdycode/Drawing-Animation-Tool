@@ -5,7 +5,10 @@ import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
 import 'package:drawing_animation_tool/app/data/project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/editor_shell.dart';
+import 'package:drawing_animation_tool/app/features/tools/registry.dart';
+import 'package:drawing_animation_tool/app/state/tool_controller.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,22 +24,38 @@ void main() {
     return doc.id;
   }
 
+  /// The registry `main.dart` installs. M3 dispatches every canvas gesture
+  /// through the active `ToolMode`, so without it the canvas ignores clicks.
   Widget harness(String id) => ProviderScope(
-        overrides: [projectStoreProvider.overrideWithValue(store)],
+        overrides: [
+          projectStoreProvider.overrideWithValue(store),
+          toolResolverProvider.overrideWithValue(toolRegistry()),
+        ],
         child: MaterialApp(home: EditorShell(projectId: id)),
       );
 
   Future<Document> reload(String id) async => Document.fromJson(
       jsonDecode((await store.load(id))!) as Map<String, Object?>);
 
-  /// Three taps at distinct points inside the canvas.
+  /// A triangle drawn with the **Pen tool** (`P`), by hand: three clicks, then
+  /// a fourth on the first anchor to close and exit.
+  ///
+  /// M0's three-click affordance — which minted a fixed triangle from any three
+  /// taps and could not express a curve — is gone; M3 replaced it with the real
+  /// pen (F4.1). The assertions below are unchanged, because the *outcome* is:
+  /// a closed three-anchor path with minted ids, persisted once.
   Future<void> drawTriangle(WidgetTester tester) async {
-    final canvas = find.byKey(const Key('canvas'));
-    final box = tester.getRect(canvas);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.pumpAndSettle();
+
+    final box = tester.getRect(find.byKey(const Key('canvas')));
+    final first =
+        Offset(box.left + box.width * 0.3, box.top + box.height * 0.3);
     for (final o in [
-      Offset(box.left + box.width * 0.3, box.top + box.height * 0.3),
+      first,
       Offset(box.left + box.width * 0.7, box.top + box.height * 0.3),
       Offset(box.left + box.width * 0.5, box.top + box.height * 0.7),
+      first, // closes the path and exits to Select
     ]) {
       await tester.tapAt(o);
       await tester.pumpAndSettle();
@@ -116,13 +135,14 @@ void main() {
     await tester.pumpWidget(harness(id));
     await tester.pumpAndSettle();
 
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.pumpAndSettle();
     final box = tester.getRect(find.byKey(const Key('canvas')));
     await tester.tapAt(box.center);
     await tester.pumpAndSettle();
 
-    // One of three clicks in. A document containing half a gesture is a
-    // document that cannot be meaningfully reloaded, so the pending points stay
-    // in the widget.
+    // One click in. A document containing half a gesture is a document that
+    // cannot be meaningfully reloaded, so the anchors stay in the tool.
     expect((await reload(id)).root.children, isEmpty);
     expect((await reload(id)).rev, 1, reason: 'no save, no rev bump');
     expect(find.byKey(const Key('tool-hint')), findsOneWidget);

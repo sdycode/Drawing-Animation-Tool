@@ -18,6 +18,8 @@ export 'package:anim_core/anim_core.dart' show kSchemaVersion;
 
 export 'src/artboard_painter.dart';
 export 'src/background_painter.dart';
+export 'src/draft_path.dart';
+export 'src/group_clip.dart';
 export 'src/overlay_painter.dart';
 export 'src/paint_translation.dart';
 export 'src/path_geometry.dart';
