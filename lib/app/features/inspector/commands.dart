@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/project_store.dart';
 import '../../state/command.dart';
 import '../../state/document_controller.dart';
+import '../../state/editor_controller.dart';
 import '../../state/recipe_guard.dart';
 
 const String kRejectedInspectorEditMessage = 'That value could not be applied.';
@@ -32,6 +33,13 @@ final class InspectorCommands {
 
   DocumentController get _controller =>
       _ref.read(documentControllerProvider(_projectId).notifier);
+
+  /// The keyframe the user is editing right now, read at command time and
+  /// captured with the undo snapshot so undo returns them to it (docs/v3/04 §6).
+  /// Ephemeral — never serialized (AC-6.2.6). Null when nothing is selected,
+  /// which the snapshot reads as "carried none" rather than "clear it".
+  KeyframeRef? get _selectedKeyframe =>
+      _ref.read(editorControllerProvider).selectedKeyframe;
 
   /// Overwrite the selected node's `Transform2` (F3.1, AC-3.1.1).
   ///
@@ -121,29 +129,152 @@ final class InspectorCommands {
       _guard(() =>
           _controller.run(SetStrokeVisibleCommand(node, stroke, visible)));
 
+  // --- Keyframe diamonds & edit-at-keyframe (F6.2, AC-6.2.6) ---------------
+  //
+  // The inspector's keyframe authoring, distinct from the timeline's `K`: the
+  // diamond keys a **brand-new** track from the value the field is showing, and
+  // an inspector field edit on an already-tracked property upserts the keyframe
+  // at the playhead rather than the node's static pose. Every method is a thin
+  // wrapper over one `state/command.dart` command, and the value the caller
+  // hands in is whatever it is showing — this file evaluates nothing except the
+  // one sample [keyCurrent] needs, which reads the track directly (never the
+  // world-composed `Scene`, whose nested-node value is the wrong number to write
+  // into a node-local track).
+
+  /// Upsert a key at [t] holding [value] — an inspector field edit on a tracked
+  /// property (AC-6.2.6, AC-6.2.7). [value] is the exact type the channel's
+  /// track expects (a `double`, a `Vec2`, or an `Rgba`); [KeyframeOps.keyAt]
+  /// creates the track when absent and **replaces** an existing key at [t].
+  Future<String?> keyValue(
+          NodeId node, PropertyKey property, double t, Object? value) =>
+      _guard(() => _controller.run(KeyframeAtCommand(node, property, t, value),
+          keyframe: _selectedKeyframe));
+
+  /// Upsert a `Vec2` key at [t] editing only one channel — a tracked
+  /// `position`/`scale` field, where the field owns just `x` or `y`.
+  ///
+  /// The untouched channel comes from the track's **evaluated value at [t]**, so
+  /// editing `x` at a keyframe never clobbers an animated `y`. [fallback] — the
+  /// node's static pose value the field is displaying — is used only if the
+  /// track cannot be sampled (there is none, or a race dropped it).
+  Future<String?> keyVec2(
+    NodeId node,
+    PropertyKey property,
+    double t,
+    Vec2 fallback, {
+    double? x,
+    double? y,
+  }) {
+    final sampled = _sampleTrackValue(node, property, t);
+    final base = sampled is Vec2 ? sampled : fallback;
+    return keyValue(node, property, t, Vec2(x ?? base.x, y ?? base.y));
+  }
+
+  /// The **diamond's key action**: create a key at [t] holding the property's
+  /// current value. On an untracked property that value is [authoredValue] — the
+  /// static pose the field shows, and this is the one route by which a brand-new
+  /// track is born from the inspector. On a tracked-but-between-keys property it
+  /// is the track's evaluated sample at [t] (a no-visual-change "hold" key,
+  /// exactly the timeline `K`'s value).
+  Future<String?> keyCurrent(
+      NodeId node, PropertyKey property, double t, Object? authoredValue) {
+    final sampled = _sampleTrackValue(node, property, t);
+    return keyValue(node, property, t, sampled ?? authoredValue);
+  }
+
+  /// The **path diamond's key action** — the geometry "stopwatch" (F6.1).
+  ///
+  /// `PropKey.path` is not a value channel: a path key is a `PathPose` that only
+  /// `PathOps` may author, so [keyValue]/[KeyframeAtCommand] refuse it. This is
+  /// the hand affordance that authors the *first* path keyframe — the defect the
+  /// M4 audit found, where a static path could be drawn but never started
+  /// animating — and it upserts a "hold" key on an already-tracked one. All the
+  /// semantics live in [PathOps.keyPose] via [KeyPathCommand]: untracked → one
+  /// key from the rest pose; tracked → the pose evaluated at [t].
+  Future<String?> keyPath(NodeId node, double t) => _guard(() =>
+      _controller.run(KeyPathCommand(node, t), keyframe: _selectedKeyframe));
+
+  /// Remove key [index] — the **filled diamond**, clicked while the playhead
+  /// sits on that key. [index] is the one the diamond resolved from the slice's
+  /// key times and the live playhead, so it is always in range for the track.
+  ///
+  /// **When the removed key is the selected one, the selection is cleared**
+  /// (AC-4.2.3's 2nd route): `selectedKeyframe` is a highlight, and a highlight
+  /// pointing at a key that no longer exists is exactly what re-seeds a track on
+  /// the next drag. The undo snapshot still carries the ref, so undoing the
+  /// removal restores both the key and its selection.
+  Future<String?> removeKeyAt(
+      NodeId node, PropertyKey property, int index) async {
+    final selected = _selectedKeyframe;
+    final message = await _guard(() => _controller
+        .run(RemoveKeyframeCommand(node, property, index), keyframe: selected));
+    if (message == null && selected == (node, property, index)) {
+      _ref.read(editorControllerProvider.notifier).clearKeyframe();
+    }
+    return message;
+  }
+
+  /// The evaluated value of [property] at [t] on [node], or null when there is
+  /// no such (non-path) track. Mirrors the timeline `K` sampler; it is a small
+  /// duplicate rather than a cross-feature import, because a feature may not
+  /// reach into a sibling feature (docs/v3/08 §3).
+  Object? _sampleTrackValue(NodeId node, PropertyKey property, double t) {
+    if (property.prop == PropKey.path) return null;
+    final doc = _ref.read(documentControllerProvider(_projectId)).valueOrNull;
+    final animId = _ref.read(activeAnimationProvider(_projectId));
+    if (doc == null || animId == null) return null;
+    Track? track;
+    for (final animation in doc.animations) {
+      if (animation.id == animId) {
+        track = animation.tracksFor(node).byKey[property];
+        break;
+      }
+    }
+    final at = t.isNaN ? 0.0 : t.clamp(0.0, 1.0).toDouble();
+    return switch (track) {
+      final Vec2Track v => v.sampleAt(at),
+      final ScalarTrack s => s.sampleAt(at),
+      final ColorTrack c => c.sampleAt(at),
+      final BoolTrack b => b.sampleAt(at),
+      _ => null, // a PathTrack (unreachable value) or no track at all
+    };
+  }
+
   // --- Shape parameters (AC-4.1.5) -----------------------------------------
 
   /// Regenerate a node's geometry from an edited [ShapeRecipe] — **the one
-  /// sanctioned route** from a shape parameter to geometry.
+  /// sanctioned route** from a shape parameter to geometry (AC-4.1.5).
   ///
-  /// **The refusal is pre-checked, not caught from the op.** A node carrying
-  /// path keyframes is legal data, so the answer is a sentence the user can act
-  /// on rather than an `ArgumentError` through [_guard]'s `assert`. The
-  /// predicate and its message live in `state/recipe_guard.dart` because the
-  /// canvas needs the same gate and a feature may not import a sibling feature
-  /// (docs/v3/08 §3) — one predicate, two call sites, no drift.
+  /// The route forks on **one predicate — does the node carry a `path` track?**
+  /// ([recipeRegenerationRefusal], non-null exactly when it does), the same one
+  /// the panel reads to decide whether the fields are editable, so the control and
+  /// the write can never disagree:
   ///
-  /// The panel disables the fields using the same predicate, so this is the
-  /// backstop rather than the path a user reaches: a refusal only visible after
-  /// typing into a field that looked editable is a trap.
+  /// - **Untracked** → [RegenerateRecipeCommand] regenerates the geometry and
+  ///   keeps the recipe as inert metadata, exactly as before.
+  /// - **Tracked** → the old in-place regeneration is unrepresentable: it mints
+  ///   fresh `AnchorId`s while every existing keyframe poses the old ones, leaving
+  ///   the topology and its keyframes disjoint. So it routes through
+  ///   [RetopologizeCommand], which rewrites every keyframe onto the recipe's new
+  ///   id set by **arc-length correspondence** (AC-4.3.7) and clears the now-stale
+  ///   recipe. Retopologize runs once here, from a command — never inside the tick.
+  ///
+  /// An [UnknownRecipe] never reaches the tracked branch: it builds no geometry
+  /// (`toPath()` is empty), so retopologising to it would erase the outline. It
+  /// falls through to [RegenerateRecipeCommand], whose op refuses it — but the
+  /// panel shows an `UnknownRecipe` with no fields at all, so no commit is issued
+  /// for one and this is a backstop, not a path a user reaches.
   Future<String?> regenerateRecipe(NodeId node, ShapeRecipe recipe) {
     final document =
         _ref.read(documentControllerProvider(_projectId)).valueOrNull;
     if (document == null) {
       return Future<String?>.value(kRejectedInspectorEditMessage);
     }
-    final refusal = recipeRegenerationRefusal(document, node);
-    if (refusal != null) return Future<String?>.value(refusal);
+    final tracked = recipeRegenerationRefusal(document, node) != null;
+    if (tracked && recipe is! UnknownRecipe) {
+      return _guard(
+          () => _controller.run(RetopologizeCommand(node, recipe.toPath())));
+    }
     return _guard(() => _controller.run(RegenerateRecipeCommand(node, recipe)));
   }
 

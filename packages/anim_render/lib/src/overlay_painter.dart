@@ -59,6 +59,7 @@ class OverlayPainter extends CustomPainter {
     required this.showAnchors,
     this.draft,
     this.pending = const <Vec2>[],
+    this.insertCursor,
     this.selected = const <NodeId>{},
     this.selectedPaths = const <ScenePath>{},
     this.selectionColor,
@@ -120,6 +121,17 @@ class OverlayPainter extends CustomPainter {
   /// themselves stay a private field of the tool (docs/v3/08 §2), and what
   /// arrives here is a copy the tool hands out once per paint.
   final DraftPath? draft;
+
+  /// The point a pen click would split a segment at — the `+` insert affordance
+  /// of docs/v3/05 §3 and AC-4.3.1 — in **artboard/document** space, or null when
+  /// the pen is not hovering an insertable segment of a selected path.
+  ///
+  /// Overlay-only, like [pending] and [draft]: a hover preview is ephemeral tool
+  /// state, never a node in the document. Drawn as a `+` so it reads as *add a
+  /// point here*, distinct from the round anchor and pending dots. The canvas
+  /// computes it — only the canvas holds the live hover position and THE composed
+  /// [fit] — and passes the resolved point here.
+  final Vec2? insertCursor;
 
   /// Whether authored anchor handles are drawn **at all**.
   ///
@@ -269,6 +281,8 @@ class OverlayPainter extends CustomPainter {
       );
     }
 
+    _drawInsertCursor(canvas);
+
     if (clip != null) canvas.restore();
   }
 
@@ -316,9 +330,14 @@ class OverlayPainter extends CustomPainter {
     // that anchor's own outgoing tangent, so what the user sees is what the
     // next click commits, and arrives at the cursor straight because the anchor
     // that will own the incoming tangent does not exist yet.
+    //
+    // A **closed** draft has no open end to chase: it is a complete shape (the
+    // shape tools' drag preview), whose boundary the stroke above already drew
+    // in full. A rubber band to the cursor there would draw a spurious tail from
+    // the last shape anchor to the pointer.
     final cursor = sketch.cursor;
     final last = data.anchors.last;
-    if (cursor != null && sketch.handle == null) {
+    if (cursor != null && sketch.handle == null && !data.closed) {
       final out = last.position + last.outTangent;
       final live = Path()
         ..moveTo(last.position.x, last.position.y)
@@ -329,11 +348,18 @@ class OverlayPainter extends CustomPainter {
     // The anchors placed so far. Same dot the `pending` channel drew before
     // this type existed — the first anchor is the target the user aims at to
     // close the path, so it has to stay visible and stay the same size.
+    //
+    // Only for an **open** draft — the pen's placed anchors. A closed draft is a
+    // finished shape whose corners are not click-targets: dotting them would put
+    // the very scatter of dots this channel replaced back on top of the outline
+    // it exists to draw.
     final dot = Paint()..color = pendingColor;
-    for (final a in data.anchors) {
-      final at = _offset(fit.apply(a.position));
-      if (!at.dx.isFinite || !at.dy.isFinite) continue;
-      canvas.drawCircle(at, pendingRadius, dot);
+    if (!data.closed) {
+      for (final a in data.anchors) {
+        final at = _offset(fit.apply(a.position));
+        if (!at.dx.isFinite || !at.dy.isFinite) continue;
+        canvas.drawCircle(at, pendingRadius, dot);
+      }
     }
 
     _drawDraftHandle(canvas, sketch, dot);
@@ -371,6 +397,26 @@ class OverlayPainter extends CustomPainter {
       }
       return; // ids are unique (invariant P1): there is no second match
     }
+  }
+
+  /// The `+` where a pen click would insert an anchor (AC-4.3.1).
+  ///
+  /// Mapped **through** [fit] like every other mark this painter makes, so the
+  /// glyph is a constant screen size at every zoom — the same convention the
+  /// anchor and handle dots follow. A non-finite mapping draws nothing (an early
+  /// return in spirit) rather than poisoning the layer.
+  void _drawInsertCursor(Canvas canvas) {
+    final at = insertCursor;
+    if (at == null) return;
+    final centre = _offset(fit.apply(at));
+    if (!centre.dx.isFinite || !centre.dy.isFinite) return;
+    const arm = 5.0;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..color = pendingColor;
+    canvas.drawLine(centre.translate(-arm, 0), centre.translate(arm, 0), paint);
+    canvas.drawLine(centre.translate(0, -arm), centre.translate(0, arm), paint);
   }
 
   /// The selected node's **world-space AABB**, stroked in screen space.
@@ -458,6 +504,7 @@ class OverlayPainter extends CustomPainter {
       old.fit != fit ||
       old.showAnchors != showAnchors ||
       old.draft != draft ||
+      old.insertCursor != insertCursor ||
       !setEquals(old.selected, selected) ||
       !setEquals(old.selectedPaths, selectedPaths) ||
       !listEquals(old.pending, pending);

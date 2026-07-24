@@ -62,10 +62,18 @@ ui.Rect groupClipWindow(Vec2 artboard) {
 /// it, **outermost first**. Nodes under no clip are absent, so an ordinary
 /// document yields an empty map and costs the painters one `isEmpty` check.
 ///
-/// A clipping group appears in **its own** chain. It draws nothing itself
-/// (groups have null geometry), so this only decides *when* the clip opens —
-/// at the group rather than at its first child — which keeps the rule uniform:
-/// a node's chain is every window it is inside.
+/// A clipping group is **not** in its own chain: its clip opens at its first
+/// child, not at its own slot. In the GEOMETRY layer a group draws nothing from
+/// its own slot (groups have null geometry), so opening the clip there or at the
+/// first child records the identical `clipRect`s — nothing is drawn between the
+/// two points, so no `clipRect` that wraps a child moves. The OVERLAY is where
+/// the difference is load-bearing: the group's own slot draws its selection
+/// outline, stroked from the full descendant union ([selectionBounds]), and that
+/// union routinely OVERFLOWS the group's artboard-sized window. Opening the
+/// group's own clip before that draw truncated the outline — and, when the union
+/// enclosed the window on every side, erased it entirely — while [hitTestScene]
+/// still answered a click for the whole untruncated union. So the group's own
+/// draw stays unclipped by its own window, and every descendant still enters it.
 ///
 /// **The root is never a clipping group, whatever it is authored as.** The
 /// artboard boundary belongs to [RenderMode] and to AC-1.1.3 alone: the editor
@@ -92,11 +100,18 @@ void _chain(
   Map<NodeId, List<NodeId>> out, {
   bool isRoot = false,
 }) {
+  // The node's OWN entry is the windows it is inside — its enclosing clips, and
+  // never its own. A clipping group is confined by its ancestors, not by its own
+  // window: its own-slot draw (nothing in the geometry layer; the selection
+  // outline in the overlay) must be unclipped by the window it opens for its
+  // children, or the outline of a selected clipping group is truncated to — and
+  // often erased by — its own artboard-sized frame.
+  if (enclosing.isNotEmpty) out[node.id] = enclosing;
+
   var confining = enclosing;
   if (!isRoot && node is GroupNode && node.clipChildren) {
     confining = List<NodeId>.unmodifiable(<NodeId>[...enclosing, node.id]);
   }
-  if (confining.isNotEmpty) out[node.id] = confining;
   if (node is GroupNode) {
     for (final child in node.children) {
       _chain(child, confining, out);

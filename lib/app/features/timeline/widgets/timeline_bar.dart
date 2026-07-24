@@ -1,99 +1,312 @@
-import 'package:flutter/foundation.dart';
+import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../state/editor_controller.dart';
 import '../commands.dart';
 import '../providers.dart';
+import 'timeline_rows.dart';
 
-/// The scrub bar — F9.1, thin (docs/v3/03).
+/// The timeline panel — F9.1 scrub, F6/F7 rows, keyframes and per-segment
+/// easing (docs/v3/03, docs/v3/05 §2).
 ///
 /// **Pixels appear only in this widget's paint and hit-test (AC-9.1.4).** The
-/// conversion `t = dx / width` happens in [_seek] and nowhere else; downstream
-/// the playhead is a unitless normalized double. Legacy round-tripped it
-/// through pixels and a `BuildContext`, so the model's notion of "now" was a
-/// function of the window size.
+/// scrub conversion `t = dx / width` lives in [_scrub] and the row/overlay
+/// painters; the model is a unitless normalized `t` everywhere else.
 ///
-/// **Live scrub preview (AC-9.1.3).** The drag writes `playhead.value`
-/// directly: no `setState`, no provider write, no rebuild. The two canvas
-/// painters take that same notifier as `repaint:`, so interpolated geometry
-/// appears *while* dragging rather than on release, and it costs a paint rather
-/// than a frame's worth of widget building.
-class TimelineBar extends ConsumerWidget {
+/// **Live scrub preview (AC-9.1.3), unchanged from M0.** The drag writes
+/// `playhead.value` directly — no `setState`, no provider write, no rebuild —
+/// and the canvas painters take that same notifier as `repaint:`, so
+/// interpolated geometry appears *while* dragging. The keyframe editing below
+/// is the opposite kind of write (a `Command` that returns a new `Document`),
+/// and the two never cross: nothing in a `build`/`paint` here mutates the
+/// document (AC-6.2.5).
+///
+/// **Keyboard (docs/v3/05 §5), the timeline's own five.** `,`/`.` step the
+/// selected property row's keys, `Home`/`End` jump the playhead, `K` keys the
+/// selected property at the playhead with its evaluated value and `Shift+K`
+/// removes the key under it. They live in a [Focus] scope this panel owns —
+/// the shell owns the *global* shortcuts and this file may not edit it, so
+/// these fire only while the timeline holds focus, which is also why they can
+/// never fire while a text field elsewhere is focused (a text field has focus,
+/// the timeline does not). A local text-field guard backs that up.
+class TimelineBar extends ConsumerStatefulWidget {
   const TimelineBar({required this.projectId, super.key});
 
   final String projectId;
 
-  static const double railInset = 16.0;
+  @override
+  ConsumerState<TimelineBar> createState() => _TimelineBarState();
+}
+
+class _TimelineBarState extends ConsumerState<TimelineBar> {
+  final FocusNode _keyFocus = FocusNode(debugLabel: 'timeline-shortcuts');
+
+  static const double _rulerHeight = 18.0;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Named slices only; neither changes while the playhead moves. `build` is a
-    // pure read — no code path here mutates the document (AC-6.2.5).
-    final duration = ref.watch(timelineDurationProvider(projectId));
-    final keys = ref.watch(timelineKeyTimesProvider(projectId));
+  void dispose() {
+    _keyFocus.dispose();
+    super.dispose();
+  }
+
+  // --- The one pixel→t conversion for the scrub (AC-9.1.4) -------------------
+
+  static void _scrub(ValueNotifier<double> playhead, double dx, double width) {
+    if (!(width > 0)) return; // a zero-width rail has no defined position
+    playhead.value = (dx / width).clamp(0.0, 1.0);
+  }
+
+  double _playheadT() {
+    final t = ref.read(playheadProvider).value;
+    return t.isNaN ? 0.0 : t.clamp(0.0, 1.0).toDouble();
+  }
+
+  TimelineCommands get _commands => TimelineCommands(ref, widget.projectId);
+
+  /// Capture the messenger, and **handle `onError`** — the net every other
+  /// reporter in the app has (canvas/inspector/layers/shell). A failure that is
+  /// not a `StoreException`/`ArgumentError` escapes `TimelineCommands._guard` and
+  /// would otherwise complete this dropped future as an unhandled async error
+  /// instead of a snackbar.
+  void _report(Future<String?> pending) {
+    final messenger = ScaffoldMessenger.of(context);
+    void show(String message) =>
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+    pending.then(
+      (message) {
+        if (message != null) show(message);
+      },
+      onError: (Object _, StackTrace __) => show(kRejectedKeyframeEditMessage),
+    );
+  }
+
+  // --- Keyboard (docs/v3/05 §5) ---------------------------------------------
+
+  KeyEventResult _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    // Belt to the Focus-scope's braces: even if this node somehow held focus
+    // while an EditableText did, a bare `K` must not key a track (the shell's
+    // established ancestor-walk guard, replicated locally because the shell is
+    // out of this milestone's scope).
+    if (_typingInAField()) return KeyEventResult.ignored;
+
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.comma) {
+      _stepKey(-1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.period) {
+      _stepKey(1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.home) {
+      _seek(0.0);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.end) {
+      _seek(1.0);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyK) {
+      if (HardwareKeyboard.instance.isShiftPressed) {
+        _removeUnderPlayhead();
+      } else {
+        _keyAtPlayhead();
+      }
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  /// Move the playhead to [t] — `Home`/`End`. Writes the live notifier (so the
+  /// canvas repaints) and settles `EditorState` (so edit-at-keyframe reads a
+  /// stable value), the same live/settled pair the scrub keeps in step.
+  void _seek(double t) {
+    ref.read(playheadProvider).value = t;
+    ref.read(editorControllerProvider.notifier).commitPlayhead(t);
+  }
+
+  /// `,` / `.` — step to the previous/next key on the selected property row,
+  /// moving both the playhead and `selectedKeyframe` (via [selectKeyframe],
+  /// which snaps the playhead to the key's own `t`).
+  void _stepKey(int dir) {
+    final selected = ref.read(editorControllerProvider).selectedKeyframe;
+    if (selected == null) return;
+    final (node, property, _) = selected;
+    final times = _timesFor(node, property);
+    if (times.isEmpty) return;
+    final t = _playheadT();
+
+    int? target;
+    if (dir < 0) {
+      for (var i = times.length - 1; i >= 0; i--) {
+        if (times[i] < t - TrackOps.minSeparation) {
+          target = i;
+          break;
+        }
+      }
+    } else {
+      for (var i = 0; i < times.length; i++) {
+        if (times[i] > t + TrackOps.minSeparation) {
+          target = i;
+          break;
+        }
+      }
+    }
+    if (target == null) return;
+    ref.read(editorControllerProvider.notifier).selectKeyframe(
+          node,
+          property,
+          target,
+          snapT: times[target],
+        );
+  }
+
+  /// `K` — key the selected property at the playhead with its evaluated value.
+  void _keyAtPlayhead() {
+    final selected = ref.read(editorControllerProvider).selectedKeyframe;
+    if (selected == null) return;
+    final (node, property, _) = selected;
+    _report(_commands.keyAtPlayhead(node, property, _playheadT()));
+  }
+
+  /// `Shift+K` — remove the key under the playhead on the selected property row.
+  void _removeUnderPlayhead() {
+    final selected = ref.read(editorControllerProvider).selectedKeyframe;
+    if (selected == null) return;
+    final (node, property, _) = selected;
+    final times = _timesFor(node, property);
+    final t = _playheadT();
+    for (var i = 0; i < times.length; i++) {
+      if ((times[i] - t).abs() <= TrackOps.minSeparation) {
+        _report(_commands.remove(node, property, i));
+        return;
+      }
+    }
+  }
+
+  /// The selected row's key times, read off the value-equal projection — no
+  /// document read from this widget (docs/v3/08 §2).
+  List<double> _timesFor(NodeId node, PropertyKey property) {
+    final model = ref.read(timelineModelProvider(widget.projectId));
+    for (final n in model.nodes) {
+      if (n.node != node) continue;
+      for (final row in n.rows) {
+        if (row.property == property) return row.times;
+      }
+    }
+    return const <double>[];
+  }
+
+  /// True when the primary focus is inside an [EditableText] — the shell's
+  /// load-bearing ancestor walk, replicated because the shell is out of scope.
+  bool _typingInAField() {
+    final context = FocusManager.instance.primaryFocus?.context;
+    if (context == null) return false;
+    return context.widget is EditableText ||
+        context.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Named slices only: duration for the readout, the notifier for the scrub.
+    // Neither changes while the playhead moves, so a live scrub rebuilds nothing
+    // here — only the leaf `ValueListenableBuilder` readout below (AC-9.1.3).
+    final duration = ref.watch(timelineDurationProvider(widget.projectId));
     final playhead = ref.watch(playheadProvider);
     final scheme = Theme.of(context).colorScheme;
 
-    return Container(
-      color: scheme.surfaceContainerHigh,
-      padding: const EdgeInsets.symmetric(horizontal: railInset, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Text(
-                '${keys.length} key${keys.length == 1 ? '' : 's'}',
-                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
-              ),
-              const Spacer(),
-              // Only this readout rebuilds per tick, and it rebuilds because a
-              // number changed on screen — not because state moved. The canvas
-              // above is untouched.
-              ValueListenableBuilder<double>(
-                valueListenable: playhead,
-                builder: (context, t, _) => Text(
-                  // Seconds are derived for display and never stored
-                  // (AC-9.1.5): the document holds t, so retiming is one field.
-                  '${(t * duration).toStringAsFixed(2)} s / '
-                  '${duration.toStringAsFixed(2)} s  ·  t = '
-                  '${t.toStringAsFixed(3)}',
-                  key: const Key('timeline-readout'),
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    color: scheme.onSurfaceVariant,
+    return Focus(
+      focusNode: _keyFocus,
+      onKeyEvent: (_, event) => _onKey(event),
+      child: Container(
+        color: scheme.surfaceContainerHigh,
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _Header(duration: duration, playhead: playhead),
+            Expanded(
+              child: Stack(
+                children: [
+                  Column(
+                    children: [
+                      _ruler(playhead, scheme),
+                      Expanded(
+                        // Clicking in the rows focuses the timeline so its
+                        // shortcuts go live — kept OFF the ruler so the scrub
+                        // hot path never touches focus (and never rebuilds the
+                        // canvas).
+                        child: Listener(
+                          onPointerDown: (_) {
+                            if (!_keyFocus.hasFocus) _keyFocus.requestFocus();
+                          },
+                          child: TimelineRows(
+                            projectId: widget.projectId,
+                            labelWidth: kTimelineLabelWidth,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                  // The playhead, one line across the ruler and every row,
+                  // driven by the notifier so the tick reaches paint() without
+                  // a build. IgnorePointer so it never eats a scrub or a dot.
+                  Positioned(
+                    left: kTimelineLabelWidth,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: IgnorePointer(
+                      child: CustomPaint(
+                        painter: _PlayheadPainter(
+                            playhead: playhead, color: scheme.primary),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ruler(ValueNotifier<double> playhead, ColorScheme scheme) {
+    return SizedBox(
+      height: _rulerHeight,
+      child: Row(
+        children: [
           SizedBox(
-            height: 28,
+            width: kTimelineLabelWidth,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'timeline',
+                style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ),
+          Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final width = constraints.maxWidth;
                 return GestureDetector(
                   key: const Key('timeline'),
                   behavior: HitTestBehavior.opaque,
-                  onTapDown: (d) => _seek(playhead, d.localPosition.dx, width),
+                  onTapDown: (d) => _scrub(playhead, d.localPosition.dx, width),
                   onHorizontalDragStart: (d) =>
-                      _seek(playhead, d.localPosition.dx, width),
+                      _scrub(playhead, d.localPosition.dx, width),
                   onHorizontalDragUpdate: (d) =>
-                      _seek(playhead, d.localPosition.dx, width),
+                      _scrub(playhead, d.localPosition.dx, width),
                   onHorizontalDragEnd: (_) =>
-                      TimelineCommands(ref).commitScrub(playhead.value),
+                      _commands.commitScrub(playhead.value),
                   child: CustomPaint(
-                    size: Size(width, 28),
-                    painter: _ScrubPainter(
-                      playhead: playhead,
-                      keys: keys,
-                      rail: scheme.outlineVariant,
-                      keyDot: scheme.tertiary,
-                      handle: scheme.primary,
-                    ),
+                    size: Size(width, _rulerHeight),
+                    painter: _RulerPainter(rail: scheme.outlineVariant),
                   ),
                 );
               },
@@ -103,72 +316,87 @@ class TimelineBar extends ConsumerWidget {
       ),
     );
   }
+}
 
-  /// The one and only pixel→`t` conversion in the app.
-  ///
-  /// Clamped rather than rejected: a drag that leaves the bar should pin to the
-  /// end, which is what every scrub bar the user has ever touched does. Writing
-  /// `.value` is the whole mechanism — it reaches `paint()` on the next frame
-  /// without invalidating a provider or rebuilding a widget.
-  static void _seek(ValueNotifier<double> playhead, double dx, double width) {
-    if (!(width > 0)) return; // a zero-width rail has no defined position
-    playhead.value = (dx / width).clamp(0.0, 1.0);
+/// The seconds/`t` readout. Its own widget so only it rebuilds per tick — a leaf
+/// `ValueListenableBuilder`, not a tree rebuild (AC-9.1.3).
+class _Header extends StatelessWidget {
+  const _Header({required this.duration, required this.playhead});
+
+  final double duration;
+  final ValueNotifier<double> playhead;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        const Spacer(),
+        ValueListenableBuilder<double>(
+          valueListenable: playhead,
+          builder: (context, t, _) => Text(
+            // Seconds are derived for display and never stored (AC-9.1.5): the
+            // document holds `t`, so a retime is one field.
+            '${(t * duration).toStringAsFixed(2)} s / '
+            '${duration.toStringAsFixed(2)} s  ·  t = '
+            '${t.toStringAsFixed(3)}',
+            key: const Key('timeline-readout'),
+            style: TextStyle(
+              fontSize: 11,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
-/// Rail, keyframe dots, playhead handle. Nothing else, and nothing mutable.
-class _ScrubPainter extends CustomPainter {
-  _ScrubPainter({
-    required this.playhead,
-    required this.keys,
-    required this.rail,
-    required this.keyDot,
-    required this.handle,
-  }) : super(repaint: playhead);
+/// The ruler baseline plus end ticks. Nothing mutable.
+class _RulerPainter extends CustomPainter {
+  _RulerPainter({required this.rail});
 
-  final ValueNotifier<double> playhead;
-  final List<double> keys;
   final Color rail;
-  final Color keyDot;
-  final Color handle;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final y = size.height / 2;
-    double x(double t) => t.clamp(0.0, 1.0) * size.width;
-
+    final y = size.height - 3;
+    final p = Paint()
+      ..color = rail
+      ..strokeWidth = 1;
+    canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
+    canvas.drawLine(Offset(0, y - 4), Offset(0, y), p);
     canvas.drawLine(
-      Offset(0, y),
-      Offset(size.width, y),
-      Paint()
-        ..strokeWidth = 2
-        ..color = rail,
-    );
+        Offset(size.width - 1, y - 4), Offset(size.width - 1, y), p);
+  }
 
-    // Dots come from the document's key times, so a key at 0.13 sits at 0.13 —
-    // there is no grid to snap to and no column to align with (AC-6.1.1).
-    final dot = Paint()..color = keyDot;
-    for (final t in keys) {
-      if (!t.isFinite) continue;
-      canvas.drawCircle(Offset(x(t), y), 4, dot);
-    }
+  @override
+  bool shouldRepaint(_RulerPainter old) => old.rail != rail;
+}
 
+/// The playhead line, repainted from the notifier without a build.
+class _PlayheadPainter extends CustomPainter {
+  _PlayheadPainter({required this.playhead, required this.color})
+      : super(repaint: playhead);
+
+  final ValueNotifier<double> playhead;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
     final t = playhead.value;
-    final at = x(t.isNaN ? 0.0 : t);
+    final x = (t.isNaN ? 0.0 : t.clamp(0.0, 1.0)) * size.width;
     canvas.drawLine(
-      Offset(at, 2),
-      Offset(at, size.height - 2),
+      Offset(x, 0),
+      Offset(x, size.height),
       Paint()
-        ..strokeWidth = 2
-        ..color = handle,
+        ..color = color
+        ..strokeWidth = 1.5,
     );
   }
 
   @override
-  bool shouldRepaint(_ScrubPainter old) =>
-      !identical(old.playhead, playhead) ||
-      !listEquals(old.keys, keys) ||
-      old.rail != rail ||
-      old.keyDot != keyDot ||
-      old.handle != handle;
+  bool shouldRepaint(_PlayheadPainter old) =>
+      old.color != color || !identical(old.playhead, playhead);
 }

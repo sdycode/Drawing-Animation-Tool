@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'common/theme.dart';
 import 'data/project_store.dart';
+import 'features/canvas/commands.dart';
 import 'features/canvas/widgets/canvas_view.dart';
 import 'features/inspector/widgets/inspector_panel.dart';
 import 'features/layers/commands.dart';
@@ -12,6 +13,7 @@ import 'features/layers/providers.dart';
 import 'features/layers/widgets/layers_panel.dart';
 import 'features/timeline/widgets/timeline_bar.dart';
 import 'features/tools/widgets/tool_rail.dart';
+import 'state/command.dart';
 import 'state/document_controller.dart';
 import 'state/editor_controller.dart';
 import 'state/tool_controller.dart';
@@ -88,23 +90,46 @@ class EditorShell extends StatelessWidget {
 /// `EditorState` (docs/v3/04 §6). The controller hands the [Restore] back rather
 /// than reaching into `EditorController` itself, keeping the two peers
 /// uncoupled; the viewport is never restored — undo does not move the camera.
-Future<void> _undo(WidgetRef ref, String projectId) async {
-  final restore =
-      await ref.read(documentControllerProvider(projectId).notifier).undo();
-  if (restore != null) {
-    ref
-        .read(editorControllerProvider.notifier)
-        .restoreKeyframe(restore.selectedKeyframe);
+///
+/// **A rejected undo surfaces; it does not vanish.** `DocumentController.undo`
+/// re-saves the restored snapshot (docs/v3/04 §6) and **rethrows** a save
+/// failure — a read-only document, a Firestore hiccup — so the future this
+/// awaits can reject. With no catch, that rejection was an unhandled async
+/// error and the *only* edit path that stayed silent while `run`, group,
+/// duplicate and the inspector all showed a snackbar (docs/v3/08 §1). It now
+/// shows the same `StoreFailure.message` every other write does. The messenger
+/// is captured **before** the await because a `BuildContext` may not be used
+/// across an async gap, exactly as [_reportShortcut] captures it.
+Future<void> _undo(
+    BuildContext context, WidgetRef ref, String projectId) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final restore =
+        await ref.read(documentControllerProvider(projectId).notifier).undo();
+    if (restore != null) {
+      ref
+          .read(editorControllerProvider.notifier)
+          .restoreKeyframe(restore.selectedKeyframe);
+    }
+  } on StoreException catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(e.failure.message)));
   }
 }
 
-Future<void> _redo(WidgetRef ref, String projectId) async {
-  final restore =
-      await ref.read(documentControllerProvider(projectId).notifier).redo();
-  if (restore != null) {
-    ref
-        .read(editorControllerProvider.notifier)
-        .restoreKeyframe(restore.selectedKeyframe);
+/// The mirror of [_undo], and it surfaces a save failure for the same reason.
+Future<void> _redo(
+    BuildContext context, WidgetRef ref, String projectId) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final restore =
+        await ref.read(documentControllerProvider(projectId).notifier).redo();
+    if (restore != null) {
+      ref
+          .read(editorControllerProvider.notifier)
+          .restoreKeyframe(restore.selectedKeyframe);
+    }
+  } on StoreException catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(e.failure.message)));
   }
 }
 
@@ -151,7 +176,8 @@ class _ChromeActions extends ConsumerWidget {
               ? 'Undo'
               : 'Undo ${controller.undoLabel}',
           icon: const Icon(Icons.undo, size: 18),
-          onPressed: controller.canUndo ? () => _undo(ref, projectId) : null,
+          onPressed:
+              controller.canUndo ? () => _undo(context, ref, projectId) : null,
         ),
         IconButton(
           key: const Key('editor-redo'),
@@ -159,7 +185,8 @@ class _ChromeActions extends ConsumerWidget {
               ? 'Redo'
               : 'Redo ${controller.redoLabel}',
           icon: const Icon(Icons.redo, size: 18),
-          onPressed: controller.canRedo ? () => _redo(ref, projectId) : null,
+          onPressed:
+              controller.canRedo ? () => _redo(context, ref, projectId) : null,
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
@@ -275,13 +302,13 @@ class _EditorBody extends ConsumerWidget {
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): () =>
-            _undo(ref, projectId),
+            _undo(context, ref, projectId),
         const SingleActivator(LogicalKeyboardKey.keyZ, control: true): () =>
-            _undo(ref, projectId),
+            _undo(context, ref, projectId),
         const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true):
-            () => _redo(ref, projectId),
+            () => _redo(context, ref, projectId),
         const SingleActivator(LogicalKeyboardKey.keyZ,
-            control: true, shift: true): () => _redo(ref, projectId),
+            control: true, shift: true): () => _redo(context, ref, projectId),
         const SingleActivator(LogicalKeyboardKey.keyG, meta: true): () =>
             _group(context, ref, projectId),
         const SingleActivator(LogicalKeyboardKey.keyG, control: true): () =>
@@ -298,6 +325,15 @@ class _EditorBody extends ConsumerWidget {
         for (final entry in kToolButtons.entries)
           SingleActivator(_toolKeys[entry.key] ?? LogicalKeyboardKey.keyV):
               () => _activate(ref, entry.key),
+        // docs/v3/05 §5 — `Del` / `Backspace` removes the selected anchor(s) with
+        // Direct select (AC-4.3.5). Bound here beside the other canvas keys and in
+        // the same scope; the handler refuses while a text field has focus and
+        // does nothing unless Direct select has an anchor selected — node-level
+        // Del is a separate, still-unscheduled gap (docs/v3/06 M5).
+        const SingleActivator(LogicalKeyboardKey.delete): () =>
+            _deleteAnchors(context, ref, projectId),
+        const SingleActivator(LogicalKeyboardKey.backspace): () =>
+            _deleteAnchors(context, ref, projectId),
       },
       // **The scope that catches released focus** (docs/v3/05 §5).
       //
@@ -392,6 +428,64 @@ bool _typingInAField() {
   if (context == null) return false;
   return context.widget is EditableText ||
       context.findAncestorWidgetOfExactType<EditableText>() != null;
+}
+
+/// `Del` / `Backspace` — remove the selected anchor(s) with the Direct-select
+/// tool (docs/v3/05 §5, AC-4.3.5).
+///
+/// Each anchor is one [DeleteAnchorCommand], and therefore **one undo entry**:
+/// `PathOps.deleteAnchor` writes the removal into the node's `PathData` and into
+/// every keyframe of every path track for the node in a single `Document →
+/// Document` (the floor is the legal empty path). It routes through the canvas's
+/// command gate, exactly like an anchor drag, so a rejected edit surfaces the
+/// same way.
+///
+/// **Refused while a text field has focus** (the same `_typingInAField` guard the
+/// tool letters use — `CallbackShortcuts` sees the key travel up from an
+/// `EditableText` before the field turns it into a delete), and **only** with
+/// Direct select active over a non-empty anchor selection. **Node-level Del —
+/// deleting a whole node — is a separate, still-unscheduled gap** and is
+/// deliberately not handled here: with no anchor selected this does nothing, so
+/// the two cannot collide.
+///
+/// The anchor selection is cleared afterwards. It is resolved-not-repaired
+/// (docs/v3/08 §2) — a dangling id would be filtered at every read site anyway —
+/// but the delete is the one moment we know the id is gone, and clearing it is the
+/// same shape as the timeline's clear-on-remove (AC-4.2.3).
+void _deleteAnchors(BuildContext context, WidgetRef ref, String projectId) {
+  if (_typingInAField()) return;
+  if (ref.read(toolControllerProvider).id != ToolId.directSelect) return;
+
+  final editor = ref.read(editorControllerProvider);
+  final anchors = editor.selectedAnchors;
+  if (anchors.isEmpty) return;
+  final doc = ref.read(documentControllerProvider(projectId)).valueOrNull;
+  if (doc == null) return;
+
+  final commands = CanvasCommands(ref, projectId);
+  final keyframe = editor.selectedKeyframe;
+  var acted = false;
+  for (final anchor in anchors) {
+    final owner = _ownerOf(doc, anchor);
+    if (owner == null) continue; // resolved, never repaired: a dangling id
+    acted = true;
+    _reportShortcut(context,
+        commands.run(DeleteAnchorCommand(owner, anchor), keyframe: keyframe));
+  }
+  if (acted) {
+    ref.read(editorControllerProvider.notifier).selectAnchor(null);
+  }
+}
+
+/// The [PathNode] whose topology holds [anchor], or null. `AnchorId`s are unique
+/// within a `PathData` and minted as UUIDs, so the first match owns it.
+NodeId? _ownerOf(Document doc, AnchorId anchor) {
+  for (final node in doc.nodeIndex.values) {
+    if (node is PathNode && node.path.anchors.any((a) => a.id == anchor)) {
+      return node.id;
+    }
+  }
+  return null;
 }
 
 /// `Cmd/Ctrl+G` — group the current multi-selection (docs/v3/05 §4.5 step 4,

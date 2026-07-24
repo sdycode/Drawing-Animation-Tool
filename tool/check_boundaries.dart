@@ -56,6 +56,48 @@ bool _leaksAnimation(String combinators) {
   return true;
 }
 
+/// `PathData`'s unchecked `.trusted` constructor skips the P1 AnchorId-
+/// uniqueness scan (docs/v3/01 §5): it is the evaluator's fast path, and the
+/// doc's claim that const construction is "private so the invariants cannot be
+/// bypassed" only holds because *nothing outside these two files reaches it*.
+/// PathOps is the only sanctioned route to a topology change (AC-4.3.8), so a
+/// reference anywhere else — app code, a widget, a test that hand-builds a
+/// duplicate-AnchorId path — is a hole in that invariant.
+///
+/// anim_core's own `boundary_test.dart` already asserts this two-file allowlist
+/// WITHIN `anim_core/lib`; a source-level check is the right instrument (the
+/// claim is about what code *can be written*, which no runtime assert can see),
+/// but it stopped at that package. This extends the identical guard to
+/// `lib/app/**`, `test/**` and `anim_render/**`, which it never covered.
+const _trustedCtor = 'PathData.trusted';
+const _trustedCtorAllowed = <String>{
+  'packages/anim_core/lib/src/path.dart', // the ctor's own declaration
+  'packages/anim_core/lib/src/eval/evaluate.dart', // resolvePose, docs/v3/08 §1
+};
+
+/// The 1-based line of a genuine *code* reference to [token] in [source], or
+/// null if it only appears inside string literals / not at all.
+///
+/// The string-literal guard is load-bearing: `boundary_test.dart` NAMES
+/// `'PathData.trusted('` in its own allowlist string, and that mention builds
+/// nothing. A match is treated as code when an even number of quotes precede it
+/// on its line — i.e. it is not inside an open string literal.
+int? _codeReferenceLine(String source, String token) {
+  final lines = source.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    for (var at = line.indexOf(token);
+        at >= 0;
+        at = line.indexOf(token, at + 1)) {
+      final before = line.substring(0, at);
+      final quotes =
+          "'".allMatches(before).length + '"'.allMatches(before).length;
+      if (quotes.isEven) return i + 1;
+    }
+  }
+  return null;
+}
+
 /// Directory names that mean "I could not think where this goes".
 ///
 /// `common/` is deliberately absent: docs/v3/08 §3 sanctions it by name for
@@ -215,6 +257,19 @@ void main() {
         violations.add('$path\n    import \'$_coreBarrel\'\n'
             "    -> ambiguous-Animation: this file also imports Flutter; add "
             "`hide Animation` (docs/v3/01 §10 names the core type)");
+      }
+
+      // The unchecked PathData ctor stays confined to two anim_core files.
+      if (!_trustedCtorAllowed.contains(path)) {
+        final line = _codeReferenceLine(source, _trustedCtor);
+        if (line != null) {
+          violations.add('$path:$line\n    $_trustedCtor(...)\n'
+              '    -> trusted-ctor-outside-anim-core: the unchecked PathData '
+              'constructor skips the P1 AnchorId-uniqueness scan and is the '
+              "evaluator's alone (docs/v3/01 §5). PathOps is the only sanctioned "
+              'route to a topology change (AC-4.3.8) — build paths with the '
+              'validating `PathData(...)` factory');
+        }
       }
     }
   }

@@ -77,22 +77,37 @@ final class ShapeTool implements ToolMode {
     return effect;
   }
 
-  /// The anchors the recipe *would* generate, placed where the node would sit —
-  /// drawn by the overlay through its existing `pending` markers channel.
+  /// The shape the recipe *would* generate, placed where the node would sit —
+  /// stroked by the overlay through its in-progress **geometry** channel
+  /// ([ToolPreview.path], `DraftPath`), exactly as the pen's half-drawn path is.
   ///
-  /// Produced by the **same** `recipe.toPath()` the release commits, so the
-  /// preview cannot drift from the result. A degenerate box yields
-  /// `PathData.empty`, so the first frame of every drag shows nothing rather
-  /// than throwing (`shape_geometry.dart` is total, by design, for exactly this
-  /// caller).
+  /// **Geometry, not markers.** This used to feed the `markers` channel, so
+  /// dragging out an ellipse showed the user four dots and a polygon N dots —
+  /// never the outline they were drawing. That is the same defect the pen was
+  /// upgraded away from (dots cannot express a cubic), so a shape now hands over
+  /// the real `PathData`: the outline the user is dragging, stroked and unfilled,
+  /// closed so it draws its whole rect/ellipse/polygon boundary.
+  ///
+  /// Produced by the **same** `recipe.toPath()` the release commits — only
+  /// translated onto `box.centre`, where the committed node's `Transform2` will
+  /// place identical geometry — so the preview cannot drift from the result. A
+  /// degenerate box yields `PathData.empty`, so the first frame of every drag
+  /// shows nothing rather than throwing (`shape_geometry.dart` is total, by
+  /// design, for exactly this caller).
   @override
   ToolPreview get preview {
     final box = _box();
     if (box == null) return ToolPreview.none;
+    final geometry = box.recipe.toPath();
+    if (geometry.isEmpty) return ToolPreview.none;
     return ToolPreview(
-      markers: <Vec2>[
-        for (final a in box.recipe.toPath().anchors) box.centre + a.position,
-      ],
+      path: PathData(
+        anchors: <Anchor>[
+          for (final a in geometry.anchors)
+            a.copyWith(position: box.centre + a.position),
+        ],
+        closed: geometry.closed,
+      ),
     );
   }
 

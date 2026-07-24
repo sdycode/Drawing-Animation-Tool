@@ -105,6 +105,14 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
   /// gesture at `(0,0)` would close a pen path against the artboard's corner.
   Offset _lastLocal = Offset.zero;
 
+  /// The active tool as of the last [build], cached so [dispose] can cancel its
+  /// in-progress gesture without touching `ref` — flutter_riverpod disposes the
+  /// element's ref before `State.dispose` runs. `build` watches the tool, so
+  /// this is always the tool active at teardown. Cached the same way [_fit] and
+  /// [_lastSize] are, for the same reason: a handler (here, `dispose`) that
+  /// cannot reach the live provider reads the last value the build saw.
+  ToolMode? _activeTool;
+
   /// True between [_onPanStart] and the end (or cancel) that closes it.
   ///
   /// **`onPanCancel` fires on every tap.** The tap and pan recognizers both
@@ -119,6 +127,22 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
 
   @override
   void dispose() {
+    // Cancel the active tool's in-progress gesture as the canvas goes away.
+    // `toolControllerProvider` is a plain (non-autoDispose) provider at the app
+    // root, so the tool instance and its private gesture state outlive this
+    // widget: pick Pen, place two anchors, navigate back to the project list
+    // (this dispose), reopen a project — and without this the stale half-path
+    // renders immediately and the next click appends to it, eventually
+    // committing an `AddNodeCommand` for a node built half from the previous
+    // session into the NEW document. `cancel()` already fires on tool switch and
+    // on pointer-cancel; binding it to the canvas's lifetime closes the third
+    // door.
+    //
+    // Read off [_activeTool] rather than `ref`: flutter_riverpod disposes the
+    // element's ref before `State.dispose` runs, so `ref.read` here throws. The
+    // field is the tool the last `build` saw — and `build` watches the tool, so
+    // it is the tool active at teardown.
+    _activeTool?.cancel();
     _focus.dispose();
     super.dispose();
   }
@@ -193,7 +217,12 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
 
     if (command != null) {
       acted = true;
-      _run(CanvasCommands(ref, widget.projectId).run(command));
+      // Carry the editing keyframe so undo returns the user to the key they were
+      // editing (docs/v3/04 §6). Null for a rest-pose edit — the snapshot reads
+      // that as "carried none", never as "clear the selection".
+      final keyframe = ref.read(editorControllerProvider).selectedKeyframe;
+      _run(CanvasCommands(ref, widget.projectId)
+          .run(command, keyframe: keyframe));
     }
     return acted;
   }
@@ -358,8 +387,66 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
   /// whole session.
   void _onPointerHover(PointerHoverEvent event) {
     _lastLocal = event.localPosition;
-    if (_tool.preview.path == null) return;
-    setState(() {});
+    // Repaint when a draft is in flight (the pen's live segment follows the
+    // cursor) OR the pen is hovering a selected path for its insert `+`
+    // (docs/v3/05 §3). Both need the live pointer at paint time. Nothing else
+    // repaints on a bare hover, so the whole-session hover storm docs/v3/04 §4
+    // warns about stays gated — the `+` mode is only ever true with the pen
+    // active over a single selected path node.
+    if (_tool.preview.path != null || _penInsertActive()) {
+      setState(() {});
+    }
+  }
+
+  /// The pen is active over exactly one selected path node — the state that shows
+  /// an insert `+` on hover. A cheap gate on the hover repaint; whether the hover
+  /// is actually near a segment (and where the `+` sits) is decided in `build` by
+  /// [_penInsertCursor].
+  bool _penInsertActive() {
+    final tool = _tool;
+    if (tool.id != ToolId.pen || tool.preview.path != null) return false;
+    final selection = ref.read(canvasSelectionProvider);
+    if (selection.length != 1) return false;
+    final doc = ref.read(canvasDocumentProvider(widget.projectId));
+    return doc?.nodeIndex[selection.first.nodeId] is PathNode;
+  }
+
+  /// The document-space point a pen click would insert an anchor at, or null.
+  ///
+  /// Non-null only with the Pen active, not mid-drawing ([previewPath] null),
+  /// exactly one selected path node, and the hover within a screen grab radius of
+  /// one of that node's posed segments. The heavy lifting is [insertionCandidate]
+  /// (anim_render) — the same call the pen tool commits through — so the mark the
+  /// user sees and the point the click lands on are one computation. A singular
+  /// camera yields a null inverse and therefore no `+`: an early return, never
+  /// `invert()!` (docs/v3/08 §4).
+  Vec2? _penInsertCursor({
+    required ToolMode tool,
+    required PathData? previewPath,
+    required Document doc,
+    required AnimationId? animation,
+    required Set<ScenePath> selection,
+    required Affine fit,
+  }) {
+    if (tool.id != ToolId.pen || previewPath != null) return null;
+    if (selection.length != 1) return null;
+    final nodeId = selection.first.nodeId;
+    if (doc.nodeIndex[nodeId] is! PathNode) return null;
+
+    final inverse = fit.invert();
+    if (inverse == null) return null;
+    final screen = Vec2(_lastLocal.dx, _lastLocal.dy);
+    final hoverDoc = inverse.apply(screen);
+    final mix = animation == null
+        ? const <AnimationMix>[]
+        : <AnimationMix>[AnimationMix(animation, _playheadT())];
+
+    final hit = insertionCandidate(doc, mix, nodeId, hoverDoc);
+    if (hit == null) return null;
+    final at = fit.apply(hit.world);
+    if (!at.x.isFinite || !at.y.isFinite) return null;
+    if ((at - screen).length > PointerCtx.grabRadius) return null;
+    return hit.world;
   }
 
   void _onPointerMove(PointerMoveEvent event) {
@@ -490,6 +577,9 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     // reaches the painters only through [ToolPreview], which the pointer
     // handlers pick up with `setState`.
     final tool = ref.watch(toolControllerProvider);
+    // Cache the live tool so `dispose` can cancel its in-flight gesture without
+    // `ref` (see [_activeTool]).
+    _activeTool = tool;
     final selectActive = tool.id == ToolId.select;
 
     if (doc == null || board == null) return const SizedBox.expand();
@@ -546,6 +636,24 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
                           ?.apply(Vec2(_lastLocal.dx, _lastLocal.dy)),
                       handle: preview.liveHandle,
                     );
+
+              // The pen's `+` insert affordance (docs/v3/05 §3, AC-4.3.1): when
+              // the pen is active over a SEGMENT of the one selected path node,
+              // mark the nearest point a click would split. Computed here — only
+              // the canvas holds the live hover position (`_lastLocal`) and THE
+              // composed `full` — and drawn on the overlay, never in the document.
+              // This file names the pen by `tool.id`, exactly as it does one line
+              // below for `showAnchors`; the geometry itself lives in
+              // `insertionCandidate` (anim_render), shared with the pen tool so
+              // the hover mark and the click land on the same point.
+              final insertCursor = _penInsertCursor(
+                tool: tool,
+                previewPath: drawing,
+                doc: painted,
+                animation: paintedAnimation,
+                selection: selection,
+                fit: full,
+              );
 
               return Focus(
                 focusNode: _focus,
@@ -627,6 +735,9 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
                                 // could not say any of that, which is the defect
                                 // this channel closes.
                                 draft: draft,
+                                // The pen's insert `+`, or null when the pen is
+                                // not hovering a selected path's segment.
+                                insertCursor: insertCursor,
                                 fit: full,
                                 // Same mode as layer 2, always: handles must
                                 // never outlive the geometry they belong to.

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
+import 'package:drawing_animation_tool/app/data/project_store.dart'
+    show StoreFailure;
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/editor_shell.dart';
 import 'package:drawing_animation_tool/app/state/document_controller.dart';
@@ -538,5 +540,258 @@ void main() {
 
     expect(find.byKey(const Key('inspector-summary')), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  // --- docs/v3/04 §6, docs/v3/08 §1 — a failed undo surfaces, never vanishes -
+
+  testWidgets(
+      'an undo whose save fails shows a message and raises NO unhandled async '
+      'error (docs/v3/04 §6, docs/v3/08 §1)', (tester) async {
+    final t = await open(tester);
+
+    // One committed edit, so there is history to undo. This save succeeds.
+    await commitField(tester, 'inspector-position-x', '77');
+    expect(transformOf(t.c, t.id, 'sq').position.x, 77);
+
+    // The NEXT store write fails — the outage undo's re-save (docs/v3/04 §6) can
+    // hit. `DocumentController.undo` rolls the stack back and RETHROWS, so the
+    // shell must catch it: before this fix the rejected future was an unhandled
+    // async error with no snackbar, the one edit path that stayed silent while
+    // run / group / duplicate / the inspector all reported (docs/v3/08 §1).
+    t.store.failNext = StoreFailure.network;
+
+    await tester.tap(find.byKey(const Key('editor-undo')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsOneWidget,
+        reason: 'a rejected undo says why, like every other write');
+    expect(find.text(StoreFailure.network.message), findsOneWidget);
+    expect(tester.takeException(), isNull,
+        reason: 'the failure was caught, not left to escape as an async error');
+
+    // The edit is still on screen: the failed save rolled the undo back, so the
+    // document the user sees still matches what is on disk.
+    expect(transformOf(t.c, t.id, 'sq').position.x, 77);
+  });
+
+  // --- F6.2 / AC-6.2.6 — the per-property keyframe diamond ------------------
+
+  ScalarTrack? rotationTrack(ProviderContainer c, String id) => docOf(c, id)
+      .defaultAnimation
+      ?.tracksFor(const NodeId('sq'))
+      .scalar(PropKey.rotation);
+
+  Vec2Track? positionTrack(ProviderContainer c, String id) => docOf(c, id)
+      .defaultAnimation
+      ?.tracksFor(const NodeId('sq'))
+      .vec2(PropKey.position);
+
+  void seekTo(ProviderContainer c, double t) {
+    c.read(editorControllerProvider.notifier).commitPlayhead(t);
+    c.read(playheadProvider).value = t;
+  }
+
+  testWidgets(
+      'the rotation diamond: empty keys the current value, filled edits THAT '
+      'key, off-key edits mint a NEW key, filled removes (F6.2, AC-6.2.6)',
+      (tester) async {
+    final t = await open(tester);
+
+    // A known static rotation first — an UNTRACKED write, so the field routes to
+    // the static pose exactly as before, and the diamond is still empty.
+    await commitField(tester, 'inspector-rotation', '30');
+    expect(rotationTrack(t.c, t.id), isNull, reason: 'still untracked');
+    expect(find.byKey(const Key('kf-rotation')), findsOneWidget);
+
+    // 1. Empty diamond, playhead at 0 → keys the current rotation, creating the
+    //    track (this is how a brand-new track is born from the inspector).
+    await tester.tap(find.byKey(const Key('kf-rotation')));
+    await tester.pumpAndSettle();
+    final keyed = rotationTrack(t.c, t.id);
+    expect(keyed, isNotNull);
+    expect(keyed!.keyCount, 1);
+    expect(keyed.keys.single.t, 0.0);
+    expect(keyed.keys.single.value, closeTo(math.pi / 6, 1e-9),
+        reason: 'the key holds the current rotation (30°)');
+    expect(transformOf(t.c, t.id, 'sq').rotation, closeTo(math.pi / 6, 1e-9),
+        reason: 'keying does NOT touch the static pose');
+
+    // 2. Playhead still on the key → editing the field writes to THAT key, not a
+    //    2nd key and not the static pose (edit-at-keyframe).
+    await commitField(tester, 'inspector-rotation', '45');
+    final edited = rotationTrack(t.c, t.id)!;
+    expect(edited.keyCount, 1,
+        reason: 'the key at t=0 was replaced, not added');
+    expect(edited.keys.single.value, closeTo(math.pi / 4, 1e-9),
+        reason: 'the KEY value changed to 45°');
+    expect(transformOf(t.c, t.id, 'sq').rotation, closeTo(math.pi / 6, 1e-9),
+        reason: 'the static pose (30°) is untouched by an edit-at-keyframe');
+
+    // 3. Move the playhead OFF the key and edit → a NEW key at the new t.
+    seekTo(t.c, 0.5);
+    await tester.pumpAndSettle();
+    await commitField(tester, 'inspector-rotation', '90');
+    final twoKeys = rotationTrack(t.c, t.id)!;
+    expect(twoKeys.keyCount, 2, reason: 'a new key was minted at t=0.5');
+    expect(
+        twoKeys.keys.map((k) => k.t), [closeTo(0.0, 1e-9), closeTo(0.5, 1e-9)]);
+    expect(twoKeys.keys[1].value, closeTo(math.pi / 2, 1e-9));
+
+    // 4. The diamond is now filled (playhead on the t=0.5 key) → a tap removes it.
+    await tester.tap(find.byKey(const Key('kf-rotation')));
+    await tester.pumpAndSettle();
+    final afterRemove = rotationTrack(t.c, t.id);
+    expect(afterRemove, isNotNull);
+    expect(afterRemove!.keyCount, 1,
+        reason: 'removed the key under the playhead');
+    expect(afterRemove.keys.single.t, 0.0);
+  });
+
+  testWidgets(
+      'a diamond key is ONE undo entry, round-trips through the store, and '
+      'writes nothing ephemeral (AC-6.2.6, AC-2.2.7)', (tester) async {
+    final t = await open(tester);
+    final controller = t.c.read(documentControllerProvider(t.id).notifier);
+
+    await commitField(tester, 'inspector-rotation', '30');
+    final revBefore = docOf(t.c, t.id).rev;
+
+    await tester.tap(find.byKey(const Key('kf-rotation')));
+    await tester.pumpAndSettle();
+
+    // Persisted: reload the RAW bytes from the store and decode.
+    final raw = (await t.store.load(t.id))!;
+    final reloaded = Document.fromJson(jsonDecode(raw) as Map<String, Object?>);
+    final track = reloaded.defaultAnimation
+        ?.tracksFor(const NodeId('sq'))
+        .scalar(PropKey.rotation);
+    expect(track, isNotNull);
+    expect(track!.keyCount, 1);
+    expect(track.keys.single.value, closeTo(math.pi / 6, 1e-9));
+    expect(reloaded.rev, revBefore + 1, reason: 'exactly one save');
+
+    // Nothing ephemeral crossed the wire (AC-2.2.7).
+    for (final banned in [
+      'playhead',
+      'selectedKeyframe',
+      'selectedAnchors',
+      'viewport',
+    ]) {
+      expect(raw.contains(banned), isFalse, reason: '"$banned" is ephemeral');
+    }
+
+    // ONE undo entry: a single undo removes the whole one-key track.
+    expect(controller.canUndo, isTrue);
+    await controller.undo();
+    await tester.pumpAndSettle();
+    expect(rotationTrack(t.c, t.id), isNull,
+        reason: 'one undo reverts the key exactly');
+  });
+
+  testWidgets(
+      'a tracked position field edits the keyframe channel-wise — editing y '
+      'does not clobber the keyframe x (edit-at-keyframe, vec2)',
+      (tester) async {
+    final t = await open(tester);
+
+    // Key position at t=0 (value (0,0)), then work at t=1.0.
+    await tester.tap(find.byKey(const Key('kf-position')));
+    await tester.pumpAndSettle();
+    expect(positionTrack(t.c, t.id)!.keyCount, 1);
+
+    seekTo(t.c, 1.0);
+    await tester.pumpAndSettle();
+
+    // Edit x at t=1.0 → a new key holding (50, sampled-y=0).
+    await commitField(tester, 'inspector-position-x', '50');
+    final afterX = positionTrack(t.c, t.id)!;
+    expect(afterX.keyCount, 2);
+    expect(afterX.keys[1].value, const Vec2(50, 0));
+
+    // Edit y at t=1.0 → upsert the SAME key with (sampled-x=50, 80): x survives.
+    await commitField(tester, 'inspector-position-y', '80');
+    final afterY = positionTrack(t.c, t.id)!;
+    expect(afterY.keyCount, 2, reason: 'still the same two keys');
+    expect(afterY.keys[1].value, const Vec2(50, 80),
+        reason:
+            'editing y sampled the keyframe x (50) rather than the static 0');
+
+    // The static pose never moved through any of this.
+    expect(transformOf(t.c, t.id, 'sq').position, Vec2.zero);
+  });
+
+  // --- AC-4.1.5 — recipe fields on a path-TRACKED node ----------------------
+
+  PathTrack? pathTrackOf(Document doc, NodeId node) {
+    for (final animation in doc.animations) {
+      final track = animation.tracksFor(node).pathTrack();
+      if (track != null) return track;
+    }
+    return null;
+  }
+
+  testWidgets(
+      'AC-4.1.5: a path-TRACKED shape keeps its recipe fields ENABLED — editing '
+      'one routes through retopologize and rewrites every keyframe',
+      (tester) async {
+    // The shape section sits at the bottom of the inspector's lazy ListView;
+    // a tall surface renders every section so its fields are found.
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const recipe = RectRecipe(w: 80, h: 60);
+    var doc = Document.create(name: 'Sketch', artboard: artboard);
+    doc = doc.copyWith(
+      root: GroupNode(id: doc.root.id, name: doc.root.name, children: [
+        PathNode(
+          id: const NodeId('r'),
+          name: 'r',
+          path: recipe.toPath(),
+          recipe: recipe,
+        ),
+      ]),
+    );
+    // Two path keyframes → the node is tracked (the case that used to disable
+    // the fields with an M5 note).
+    doc = PathOps.keyPose(doc, const NodeId('r'), 0.0);
+    doc = PathOps.keyPose(doc, const NodeId('r'), 1.0);
+    doc = doc.bumpRev();
+
+    final store = MemoryProjectStore({doc.id: jsonEncode(doc.toJson())});
+    final c = containerFor(store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, doc.id));
+    await tester.pumpAndSettle();
+    c
+        .read(editorControllerProvider.notifier)
+        .selectNode(const ScenePath(NodeId('r')));
+    await tester.pumpAndSettle();
+
+    // The shape section is present and ENABLED — no disabled note (the refusal
+    // is gone now that retopologize exists).
+    expect(find.byKey(const Key('inspector-shape')), findsOneWidget);
+    expect(find.byKey(const Key('inspector-shape-disabled')), findsNothing);
+    expect(pathTrackOf(docOf(c, doc.id), const NodeId('r'))!.keyCount, 2);
+
+    // Editing the width COMMITS — it routes through retopologize, which rewrites
+    // every keyframe onto the recipe's new geometry and clears the stale recipe.
+    await commitField(tester, 'inspector-shape-w', '160');
+
+    final after = docOf(c, doc.id).nodeIndex[const NodeId('r')]! as PathNode;
+    expect(after.recipe, isNull,
+        reason: 'retopologize is a topology edit — it clears the recipe');
+    // Wider now: the rightmost anchor moved out to x = 80.
+    expect(after.path.anchors.map((a) => a.position.x).reduce(math.max),
+        closeTo(80, 1e-9));
+
+    // AC-4.3.6: every keyframe still poses exactly the topology sequence.
+    final track = pathTrackOf(docOf(c, doc.id), const NodeId('r'))!;
+    final ids = after.path.anchors.map((a) => a.id.v).toList();
+    expect(track.keyCount, 2);
+    for (final key in track.keys) {
+      expect(key.value.anchors.keys.map((a) => a.v).toList(), ids);
+    }
   });
 }

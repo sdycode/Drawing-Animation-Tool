@@ -138,6 +138,21 @@ class Keyframe<T> {
   /// bit-identical legacy import, and is invisible until someone diffs a render.
   final Easing easing;
 
+  /// The same key at a different [t] or [easing], **preserving [value]** — and,
+  /// covariantly on [Vec2Keyframe], its spatial tangents.
+  ///
+  /// [TrackOps.moveKeyframe] and [TrackOps.setEasing] rebuild through this
+  /// rather than `Keyframe(t: …, value: k.value, …)` for one reason: a plain
+  /// reconstruct drops a [Vec2Keyframe]'s `inTangent`/`outTangent`, silently
+  /// straightening a motion path the moment its key is dragged in time. `value`
+  /// is deliberately absent — these ops never change it, and a `T? value` cannot
+  /// tell "omitted" from "set to null" when `T` is nullable.
+  Keyframe<T> copyWith({double? t, Easing? easing}) => Keyframe<T>(
+        t: t ?? this.t,
+        value: value,
+        easing: easing ?? this.easing,
+      );
+
   /// Keyframe-level `unknownKeys` (docs/v3/02 §7) are deliberately not modelled
   /// yet: the reserved keys that exist today (`pins`) sit at track level, and
   /// doc 01 §7 writes this type with exactly three fields.
@@ -169,6 +184,18 @@ final class Vec2Keyframe extends Keyframe<Vec2> {
   final Vec2? inTangent;
   final Vec2? outTangent;
 
+  /// Carries the spatial tangents across a time/easing edit — see
+  /// [Keyframe.copyWith]. Without this override, moving a motion-path key in
+  /// time would return a plain [Keyframe] and lose its curve.
+  @override
+  Vec2Keyframe copyWith({double? t, Easing? easing}) => Vec2Keyframe(
+        t: t ?? this.t,
+        value: value,
+        easing: easing ?? this.easing,
+        inTangent: inTangent,
+        outTangent: outTangent,
+      );
+
   @override
   Map<String, Object?> toJson() => <String, Object?>{
         't': t,
@@ -197,6 +224,12 @@ sealed class Track {
   int get keyCount;
   double get firstT;
   double get lastT;
+
+  /// Every key's `t`, in order — the timeline's dot positions as a **pure read**
+  /// (AC-6.2.5), type-agnostic so a `byKey` loop can draw every property row
+  /// without downcasting to each track type. Derived from the one key list, not
+  /// a stored parallel array (invariant T4).
+  List<double> get keyTimes;
 
   /// The type-erased read. [PathTrack] returns null here **on purpose** —
   /// see its override.
@@ -362,6 +395,10 @@ sealed class TypedTrack<T> extends Track {
 
   @override
   double get lastT => keys.last.t;
+
+  @override
+  List<double> get keyTimes =>
+      List<double>.unmodifiable(<double>[for (final k in keys) k.t]);
 
   @override
   Object? sampleDynamic(double t) => sampleAt(t);

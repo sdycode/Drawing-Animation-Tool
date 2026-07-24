@@ -23,6 +23,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/project_store.dart';
 import '../../state/command.dart';
 import '../../state/document_controller.dart';
+import '../../state/editor_controller.dart';
 import '../../state/recipe_guard.dart';
 
 /// The message shown when an op rejected the edit.
@@ -51,17 +52,31 @@ final class CanvasCommands {
   /// (docs/v3/04 §6), and it is enforced in the tools — a tool that returned a
   /// command from `onPointerMove` would get 200 of each, and this method would
   /// dutifully run them all.
-  Future<String?> run(Command command) =>
-      _guard(() => _controller.run(command));
+  ///
+  /// [keyframe] is the editing keyframe live at gesture time, captured with the
+  /// undo snapshot so undo returns the user to the key they were editing
+  /// (docs/v3/04 §6). Null when nothing is selected — a rest-pose edit — which
+  /// the snapshot reads as "carried none" rather than "clear the selection".
+  Future<String?> run(Command command, {KeyframeRef? keyframe}) =>
+      _guard(() => _controller.run(command, keyframe: keyframe));
 
   /// Regenerate a node's geometry from an edited [ShapeRecipe] (AC-4.1.5).
   ///
-  /// **The refusal is checked here, not caught from the op.** A node carrying
-  /// path keyframes is legal data, so the answer is a sentence the user can act
-  /// on ([kAnimatedPathRecipeMessage]) rather than an `ArgumentError` through the
-  /// gate's `assert`. The op still throws — that is its contract, and it is what
-  /// stops a future call site from bypassing this check — but nothing reaches it
-  /// in that state from here.
+  /// Forks on **one predicate — does the node carry a `path` track?**
+  /// ([recipeRegenerationRefusal], non-null exactly when it does), so the answer
+  /// stays in `state/` where the inspector reads the same one to enable its fields:
+  ///
+  /// - **Untracked** → [RegenerateRecipeCommand] regenerates in place, keeping the
+  ///   recipe as inert metadata.
+  /// - **Tracked** → in-place regeneration is unrepresentable (fresh `AnchorId`s
+  ///   against keyframes posing the old ones), so it routes through
+  ///   [RetopologizeCommand] — arc-length correspondence rewrites every keyframe
+  ///   onto the recipe's new id set (AC-4.3.7) and clears the stale recipe. Once
+  ///   per edit, from a command, never in the tick.
+  ///
+  /// An [UnknownRecipe] builds no geometry, so it never takes the tracked branch
+  /// (retopologising to it would erase the outline); it falls through to
+  /// [RegenerateRecipeCommand], whose op refuses it as before.
   ///
   /// **Call site:** the inspector's shape-parameter fields. It lives in the
   /// canvas's command file because `PathOps` edits the geometry the canvas
@@ -70,12 +85,10 @@ final class CanvasCommands {
   Future<String?> regenerateRecipe(NodeId node, ShapeRecipe recipe) {
     final doc = _ref.read(documentControllerProvider(_projectId)).valueOrNull;
     if (doc == null) return Future<String?>.value(kRejectedEditMessage);
-    // ONE predicate, in `state/` where both features can reach it. The inspector
-    // asks the same question twice — once to disable the fields, once to gate the
-    // write — and a second copy here is how the control and the write end up
-    // disagreeing about whether an edit is allowed.
-    final refusal = recipeRegenerationRefusal(doc, node);
-    if (refusal != null) return Future<String?>.value(refusal);
+    final tracked = recipeRegenerationRefusal(doc, node) != null;
+    if (tracked && recipe is! UnknownRecipe) {
+      return run(RetopologizeCommand(node, recipe.toPath()));
+    }
     return run(RegenerateRecipeCommand(node, recipe));
   }
 

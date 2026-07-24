@@ -497,6 +497,45 @@ void main() {
         reason: 'a legal document property is never an assert');
   });
 
+  testWidgets(
+      'Esc mid-drag abandons the move — the node is not moved and not committed',
+      (tester) async {
+    // `Esc` used to clear the selection (the canvas fallback) but leave the
+    // in-flight `_NodeDrag` armed, so the pointer release still ran
+    // `SetTransformCommand` and the move landed anyway. Pressing Esc mid-drag
+    // must abandon the move, which is what every editor does.
+    final s = seed([square('sq', const Vec2(100, 100), 100)]);
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    final doc = c.read(documentControllerProvider(s.id).notifier);
+    final revBefore = c.read(documentControllerProvider(s.id)).requireValue.rev;
+    final box = canvasRect(tester);
+
+    // Press on the square, drag it well clear of where it started, press Esc
+    // while the pointer is still DOWN, then release.
+    final g = await tester.startGesture(toScreen(const Vec2(150, 150), box));
+    await tester.pump(const Duration(milliseconds: 16));
+    await g.moveTo(toScreen(const Vec2(260, 210), box));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    await g.up();
+    await tester.pumpAndSettle();
+
+    // The move was abandoned: the node is where it started, nothing committed,
+    // rev unchanged, and there is nothing to undo.
+    final after = (await reload(s.store, s.id)).root.children.single;
+    expect(after.transform.position, Vec2.zero,
+        reason: 'Esc mid-drag drops the drag; the release commits nothing');
+    expect(c.read(documentControllerProvider(s.id)).requireValue.rev, revBefore,
+        reason: 'no commit, no rev bump');
+    expect(doc.canUndo, isFalse, reason: 'no undo entry for an abandoned move');
+    expect(tester.takeException(), isNull);
+  });
+
   // --- Board pan / zoom -----------------------------------------------------
 
   testWidgets(

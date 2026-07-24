@@ -296,6 +296,232 @@ final class RegenerateRecipeCommand implements Command {
   Document apply(Document d) => PathOps.regenerateRecipe(d, node, recipe);
 }
 
+/// Snapshot a path's current pose into a keyframe at [t] — the geometry
+/// "stopwatch" (F6.1).
+///
+/// Prevents the defect the M4 audit found: **there was no way to author the
+/// first path keyframe.** [MoveAnchorCommand]/[SetTangentsCommand] create a
+/// path track only as a side effect of *moving* an anchor, and after the
+/// AC-4.2.3 fix a drag on a static node edits the rest pose and makes no track,
+/// while [KeyframeAtCommand] refuses `PropKey.path`. So a user could draw a
+/// curve and never start animating it. This command is the affordance that
+/// starts (and continues) path animation without moving anything.
+///
+/// All of the semantics live in [PathOps.keyPose]: an untracked node is seeded
+/// with one key holding its rest pose; a tracked node captures the pose
+/// *evaluated* at [t] (AE stopwatch semantics); the key is upserted (a second
+/// at [t] is impossible); every keyframe poses exactly the node's topology; and
+/// the recipe is **left intact**, because a pose snapshot edits no anchor. The
+/// command only names the edit.
+final class KeyPathCommand implements Command {
+  const KeyPathCommand(this.node, this.t);
+
+  final NodeId node;
+  final double t;
+
+  @override
+  String get label => 'Key path';
+
+  @override
+  Document apply(Document d) => PathOps.keyPose(d, node, t);
+}
+
+// ---------------------------------------------------------------------------
+// Topology — F4.3, the load-bearing feature (docs/v3/01 §12, §13.5). Each of
+// these is **one command = one undo entry across every keyframe it touches**
+// (AC-4.3.3): the op writes into every keyframe of every path track for the
+// node across every animation AND the node's rest `PathData` in a single pure
+// `Document → Document`, so [CommandStack] snapshots the whole transaction as
+// one entry — never one per keyframe. The op enforces the invariants and throws
+// `ArgumentError` on a bad input; that throw is the same throw the command gate
+// catches (docs/v3/08 §1).
+// ---------------------------------------------------------------------------
+
+/// Insert an anchor mid-segment — the pen tool's click on an existing edge
+/// (F4.3, AC-4.3.1/2/3).
+///
+/// [PathOps.insertAnchor] mints ONE `AnchorId`, splices it after [after] in draw
+/// order (respecting the `closed` wrap), and de Casteljau splits the `after →
+/// next` cubic at [u] in the rest pose and in every keyframe of every path track
+/// for the node across every animation — so the split is exact and every
+/// keyframe stays **pixel-identical** (AC-4.3.2). The minted id is discarded
+/// here, like [AddFillCommand]'s `PaintId`: a command is a pure value, so the
+/// caller reads the new anchor back off the committed document.
+final class InsertAnchorCommand implements Command {
+  const InsertAnchorCommand(this.node, this.after, this.u);
+
+  final NodeId node;
+  final AnchorId after;
+  final double u;
+
+  @override
+  String get label => 'Insert anchor';
+
+  @override
+  Document apply(Document d) =>
+      PathOps.insertAnchor(d, node, after: after, u: u).$1;
+}
+
+/// Delete an anchor — the pen tool's Del on a selected anchor (F4.3, AC-4.3.5).
+///
+/// [PathOps.deleteAnchor] removes the id from the node's `PathData` and from
+/// every keyframe pose of every path track for the node across every animation.
+/// Neighbour tangents are not auto-repaired — removing a mid-curve anchor is a
+/// shape change, and faking continuity would be a silent geometry edit. The
+/// floor is the empty path (invariant P2 makes 0/1 anchors legal), so the op
+/// refuses only an anchor that is not in the topology.
+final class DeleteAnchorCommand implements Command {
+  const DeleteAnchorCommand(this.node, this.anchor);
+
+  final NodeId node;
+  final AnchorId anchor;
+
+  @override
+  String get label => 'Delete anchor';
+
+  @override
+  Document apply(Document d) => PathOps.deleteAnchor(d, node, anchor);
+}
+
+/// Replace a node's whole anchor set onto [newTopology] by arc-length
+/// correspondence (F4.3, AC-4.3.7).
+///
+/// The one route besides insert/delete an anchor set may change:
+/// [PathOps.retopologize] rewrites the node's topology **and** every keyframe
+/// pose onto the new id set, repositioning each new anchor by its arc-length
+/// fraction. This is what makes "draw a square, change the recipe to a star" on
+/// an already-animated node legal (docs/v3/01 §13.1) — the disjoint-id-set case
+/// never reaches the evaluator. Recipe regeneration on a tracked node, a
+/// paste-replace-geometry, and the importer's repair all route here rather than
+/// swapping `PathData` under the keyframes.
+final class RetopologizeCommand implements Command {
+  const RetopologizeCommand(this.node, this.newTopology);
+
+  final NodeId node;
+  final PathData newTopology;
+
+  @override
+  String get label => 'Retopologize';
+
+  @override
+  Document apply(Document d) => PathOps.retopologize(d, node, newTopology);
+}
+
+// ---------------------------------------------------------------------------
+// Keyframes — F6.1, F6.2, F7.1 (docs/v3/03). One class per edit, each a thin
+// wrapper over the `KeyframeOps` route that already enforces the track
+// invariants (T1–T3) — **no generic Map-payload command and no `BatchCommand`**
+// (docs/v3/08 §4). The op throws `ArgumentError` on an unknown node, a
+// value-type mismatch, a bad index, or a within-`minSeparation` collision, and
+// that throw is the same throw the timeline's command gate catches
+// (docs/v3/08 §1): the timeline never re-validates what the op already refuses.
+//
+// Each addresses a key by `(node, PropertyKey, index)`, and the index is the
+// one **resolved at command construction** — the drag reads it when the gesture
+// starts and never re-derives it from a mid-drag float (AC-6.2.1). A command is
+// a value, so it carries that index frozen; that is the structural half of "the
+// drag never retimes the wrong key".
+// ---------------------------------------------------------------------------
+
+/// Upsert a key at [t] holding [value] — the timeline's **K** action and the
+/// canvas/inspector's edit-at-keyframe write (AC-6.1.1, AC-6.2.7).
+///
+/// The caller samples the property's evaluated value at the playhead and passes
+/// it in; [KeyframeOps.keyAt] does not evaluate. It creates the track (type from
+/// `kExpectedTrackType`), its `TrackSet` and the default `Animation` when they
+/// are absent, and **replaces** an existing key at [t] rather than minting a
+/// second one there (coincident keys are unrepresentable by construction). It
+/// **refuses `PropKey.path`** — a path key is a `PathPose` that `PathOps` owns —
+/// so the throw stays the backstop for a mis-routed call rather than a path the
+/// timeline reaches.
+final class KeyframeAtCommand implements Command {
+  const KeyframeAtCommand(this.node, this.property, this.t, this.value);
+
+  final NodeId node;
+  final PropertyKey property;
+  final double t;
+  final Object? value;
+
+  @override
+  String get label => 'Key';
+
+  @override
+  Document apply(Document d) => KeyframeOps.keyAt(d, node, property, t, value);
+}
+
+/// Move key [index] of `(node, property)` to [newT] — a keyframe dot dragged
+/// along its rail (AC-6.2.1).
+///
+/// [index] is resolved when the drag starts, never re-derived from the float
+/// under the pointer, so a live preview that slides the dot past its neighbour
+/// still commits against the key the user grabbed. [KeyframeOps.moveKey] clamps
+/// [newT] to `[0,1]`, preserves the key's value and easing, and **rejects** a
+/// drop within `TrackOps.minSeparation` of another key — no silent merge, no
+/// divide-by-zero in the sampler (AC-6.2.2). It touches only `t`, so it is legal
+/// on a path track too (the pose is never read).
+final class MoveKeyframeCommand implements Command {
+  const MoveKeyframeCommand(this.node, this.property, this.index, this.newT);
+
+  final NodeId node;
+  final PropertyKey property;
+  final int index;
+  final double newT;
+
+  @override
+  String get label => 'Move keyframe';
+
+  @override
+  Document apply(Document d) =>
+      KeyframeOps.moveKey(d, node, property, index, newT);
+}
+
+/// Set the easing on the segment **leaving** key [index] (AC-7.1.1). Easing
+/// belongs to the key it leaves, so a 3-key track has its three outgoing curves
+/// addressed by the left index of each segment.
+///
+/// [easing] is already lowered to a concrete `Easing` at the call site — a
+/// named preset reaches here as its `CubicEasing` four numbers, never as a
+/// symbol (AC-7.1.2), so the wire format never has to know the preset
+/// vocabulary and a preset nudged into a custom curve is not a type change.
+final class SetKeyframeEasingCommand implements Command {
+  const SetKeyframeEasingCommand(
+      this.node, this.property, this.index, this.easing);
+
+  final NodeId node;
+  final PropertyKey property;
+  final int index;
+  final Easing easing;
+
+  @override
+  String get label => 'Easing';
+
+  @override
+  Document apply(Document d) =>
+      KeyframeOps.setKeyEasing(d, node, property, index, easing);
+}
+
+/// Remove key [index] of `(node, property)` — **Shift+K** on the key under the
+/// playhead.
+///
+/// [KeyframeOps.removeKey] drops the whole track when its last key goes (a
+/// zero-key track is unrepresentable under T1) and prunes the node's `TrackSet`
+/// entry if that empties it, while **keeping** the `Animation` — the v1
+/// invariant is exactly one animation named by `defaultAnimationId`, and an
+/// empty animation is the legal "everything static" state.
+final class RemoveKeyframeCommand implements Command {
+  const RemoveKeyframeCommand(this.node, this.property, this.index);
+
+  final NodeId node;
+  final PropertyKey property;
+  final int index;
+
+  @override
+  String get label => 'Remove keyframe';
+
+  @override
+  Document apply(Document d) => KeyframeOps.removeKey(d, node, property, index);
+}
+
 // ---------------------------------------------------------------------------
 // Paint — F5.1. One class per edit, and **no `PaintSource` anywhere.**
 //
@@ -509,8 +735,8 @@ final class SetStrokeJoinCommand implements Command {
 
 /// Set the ratio at which a miter join's spike is cut back to a bevel. Below 1
 /// describes a miter shorter than the stroke is wide, which is geometrically
-/// meaningless and answered differently by each rasteriser — so the op refuses
-/// it rather than letting the backend decide.
+/// meaningless and answered differently by each rasteriser — so the op clamps
+/// it to 1 rather than letting the backend decide.
 final class SetStrokeMiterLimitCommand implements Command {
   const SetStrokeMiterLimitCommand(this.node, this.stroke, this.miterLimit);
 

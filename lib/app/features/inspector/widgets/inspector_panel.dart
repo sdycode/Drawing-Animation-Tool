@@ -9,8 +9,30 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../common/color_field.dart';
 import '../../../common/number_field.dart';
+import '../../../state/editor_controller.dart';
 import '../commands.dart';
 import '../providers.dart';
+
+// The animatable channels the inspector draws a diamond for. Paint channels
+// carry a `PaintId` subject and are built at their call site off the shown
+// paint; these five are subject-less.
+const PropertyKey _kPosition = PropertyKey(PropKey.position);
+const PropertyKey _kScale = PropertyKey(PropKey.scale);
+const PropertyKey _kRotation = PropertyKey(PropKey.rotation);
+const PropertyKey _kSkewX = PropertyKey(PropKey.skewX);
+const PropertyKey _kOpacity = PropertyKey(PropKey.opacity);
+
+/// The geometry channel — a diamond-only row (no field: a `PathPose` is edited
+/// on the canvas by direct-select, F4.2). It is the one hand affordance that
+/// authors the first path keyframe.
+const PropertyKey _kPath = PropertyKey(PropKey.path);
+
+/// The live playhead, normalised — read (never watched) at commit/click time, so
+/// a keyframe lands at the `t` the canvas and timeline are showing.
+double _playheadT(WidgetRef ref) {
+  final t = ref.read(playheadProvider).value;
+  return t.isNaN ? 0.0 : t.clamp(0.0, 1.0).toDouble();
+}
 
 /// The Inspector — numeric/typed editing of the selected node's values
 /// (docs/v3/05 §2, F3.1).
@@ -50,6 +72,10 @@ class InspectorPanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     debugBuildCount++;
     final target = ref.watch(inspectorTargetProvider(projectId));
+    // Tracked-ness for every diamond and every field's routing, read as a named
+    // slice (docs/v3/08 §2). It changes when a track is keyed or removed — not
+    // when the playhead scrubs, so the fields never rebuild on a scrub.
+    final tracks = ref.watch(inspectorTracksProvider(projectId));
     final scheme = Theme.of(context).colorScheme;
 
     return Container(
@@ -62,7 +88,7 @@ class InspectorPanel extends ConsumerWidget {
           Expanded(
             child: target.node == null
                 ? _summary(context, target.selectionCount)
-                : _transformEditor(context, ref, target.node!),
+                : _transformEditor(context, ref, target.node!, tracks),
           ),
         ],
       ),
@@ -85,8 +111,8 @@ class InspectorPanel extends ConsumerWidget {
     );
   }
 
-  Widget _transformEditor(
-      BuildContext context, WidgetRef ref, NodeTransformView view) {
+  Widget _transformEditor(BuildContext context, WidgetRef ref,
+      NodeTransformView view, InspectorTracksView tracks) {
     final scheme = Theme.of(context).colorScheme;
     final t = view.transform;
 
@@ -105,6 +131,20 @@ class InspectorPanel extends ConsumerWidget {
 
     void commit(Transform2 next) => _commit(context, ref, view.id, next);
 
+    final cmds = InspectorCommands(ref, projectId);
+    bool tracked(PropertyKey p) => tracks[p] != null;
+
+    // The keyframe toggle for one channel: empty until keyed, then filled on a
+    // key / hollow between keys (the diamond itself reads the live playhead).
+    Widget diamond(PropertyKey property, Object? authored) => _KeyframeDiamond(
+          keyName: 'kf-${property.wire}',
+          keyTimes: tracks[property],
+          onKey: () => _report(context,
+              cmds.keyCurrent(view.id, property, _playheadT(ref), authored)),
+          onRemoveAt: (index) =>
+              _report(context, cmds.removeKeyAt(view.id, property, index)),
+        );
+
     return ListView(
       key: const Key('inspector-transform'),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -118,47 +158,137 @@ class InspectorPanel extends ConsumerWidget {
         Text('Transform',
             style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
         const SizedBox(height: 8),
+        // Each animatable field carries a diamond and routes by tracked-ness:
+        // tracked → upsert the keyframe at the playhead (edit-at-keyframe,
+        // AC-6.2.6); untracked → write the static pose exactly as before. The
+        // diamond and the field read the same `tracks` slice, so they never
+        // disagree about which world they are in.
         _pair(
           label: 'Position',
-          xKey: 'inspector-position-x',
-          yKey: 'inspector-position-y',
-          x: t.position.x,
-          y: t.position.y,
-          onX: (v) => commit(t.copyWith(position: Vec2(v, t.position.y))),
-          onY: (v) => commit(t.copyWith(position: Vec2(t.position.x, v))),
+          leading: diamond(_kPosition, t.position),
+          xField: _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-position-x',
+            label: 'X',
+            tracked: tracked(_kPosition),
+            property: _kPosition,
+            staticDisplay: t.position.x,
+            toDisplay: (s) => s is Vec2 ? s.x : t.position.x,
+            onCommit: tracked(_kPosition)
+                ? (v) => _report(
+                    context,
+                    cmds.keyVec2(
+                        view.id, _kPosition, _playheadT(ref), t.position,
+                        x: v))
+                : (v) => commit(t.copyWith(position: Vec2(v, t.position.y))),
+          ),
+          yField: _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-position-y',
+            label: 'Y',
+            tracked: tracked(_kPosition),
+            property: _kPosition,
+            staticDisplay: t.position.y,
+            toDisplay: (s) => s is Vec2 ? s.y : t.position.y,
+            onCommit: tracked(_kPosition)
+                ? (v) => _report(
+                    context,
+                    cmds.keyVec2(
+                        view.id, _kPosition, _playheadT(ref), t.position,
+                        y: v))
+                : (v) => commit(t.copyWith(position: Vec2(t.position.x, v))),
+          ),
         ),
         _pair(
           label: 'Scale',
-          xKey: 'inspector-scale-x',
-          yKey: 'inspector-scale-y',
-          x: t.scale.x,
-          y: t.scale.y,
-          onX: (v) => commit(t.copyWith(scale: Vec2(v, t.scale.y))),
-          onY: (v) => commit(t.copyWith(scale: Vec2(t.scale.x, v))),
+          leading: diamond(_kScale, t.scale),
+          xField: _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-scale-x',
+            label: 'X',
+            tracked: tracked(_kScale),
+            property: _kScale,
+            staticDisplay: t.scale.x,
+            toDisplay: (s) => s is Vec2 ? s.x : t.scale.x,
+            onCommit: tracked(_kScale)
+                ? (v) => _report(
+                    context,
+                    cmds.keyVec2(view.id, _kScale, _playheadT(ref), t.scale,
+                        x: v))
+                : (v) => commit(t.copyWith(scale: Vec2(v, t.scale.y))),
+          ),
+          yField: _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-scale-y',
+            label: 'Y',
+            tracked: tracked(_kScale),
+            property: _kScale,
+            staticDisplay: t.scale.y,
+            toDisplay: (s) => s is Vec2 ? s.y : t.scale.y,
+            onCommit: tracked(_kScale)
+                ? (v) => _report(
+                    context,
+                    cmds.keyVec2(view.id, _kScale, _playheadT(ref), t.scale,
+                        y: v))
+                : (v) => commit(t.copyWith(scale: Vec2(t.scale.x, v))),
+          ),
         ),
         _pair(
+          // Pivot is NOT animatable (docs/v3/01 §7 / §4), so it carries no
+          // diamond and always writes the static transform.
           label: 'Pivot',
-          xKey: 'inspector-pivot-x',
-          yKey: 'inspector-pivot-y',
-          x: t.pivot.x,
-          y: t.pivot.y,
           // A pivot edit re-renders the node about the new pivot without touching
           // its untransformed geometry — that falls out of Transform2, we only
           // write the field (AC-3.1.3).
-          onX: (v) => commit(t.copyWith(pivot: Vec2(v, t.pivot.y))),
-          onY: (v) => commit(t.copyWith(pivot: Vec2(t.pivot.x, v))),
+          xField: CommittedNumberField(
+            key: const Key('inspector-pivot-x'),
+            label: 'X',
+            value: t.pivot.x,
+            onCommit: (v) => commit(t.copyWith(pivot: Vec2(v, t.pivot.y))),
+          ),
+          yField: CommittedNumberField(
+            key: const Key('inspector-pivot-y'),
+            label: 'Y',
+            value: t.pivot.y,
+            onCommit: (v) => commit(t.copyWith(pivot: Vec2(t.pivot.x, v))),
+          ),
         ),
         _single(
           label: 'Rotation (°)',
-          fieldKey: 'inspector-rotation',
-          value: t.rotation * _radToDeg,
-          onCommit: (deg) => commit(t.copyWith(rotation: deg * _degToRad)),
+          leading: diamond(_kRotation, t.rotation),
+          field: _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-rotation',
+            tracked: tracked(_kRotation),
+            property: _kRotation,
+            staticDisplay: t.rotation * _radToDeg,
+            toDisplay: (s) =>
+                s is double ? s * _radToDeg : t.rotation * _radToDeg,
+            onCommit: tracked(_kRotation)
+                ? (deg) => _report(
+                    context,
+                    cmds.keyValue(
+                        view.id, _kRotation, _playheadT(ref), deg * _degToRad))
+                : (deg) => commit(t.copyWith(rotation: deg * _degToRad)),
+          ),
         ),
         _single(
           label: 'Skew X (°)',
-          fieldKey: 'inspector-skewx',
-          value: t.skewX * _radToDeg,
-          onCommit: (deg) => commit(t.copyWith(skewX: deg * _degToRad)),
+          leading: diamond(_kSkewX, t.skewX),
+          field: _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-skewx',
+            tracked: tracked(_kSkewX),
+            property: _kSkewX,
+            staticDisplay: t.skewX * _radToDeg,
+            toDisplay: (s) => s is double ? s * _radToDeg : t.skewX * _radToDeg,
+            onCommit: tracked(_kSkewX)
+                ? (deg) => _report(
+                    context,
+                    cmds.keyValue(
+                        view.id, _kSkewX, _playheadT(ref), deg * _degToRad))
+                : (deg) => commit(t.copyWith(skewX: deg * _degToRad)),
+          ),
         ),
         const SizedBox(height: 8),
         Text('Appearance',
@@ -175,11 +305,27 @@ class InspectorPanel extends ConsumerWidget {
         // to set either factor.
         _single(
           label: 'Opacity (%)',
-          fieldKey: 'inspector-opacity',
-          value: view.opacity * 100,
-          onCommit: (percent) => _commitOpacity(context, ref, view.id, percent),
+          leading: diamond(_kOpacity, view.opacity),
+          field: _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-opacity',
+            tracked: tracked(_kOpacity),
+            property: _kOpacity,
+            staticDisplay: view.opacity * 100,
+            toDisplay: (s) => s is double ? s * 100 : view.opacity * 100,
+            onCommit: tracked(_kOpacity)
+                ? (percent) => _report(
+                    context,
+                    cmds.keyValue(view.id, _kOpacity, _playheadT(ref),
+                        (percent / 100).clamp(0.0, 1.0)))
+                : (percent) => _commitOpacity(context, ref, view.id, percent),
+          ),
         ),
         const SizedBox(height: 16),
+        // The geometry "stopwatch" — a diamond-only row that authors the first
+        // path keyframe (F6.1). It sits with the geometry, above the paint it
+        // does not touch.
+        _PathSection(projectId: projectId),
         // Fill above stroke, because **fills paint before strokes, always**
         // (docs/v3/01 §6, AC-5.1.5). The ordering is the renderer's, expressed
         // by `fills` and `strokes` being two fields — so the panel reads top to
@@ -193,8 +339,13 @@ class InspectorPanel extends ConsumerWidget {
             style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
         const SizedBox(height: 4),
         _seam(context, 'Draw-on trim'),
-        _seam(context, 'Easing between keyframes'),
-        _seam(context, 'Corner and smooth anchors'),
+        // Easing and anchor-kind editing SHIPPED (M4 timeline, M3 direct-select),
+        // so these rows point at where the feature lives rather than claiming it
+        // is "not yet available" as they used to — that read as a broken tool to
+        // the ship-gate stranger (docs/v3/00 §5).
+        _hint(context, 'Easing — set it per segment on the timeline'),
+        _hint(context,
+            'Corner and smooth anchors — Alt-click an anchor with Direct Select'),
       ],
     );
   }
@@ -215,41 +366,28 @@ class InspectorPanel extends ConsumerWidget {
         InspectorCommands(ref, projectId).setOpacity(id, percent / 100));
   }
 
+  /// An X/Y row. It lays out two **already-built** fields — a plain
+  /// `CommittedNumberField` when untracked, or a leaf that samples the track at
+  /// the playhead when tracked (see [_numberField]) — so the WYSIWYG wrapping is
+  /// decided at the call site and this helper stays layout-only.
   Widget _pair({
     required String label,
-    required String xKey,
-    required String yKey,
-    required double x,
-    required double y,
-    required ValueChanged<double> onX,
-    required ValueChanged<double> onY,
+    required Widget xField,
+    required Widget yField,
+    Widget? leading,
   }) =>
       Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _fieldLabel(label),
+            _labelRow(label, leading),
             const SizedBox(height: 4),
             Row(
               children: [
-                Expanded(
-                  child: CommittedNumberField(
-                    key: Key(xKey),
-                    label: 'X',
-                    value: x,
-                    onCommit: onX,
-                  ),
-                ),
+                Expanded(child: xField),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: CommittedNumberField(
-                    key: Key(yKey),
-                    label: 'Y',
-                    value: y,
-                    onCommit: onY,
-                  ),
-                ),
+                Expanded(child: yField),
               ],
             ),
           ],
@@ -258,22 +396,17 @@ class InspectorPanel extends ConsumerWidget {
 
   Widget _single({
     required String label,
-    required String fieldKey,
-    required double value,
-    required ValueChanged<double> onCommit,
+    required Widget field,
+    Widget? leading,
   }) =>
       Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _fieldLabel(label),
+            _labelRow(label, leading),
             const SizedBox(height: 4),
-            CommittedNumberField(
-              key: Key(fieldKey),
-              value: value,
-              onCommit: onCommit,
-            ),
+            field,
           ],
         ),
       );
@@ -285,6 +418,15 @@ class InspectorPanel extends ConsumerWidget {
               fontSize: 10,
               color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
+      );
+
+  /// A field label, optionally preceded by its keyframe diamond. The label is
+  /// `Expanded` so a long name never pushes the diamond off the row.
+  Widget _labelRow(String label, Widget? leading) => Row(
+        children: [
+          if (leading != null) ...[leading, const SizedBox(width: 6)],
+          Expanded(child: _fieldLabel(label)),
+        ],
       );
 
   /// A named-but-absent editor, in **plain language**.
@@ -304,6 +446,17 @@ class InspectorPanel extends ConsumerWidget {
         child: Text('$title — not yet available',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
       ),
+    );
+  }
+
+  /// A pointer to a feature that **is** built but lives on another surface — the
+  /// honest replacement for a "not yet available" row on a shipped feature.
+  Widget _hint(BuildContext context, String text) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Text(text,
+          style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
     );
   }
 
@@ -343,6 +496,194 @@ void _report(BuildContext context, Future<String?> pending) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// WYSIWYG tracked fields (AC-6.2.6) — the field shows what the canvas shows
+// ---------------------------------------------------------------------------
+//
+// A tracked property's field must display the value SAMPLED AT THE PLAYHEAD —
+// the keyframe/interpolated value the canvas is drawing — not the static rest
+// pose, or scrubbing to a key that holds 170° shows the field at 0° and typing
+// 5 silently jumps the key by 165° (AC-6.2.6, UX §3). The commit still writes
+// to the playhead's key; only the *display* changes.
+//
+// **Hot-path-safe.** The sampled value lives in a leaf [_SampledValue] that
+// watches the value-equal [inspectorSamplesProvider] (which changes on a key
+// edit, never on a scrub) and re-reads the live playhead in a
+// `ValueListenableBuilder` — so a scrub repaints only the field's text and
+// rebuilds no panel (AC-13.3), the same pattern the diamond and the timeline
+// readout use.
+
+/// The node-local sampled value of a typed track at [t]. Mirrors the timeline
+/// `K` / `keyCurrent` sampler; a small duplicate rather than a cross-feature
+/// import (docs/v3/08 §3). A `PathTrack` (unreachable value) or no track yields
+/// null, and the caller falls back to the static pose.
+Object? _sampleTrack(Track? track, double t) => switch (track) {
+      final Vec2Track v => v.sampleAt(t),
+      final ScalarTrack s => s.sampleAt(t),
+      final ColorTrack c => c.sampleAt(t),
+      _ => null,
+    };
+
+/// A number field that is WYSIWYG when [tracked] and plain otherwise.
+///
+/// Untracked: a plain [CommittedNumberField] showing [staticDisplay], exactly as
+/// before. Tracked: a leaf that samples [property] at the live playhead and maps
+/// the sample to the display unit with [toDisplay] (radians→degrees, 0..1→%),
+/// falling back to [staticDisplay] when the sample is unavailable. [onCommit]
+/// still writes absolutely to the playhead's key.
+Widget _numberField({
+  required String projectId,
+  required String fieldKey,
+  required bool tracked,
+  required PropertyKey property,
+  required double staticDisplay,
+  required double Function(Object sampled) toDisplay,
+  required ValueChanged<double> onCommit,
+  String? label,
+}) {
+  if (!tracked) {
+    return CommittedNumberField(
+        key: Key(fieldKey),
+        label: label,
+        value: staticDisplay,
+        onCommit: onCommit);
+  }
+  return _SampledValue<double>(
+    projectId: projectId,
+    property: property,
+    fallback: staticDisplay,
+    project: toDisplay,
+    builder: (value) => CommittedNumberField(
+        key: Key(fieldKey), label: label, value: value, onCommit: onCommit),
+  );
+}
+
+/// The colour twin of [_numberField]: WYSIWYG at the playhead when tracked.
+Widget _colorField({
+  required String projectId,
+  required String fieldKey,
+  required bool tracked,
+  required PropertyKey property,
+  required Rgba staticColor,
+  required ValueChanged<Rgba> onCommit,
+}) {
+  if (!tracked) {
+    return CommittedColorField(
+        key: Key(fieldKey), value: staticColor, onCommit: onCommit);
+  }
+  return _SampledValue<Rgba>(
+    projectId: projectId,
+    property: property,
+    fallback: staticColor,
+    project: (s) => s is Rgba ? s : staticColor,
+    builder: (value) => CommittedColorField(
+        key: Key(fieldKey), value: value, onCommit: onCommit),
+  );
+}
+
+/// Resolves a tracked field's displayed value at the **live** playhead and hands
+/// it to [builder]. Watches only [inspectorSamplesProvider] (a key edit, not a
+/// scrub) and the playhead notifier, so a scrub repaints just the field.
+class _SampledValue<T> extends ConsumerWidget {
+  const _SampledValue({
+    required this.projectId,
+    required this.property,
+    required this.fallback,
+    required this.project,
+    required this.builder,
+  });
+
+  final String projectId;
+  final PropertyKey property;
+  final T fallback;
+
+  /// Maps a non-null sample (a `double`, `Vec2` or `Rgba`) to the display type.
+  final T Function(Object sampled) project;
+  final Widget Function(T value) builder;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // The samples slice's identity is what changes on a key edit; the playhead
+    // notifier's value is what changes on a scrub. Neither is read from the
+    // panel, so the panel does not rebuild for either.
+    final track = ref.watch(inspectorSamplesProvider(projectId))[property];
+    final playhead = ref.watch(playheadProvider);
+    return ValueListenableBuilder<double>(
+      valueListenable: playhead,
+      builder: (context, raw, _) {
+        final t = raw.isNaN ? 0.0 : raw.clamp(0.0, 1.0).toDouble();
+        final sampled = _sampleTrack(track, t);
+        return builder(sampled == null ? fallback : project(sampled));
+      },
+    );
+  }
+}
+
+/// The geometry "stopwatch" — a **diamond-only** row that authors the first path
+/// keyframe and removes them (F6.1, AC-6.2.6).
+///
+/// There is no path *field*: a `PathPose` is edited on the canvas by
+/// direct-select (F4.2). So this is the one hand affordance the audit found
+/// missing — [MoveAnchorCommand]/[SetTangentsCommand] only mint a path track as
+/// a side effect of *moving* an anchor (and after the AC-4.2.3 fix a drag on a
+/// static node edits the rest pose and makes none), so a user could draw a curve
+/// and never start animating it. The empty diamond runs [KeyPathCommand]
+/// (`PathOps.keyPose`) to seed one key from the rest pose; a filled one removes
+/// the key under the playhead.
+///
+/// Its own `ConsumerWidget` reading [inspectorPaintProvider] for the node id (it
+/// is non-null for any single selected `PathNode`) so a paint or transform
+/// commit rebuilds a different sub-tree (docs/v3/08 §2).
+class _PathSection extends ConsumerWidget {
+  const _PathSection({required this.projectId});
+
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final view = ref.watch(inspectorPaintProvider(projectId));
+    if (view == null) return const SizedBox.shrink();
+    final tracks = ref.watch(inspectorTracksProvider(projectId));
+    final scheme = Theme.of(context).colorScheme;
+    final commands = InspectorCommands(ref, projectId);
+
+    return Column(
+      key: const Key('inspector-path'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 12),
+        _groupLabel(context, 'Path'),
+        Row(
+          children: [
+            _KeyframeDiamond(
+              keyName: 'kf-${_kPath.wire}',
+              keyTimes: tracks[_kPath],
+              // The diamond keys a hold (or the first key) with `keyPose`, which
+              // owns both cases; a filled one removes the key under the playhead.
+              onKey: () => _report(
+                  context, commands.keyPath(view.node, _playheadT(ref))),
+              onRemoveAt: (index) => _report(
+                  context, commands.removeKeyAt(view.node, _kPath, index)),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text('Shape',
+                  style:
+                      TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'Key the whole outline here, then move anchors on the canvas with '
+          'Direct Select — each edit lands on the keyframe at the playhead.',
+          style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
 /// Solid fill and solid stroke authoring — F5.1.
 ///
 /// **Its own `ConsumerWidget` reading its own named slice**
@@ -365,15 +706,18 @@ class _PaintSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final view = ref.watch(inspectorPaintProvider(projectId));
     if (view == null) return const SizedBox.shrink();
+    // Tracked-ness for the paint diamonds and the paint fields' routing — the
+    // same slice the transform section reads, so the two agree on scope.
+    final tracks = ref.watch(inspectorTracksProvider(projectId));
     return Column(
       key: const Key('inspector-paint'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _groupLabel(context, 'Fill'),
-        _fill(context, ref, view),
+        _fill(context, ref, view, tracks),
         const SizedBox(height: 12),
         _groupLabel(context, 'Stroke'),
-        _stroke(context, ref, view),
+        _stroke(context, ref, view, tracks),
       ],
     );
   }
@@ -381,7 +725,24 @@ class _PaintSection extends ConsumerWidget {
   InspectorCommands _commands(WidgetRef ref) =>
       InspectorCommands(ref, projectId);
 
-  Widget _fill(BuildContext context, WidgetRef ref, NodePaintView view) {
+  /// One paint channel's keyframe diamond, keyed by its `PaintId`-subject
+  /// `PropertyKey`. Only ever built for a **solid** paint (the read-only branch
+  /// returns before any diamond), so [authored] is a real value, never null.
+  Widget _paintDiamond(BuildContext context, WidgetRef ref, NodeId node,
+          PropertyKey property, InspectorTracksView tracks, Object? authored) =>
+      _KeyframeDiamond(
+        keyName: 'kf-${property.wire}',
+        keyTimes: tracks[property],
+        onKey: () => _report(
+            context,
+            _commands(ref)
+                .keyCurrent(node, property, _playheadT(ref), authored)),
+        onRemoveAt: (index) =>
+            _report(context, _commands(ref).removeKeyAt(node, property, index)),
+      );
+
+  Widget _fill(BuildContext context, WidgetRef ref, NodePaintView view,
+      InspectorTracksView tracks) {
     final fill = view.fill;
     if (fill == null) {
       return _addButton(
@@ -394,29 +755,62 @@ class _PaintSection extends ConsumerWidget {
     if (reason != null) {
       return _readOnlyPaint(context, 'inspector-fill-readonly', reason);
     }
+    // Non-null past the read-only branch (a solid paint) — captured to a local
+    // so the diamonds and field read it without a bare `!`.
+    final color = fill.color;
+    if (color == null) return const SizedBox.shrink();
 
     final commands = _commands(ref);
+    final colorKey = PropertyKey(PropKey.fillColor, fill.id.v);
+    final opacityKey = PropertyKey(PropKey.fillOpacity, fill.id.v);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (view.fillCount > 1) _extraPaints(context, 'fill', view.fillCount),
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
-          child: CommittedColorField(
-            key: const Key('inspector-fill-color'),
-            value: fill.color!,
-            onCommit: (color) => _report(
-                context, commands.setFillColor(view.node, fill.id, color)),
+          child: Row(
+            children: [
+              _paintDiamond(context, ref, view.node, colorKey, tracks, color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _colorField(
+                  projectId: projectId,
+                  fieldKey: 'inspector-fill-color',
+                  tracked: tracks[colorKey] != null,
+                  property: colorKey,
+                  staticColor: color,
+                  onCommit: tracks[colorKey] != null
+                      ? (next) => _report(
+                          context,
+                          commands.keyValue(
+                              view.node, colorKey, _playheadT(ref), next))
+                      : (next) => _report(context,
+                          commands.setFillColor(view.node, fill.id, next)),
+                ),
+              ),
+            ],
           ),
         ),
         _labelled(
           'Opacity (%)',
-          CommittedNumberField(
-            key: const Key('inspector-fill-opacity'),
-            value: fill.opacity * 100,
-            onCommit: (percent) => _report(context,
-                commands.setFillOpacity(view.node, fill.id, percent / 100)),
+          _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-fill-opacity',
+            tracked: tracks[opacityKey] != null,
+            property: opacityKey,
+            staticDisplay: fill.opacity * 100,
+            toDisplay: (s) => s is double ? s * 100 : fill.opacity * 100,
+            onCommit: tracks[opacityKey] != null
+                ? (percent) => _report(
+                    context,
+                    commands.keyValue(view.node, opacityKey, _playheadT(ref),
+                        (percent / 100).clamp(0.0, 1.0)))
+                : (percent) => _report(context,
+                    commands.setFillOpacity(view.node, fill.id, percent / 100)),
           ),
+          leading: _paintDiamond(
+              context, ref, view.node, opacityKey, tracks, fill.opacity),
         ),
         // AC-5.1.4 — the winding rule of a self-intersecting outline. It is a
         // property of the fill, not of the path: two fills on one shape may
@@ -447,7 +841,8 @@ class _PaintSection extends ConsumerWidget {
     );
   }
 
-  Widget _stroke(BuildContext context, WidgetRef ref, NodePaintView view) {
+  Widget _stroke(BuildContext context, WidgetRef ref, NodePaintView view,
+      InspectorTracksView tracks) {
     final stroke = view.stroke;
     if (stroke == null) {
       return _addButton(
@@ -460,8 +855,13 @@ class _PaintSection extends ConsumerWidget {
     if (reason != null) {
       return _readOnlyPaint(context, 'inspector-stroke-readonly', reason);
     }
+    final color = stroke.color;
+    if (color == null) return const SizedBox.shrink();
 
     final commands = _commands(ref);
+    final colorKey = PropertyKey(PropKey.strokeColor, stroke.id.v);
+    final widthKey = PropertyKey(PropKey.strokeWidth, stroke.id.v);
+    final opacityKey = PropertyKey(PropKey.strokeOpacity, stroke.id.v);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -469,21 +869,52 @@ class _PaintSection extends ConsumerWidget {
           _extraPaints(context, 'stroke', view.strokeCount),
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
-          child: CommittedColorField(
-            key: const Key('inspector-stroke-color'),
-            value: stroke.color!,
-            onCommit: (color) => _report(
-                context, commands.setStrokeColor(view.node, stroke.id, color)),
+          child: Row(
+            children: [
+              _paintDiamond(context, ref, view.node, colorKey, tracks, color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _colorField(
+                  projectId: projectId,
+                  fieldKey: 'inspector-stroke-color',
+                  tracked: tracks[colorKey] != null,
+                  property: colorKey,
+                  staticColor: color,
+                  onCommit: tracks[colorKey] != null
+                      ? (next) => _report(
+                          context,
+                          commands.keyValue(
+                              view.node, colorKey, _playheadT(ref), next))
+                      : (next) => _report(context,
+                          commands.setStrokeColor(view.node, stroke.id, next)),
+                ),
+              ),
+            ],
           ),
         ),
         _labelled(
           'Width',
-          CommittedNumberField(
-            key: const Key('inspector-stroke-width'),
-            value: stroke.width,
-            onCommit: (width) => _report(
-                context, commands.setStrokeWidth(view.node, stroke.id, width)),
+          _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-stroke-width',
+            tracked: tracks[widthKey] != null,
+            property: widthKey,
+            staticDisplay: stroke.width,
+            toDisplay: (s) => s is double ? s : stroke.width,
+            onCommit: tracks[widthKey] != null
+                // Pre-clamp on the tracked path: the static path clamps in
+                // `PaintOps.setStrokeWidth`, but `keyValue → KeyframeOps.keyAt`
+                // does not, so a negative width would otherwise be stored in a
+                // keyframe (matching how tracked opacity is pre-clamped above).
+                ? (width) => _report(
+                    context,
+                    commands.keyValue(view.node, widthKey, _playheadT(ref),
+                        width.clamp(0.0, double.infinity)))
+                : (width) => _report(context,
+                    commands.setStrokeWidth(view.node, stroke.id, width)),
           ),
+          leading: _paintDiamond(
+              context, ref, view.node, widthKey, tracks, stroke.width),
         ),
         _enumRow<StrokeCap>(
           label: 'Cap',
@@ -503,9 +934,11 @@ class _PaintSection extends ConsumerWidget {
           onSelect: (join) => _report(
               context, commands.setStrokeJoin(view.node, stroke.id, join)),
         ),
-        // A ratio of miter length to stroke width, so it is meaningless below 1
-        // and the op refuses it there. Shown next to `Join` because it only does
-        // anything for a miter join.
+        // A ratio of miter length to stroke width, so it is meaningless below 1;
+        // the op clamps a sub-1 entry up to 1 rather than throwing, the same way
+        // opacity clamps — a bad keystroke must not trip the command gate's
+        // `assert(false)` on legal user data (docs/v3/08 §1). Shown next to
+        // `Join` because it only does anything for a miter join.
         _labelled(
           'Miter limit',
           CommittedNumberField(
@@ -517,12 +950,25 @@ class _PaintSection extends ConsumerWidget {
         ),
         _labelled(
           'Opacity (%)',
-          CommittedNumberField(
-            key: const Key('inspector-stroke-opacity'),
-            value: stroke.opacity * 100,
-            onCommit: (percent) => _report(context,
-                commands.setStrokeOpacity(view.node, stroke.id, percent / 100)),
+          _numberField(
+            projectId: projectId,
+            fieldKey: 'inspector-stroke-opacity',
+            tracked: tracks[opacityKey] != null,
+            property: opacityKey,
+            staticDisplay: stroke.opacity * 100,
+            toDisplay: (s) => s is double ? s * 100 : stroke.opacity * 100,
+            onCommit: tracks[opacityKey] != null
+                ? (percent) => _report(
+                    context,
+                    commands.keyValue(view.node, opacityKey, _playheadT(ref),
+                        (percent / 100).clamp(0.0, 1.0)))
+                : (percent) => _report(
+                    context,
+                    commands.setStrokeOpacity(
+                        view.node, stroke.id, percent / 100)),
           ),
+          leading: _paintDiamond(
+              context, ref, view.node, opacityKey, tracks, stroke.opacity),
         ),
         _toggleRow(
           label: 'Visible',
@@ -734,22 +1180,160 @@ Widget _groupLabel(BuildContext context, String text) => Padding(
               color: Theme.of(context).colorScheme.onSurfaceVariant)),
     );
 
-Widget _labelled(String label, Widget field) => Padding(
+Widget _labelled(String label, Widget field, {Widget? leading}) => Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Builder(
-            builder: (context) => Text(label,
-                style: TextStyle(
-                    fontSize: 10,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Row(
+            children: [
+              if (leading != null) ...[leading, const SizedBox(width: 6)],
+              Expanded(
+                child: Builder(
+                  builder: (context) => Text(label,
+                      style: TextStyle(
+                          fontSize: 10,
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant)),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 4),
           field,
         ],
       ),
     );
+
+// ---------------------------------------------------------------------------
+// The keyframe diamond (F6.2, AC-6.2.6) — the AE/Figma keyframe toggle.
+// ---------------------------------------------------------------------------
+
+enum _DiamondState { empty, between, onKey }
+
+/// One property's keyframe toggle. **A leaf that watches the live playhead** so
+/// scrubbing repaints only this 11-px widget, never the field beside it or the
+/// panel around it (AC-13.3): the field and the panel read the value-equal
+/// `inspectorTracksProvider` slice, which does not change on a scrub.
+///
+/// - No track ([keyTimes] null) → **empty** diamond; a tap keys the current
+///   value at the playhead ([onKey]), which creates the track.
+/// - Tracked, playhead on a key → **filled**; a tap removes that key
+///   ([onRemoveAt]).
+/// - Tracked, playhead between keys → **hollow**; a tap keys a hold there
+///   ([onKey]).
+class _KeyframeDiamond extends ConsumerWidget {
+  const _KeyframeDiamond({
+    required this.keyName,
+    required this.keyTimes,
+    required this.onKey,
+    required this.onRemoveAt,
+  });
+
+  final String keyName;
+  final List<double>? keyTimes;
+  final VoidCallback onKey;
+  final void Function(int index) onRemoveAt;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // `playheadProvider`'s identity is stable, so watching it never rebuilds
+    // this ConsumerWidget; the `ValueListenableBuilder` repaints on each tick.
+    final playhead = ref.watch(playheadProvider);
+    final scheme = Theme.of(context).colorScheme;
+    return ValueListenableBuilder<double>(
+      valueListenable: playhead,
+      builder: (context, raw, _) {
+        final t = raw.isNaN ? 0.0 : raw.clamp(0.0, 1.0).toDouble();
+        final times = keyTimes;
+        final onKeyIndex = times == null ? null : _indexAt(times, t);
+
+        final _DiamondState state;
+        final VoidCallback tap;
+        if (times == null) {
+          state = _DiamondState.empty;
+          tap = onKey;
+        } else if (onKeyIndex != null) {
+          state = _DiamondState.onKey;
+          final index = onKeyIndex; // promoted non-null — no bare `!`
+          tap = () => onRemoveAt(index);
+        } else {
+          state = _DiamondState.between;
+          tap = onKey;
+        }
+
+        return InkWell(
+          key: Key(keyName),
+          onTap: tap,
+          customBorder: const CircleBorder(),
+          child: Padding(
+            padding: const EdgeInsets.all(3),
+            child: CustomPaint(
+              size: const Size(11, 11),
+              painter: _DiamondPainter(
+                state: state,
+                on: scheme.primary,
+                idle: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The index of the key the playhead sits on, or null when it is between keys.
+  /// The tolerance is `TrackOps.minSeparation`, the same coincidence threshold
+  /// the sampler and the timeline's `Shift+K` use.
+  static int? _indexAt(List<double> times, double t) {
+    for (var i = 0; i < times.length; i++) {
+      if ((times[i] - t).abs() <= TrackOps.minSeparation) return i;
+    }
+    return null;
+  }
+}
+
+class _DiamondPainter extends CustomPainter {
+  _DiamondPainter({required this.state, required this.on, required this.idle});
+
+  final _DiamondState state;
+  final Color on;
+  final Color idle;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.width / 2;
+    final path = Path()
+      ..moveTo(c.dx, c.dy - r)
+      ..lineTo(c.dx + r, c.dy)
+      ..lineTo(c.dx, c.dy + r)
+      ..lineTo(c.dx - r, c.dy)
+      ..close();
+    switch (state) {
+      case _DiamondState.empty:
+        canvas.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.2
+              ..color = idle);
+      case _DiamondState.between:
+        canvas.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.4
+              ..color = on);
+      case _DiamondState.onKey:
+        canvas.drawPath(path, Paint()..color = on);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DiamondPainter old) =>
+      old.state != state || old.on != on || old.idle != idle;
+}
 
 /// One row of mutually exclusive choices, one button per enum value.
 ///

@@ -249,6 +249,174 @@ ScenePath? hitTestScene(
   return null;
 }
 
+/// Where a pen click would split a node's posed outline — the mid-segment
+/// insert of docs/v3/05 §3 and AC-4.3.1.
+///
+/// [after] is the **left** anchor of the hit segment (the `after:` argument
+/// `PathOps.insertAnchor` splices behind, respecting the closed wrap) and [u] is
+/// the parameter on that segment's cubic, already clamped into the open interval
+/// `(0,1)` the op requires. [local] is the projected point in the node's own
+/// space; [world] is the same point through the node's world matrix, for the
+/// screen-distance gate and the overlay `+`.
+class PathInsertHit {
+  const PathInsertHit({
+    required this.after,
+    required this.u,
+    required this.local,
+    required this.world,
+  });
+
+  final AnchorId after;
+  final double u;
+  final Vec2 local;
+  final Vec2 world;
+}
+
+/// The nearest mid-segment insertion on [nodeId]'s **posed** geometry to
+/// [docPoint], or null when the node has no path, no segment, or a collapsed
+/// world.
+///
+/// The geometry is stages **1–3** (`composeWorldA(resolvePose(sampleTracks…))`),
+/// exactly what the overlay draws and the direct-select hit-test grabs — strictly
+/// pre-trim, so every `AnchorId` here is the authored one and [PathInsertHit.after]
+/// is an id `PathOps.insertAnchor` will find in the topology (stage 7's synthetic
+/// trim ids never reach this). The point is taken to node-local space through the
+/// node's **own inverted world** — the same matrix the painter used — then
+/// projected onto each cubic.
+///
+/// A pure read: it evaluates a frame and returns a candidate, mutating nothing.
+PathInsertHit? insertionCandidate(
+  Document doc,
+  List<AnimationMix> mix,
+  NodeId nodeId,
+  Vec2 docPoint,
+) {
+  final frame = composeWorldA(resolvePose(sampleTracks(doc, mix)));
+  for (final node in frame.nodes) {
+    if (node.path.nodeId != nodeId) continue;
+    final geometry = node.geometry;
+    if (geometry == null || geometry.segmentCount == 0) return null;
+    // Early return, never `invert()!` (docs/v3/08 §4): a node keyed to a
+    // collapsed scale has nowhere on the artboard a click could land.
+    final worldToLocal = node.world.invert();
+    if (worldToLocal == null) return null;
+    final local = worldToLocal.apply(docPoint);
+
+    AnchorId? bestAfter;
+    var bestU = 0.5;
+    var bestPoint = Vec2.zero;
+    var bestDist = double.infinity;
+    for (var k = 0; k < geometry.segmentCount; k++) {
+      final (p0, p1, p2, p3) = geometry.segment(k);
+      final (u, point) = _projectOntoCubic(p0, p1, p2, p3, local);
+      final dx = point.x - local.x;
+      final dy = point.y - local.y;
+      final dist = dx * dx + dy * dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestAfter = geometry.anchors[k].id;
+        bestU = u;
+        bestPoint = point;
+      }
+    }
+    if (bestAfter == null) return null;
+    return PathInsertHit(
+      after: bestAfter,
+      u: bestU,
+      local: bestPoint,
+      world: node.world.apply(bestPoint),
+    );
+  }
+  return null;
+}
+
+/// Samples for the coarse nearest-point pass. A cubic's foot-of-perpendicular
+/// solve can have more than one stationary point, so a dense sweep locates the
+/// global-nearest region *before* Newton refines it — Newton alone slides into
+/// whichever root it started next to.
+const int _insertSamples = 24;
+
+/// `u` is kept strictly inside `(0,1)`; `PathOps.insertAnchor` refuses the
+/// endpoints (they are existing anchors, not a split).
+const double _insertMinU = 1e-6;
+
+/// The parameter and point on the cubic `[p0,p1,p2,p3]` nearest to [q].
+///
+/// A dense sample finds the region; a few Newton steps on `d/du |B(u)-q|²`,
+/// **clamped to the sample's bracket**, refine it to the true foot without ever
+/// leaving the neighbourhood the sweep chose. Accurate to machine precision for a
+/// query exactly on the curve — the case the insert test asserts on.
+(double, Vec2) _projectOntoCubic(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 q) {
+  var bestU = 0.0;
+  var bestDist = double.infinity;
+  for (var i = 0; i <= _insertSamples; i++) {
+    final u = i / _insertSamples;
+    final b = _cubicAt(p0, p1, p2, p3, u);
+    final dx = b.x - q.x;
+    final dy = b.y - q.y;
+    final dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestU = u;
+    }
+  }
+
+  const step = 1.0 / _insertSamples;
+  final lo = (bestU - step).clamp(0.0, 1.0);
+  final hi = (bestU + step).clamp(0.0, 1.0);
+  var u = bestU;
+  for (var iter = 0; iter < 16; iter++) {
+    final b = _cubicAt(p0, p1, p2, p3, u);
+    final d1 = _cubicDeriv(p0, p1, p2, p3, u);
+    final d2 = _cubicDeriv2(p0, p1, p2, p3, u);
+    final ex = b.x - q.x;
+    final ey = b.y - q.y;
+    final f1 = ex * d1.x + ey * d1.y; // ½·f'(u)
+    final f2 = d1.x * d1.x + d1.y * d1.y + ex * d2.x + ey * d2.y; // ½·f''(u)
+    if (f2 == 0 || !f2.isFinite) break;
+    final next = (u - f1 / f2).clamp(lo, hi);
+    if ((next - u).abs() < 1e-12) {
+      u = next;
+      break;
+    }
+    u = next;
+  }
+
+  u = u.clamp(_insertMinU, 1.0 - _insertMinU);
+  return (u, _cubicAt(p0, p1, p2, p3, u));
+}
+
+Vec2 _cubicAt(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, double u) {
+  final v = 1.0 - u;
+  final a = v * v * v;
+  final b = 3 * v * v * u;
+  final c = 3 * v * u * u;
+  final d = u * u * u;
+  return Vec2(
+    a * p0.x + b * p1.x + c * p2.x + d * p3.x,
+    a * p0.y + b * p1.y + c * p2.y + d * p3.y,
+  );
+}
+
+Vec2 _cubicDeriv(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, double u) {
+  final v = 1.0 - u;
+  final a = 3 * v * v;
+  final b = 6 * v * u;
+  final c = 3 * u * u;
+  return Vec2(
+    a * (p1.x - p0.x) + b * (p2.x - p1.x) + c * (p3.x - p2.x),
+    a * (p1.y - p0.y) + b * (p2.y - p1.y) + c * (p3.y - p2.y),
+  );
+}
+
+Vec2 _cubicDeriv2(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, double u) {
+  final v = 1.0 - u;
+  return Vec2(
+    6 * v * (p2.x - 2 * p1.x + p0.x) + 6 * u * (p3.x - 2 * p2.x + p1.x),
+    6 * v * (p2.y - 2 * p1.y + p0.y) + 6 * u * (p3.y - 2 * p2.y + p1.y),
+  );
+}
+
 /// `Affine` → `Matrix4`-shaped storage, the only place the two conventions meet.
 ///
 /// `Affine` is `[a c tx ; b d ty]`; `ui`/`vector_math` want a column-major 4×4.

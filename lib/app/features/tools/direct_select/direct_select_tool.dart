@@ -11,19 +11,41 @@
 /// It takes over the anchor drag M0 wrote inline in the canvas, which was the
 /// only pose edit the app had and belonged to no tool at all.
 ///
-/// ## Pose, and keyframe-local
+/// ## Pose, and keyframe-local — the three-way routing rule (AC-4.2.3)
 ///
 /// Both ops are **pose** edits (docs/v3/01 §12): they change where an anchor
-/// sits or where its handles point, never which anchors exist. Passing
-/// `atT: playhead` is what makes them keyframe-local — the op writes that one
-/// keyframe's `AnchorPose` and leaves every other keyframe byte-identical
-/// (AC-4.2.1, AC-4.2.2). The `AnchorId` **sequence** is untouched by
-/// construction; neither op can change it.
+/// sits or where its handles point, never which anchors exist. The `AnchorId`
+/// **sequence** is untouched by construction; neither op can change it. What
+/// varies is the `atT` each edit carries, decided per gesture by [_poseTargetT]
+/// off **one predicate — does the node carry a `path` track?** ([_hasPathTrack]):
 ///
-/// `AnchorKind` is the exception, and deliberately so: it is not animatable
-/// (docs/v3/01 §7), so `setTangents` writes it onto the node's `PathData`
-/// document-wide while the handle correction it implies stays keyframe-local.
-/// The renderer never reads `kind` — the invariants it names are baked into the
+/// - The node has **no `path` track** in the active animation → the edit is a
+///   **rest-pose** edit (`atT: null`). No track is created (AC-4.2.3), so cycling
+///   `AnchorKind` on a static shape — a non-animatable hint — can never seed an
+///   animation.
+/// - The node **has a `path` track** → the edit is **keyframe-local** at the
+///   playhead (`atT: playhead`) — edit-at-keyframe (AC-4.2.1/2, AC-6.2.6): only
+///   the keyframe at the playhead changes, every other keyframe stays
+///   byte-identical. When a key is selected `EditorController.selectKeyframe` has
+///   already snapped the playhead to its `t`, so `atT: playhead` lands on it.
+///
+/// **The routing is the track alone, never `selectedKeyframe`.** That selection
+/// is a highlight, and a highlight nothing clears is what re-seeded a track after
+/// one was deleted while its key stayed selected (AC-4.2.3's 2nd route) — see
+/// [_hasPathTrack].
+///
+/// This replaced the M0/M2 auto-seed: `ctx.playhead` is never null (0.0 at
+/// rest), so passing it on every edit silently seeded a one-key path track on
+/// the first drag of any static shape. A *first* path keyframe is now created
+/// deliberately — the inspector's **path diamond** (`KeyPathCommand`, the
+/// geometry stopwatch) — never as a side effect of dragging an anchor.
+///
+/// `AnchorKind` is the exception to "pose only", and deliberately so: it is not
+/// animatable (docs/v3/01 §7), so `setTangents` writes it onto the node's
+/// `PathData` document-wide in **both** `atT` branches while the handle
+/// correction it implies stays keyframe-local. Writing the kind does not, by
+/// itself, seed a track — the rest-pose branch touches no `TrackSet`. The
+/// renderer never reads `kind`; the invariants it names are baked into the
 /// stored tangents at the moment they are set.
 ///
 /// ## What is not here, and which milestone owns it
@@ -34,11 +56,6 @@
 ///   partial version worth shipping: an anchor dropped from the topology but
 ///   left in the poses is the disjoint-id-set state v3 exists to make
 ///   unrepresentable.
-/// - **Edit-at-keyframe** — a drag keys at the *playhead*, not at
-///   `EditorState.selectedKeyframe`, and a drag on an untracked node at `t = 0`
-///   seeds a track rather than editing the rest pose (AC-4.2.3). Both are
-///   **M4**'s: it owns `selectedKeyframe` and the timeline that sets it. This is
-///   the M0/M2 behaviour carried forward unchanged, not a new decision.
 /// - **Marquee / `Cmd+A` over anchors** — multi-anchor selection has no editing
 ///   operation to be the subject of until M5.
 library;
@@ -163,8 +180,18 @@ final class DirectSelectTool implements ToolMode {
     _preview = null;
   }
 
+  /// `Esc` mid-drag **abandons the anchor/handle drag** (docs/v3/05 §5).
+  ///
+  /// It drops the in-flight [_Grab] so the release commits nothing —
+  /// `onPointerUp` sees a null grab and returns null. Without it, `Esc` cleared
+  /// the selection (the canvas fallback) but the pending `onPointerUp` still
+  /// keyed a `MoveAnchorCommand` / `SetTangentsCommand` on release. Returning
+  /// null with no effect lets the canvas also clear the selection.
   @override
-  Command? onKey(ToolKey key, PointerCtx ctx) => null;
+  Command? onKey(ToolKey key, PointerCtx ctx) {
+    if (key == ToolKey.escape && _grab != null) cancel();
+    return null;
+  }
 
   @override
   Command? onPointerDown(PointerCtx ctx) {
@@ -216,9 +243,12 @@ final class DirectSelectTool implements ToolMode {
         grab.node,
         grab.anchor,
         // A bare kind with no handles: `corner` zeroes both — the straighten
-        // affordance — while `smooth`/`symmetric` re-aim the existing pair.
+        // affordance — while `smooth`/`symmetric` re-aim the existing pair. The
+        // kind rides onto the node's PathData document-wide in either `atT`
+        // branch; routing to the rest pose on a static shape is what keeps a
+        // kind cycle from seeding a track (AC-4.2.3).
         kind: _nextKind[grab.kind] ?? AnchorKind.corner,
-        atT: ctx.playhead,
+        atT: _poseTargetT(ctx, grab.node),
       );
     }
 
@@ -227,10 +257,44 @@ final class DirectSelectTool implements ToolMode {
         grab.node,
         grab.anchor,
         grab.localPoint,
-        atT: ctx.playhead,
+        atT: _poseTargetT(ctx, grab.node),
       );
     }
     return _tangentCommand(grab, ctx);
+  }
+
+  /// The `atT` a pose edit on [node] carries — the routing rule this tool's
+  /// headline task fixes (AC-4.2.3; see the library doc).
+  ///
+  /// Keyframe-local at the playhead when the node already carries a `path` track
+  /// in the active animation; otherwise the node's rest pose (`atT: null`), which
+  /// touches no `TrackSet`.
+  double? _poseTargetT(PointerCtx ctx, NodeId node) =>
+      _hasPathTrack(ctx, node) ? ctx.playhead : null;
+
+  /// **The one routing predicate**, a pure read: does [node] carry a `path`
+  /// track in the animation the playhead addresses? `ctx.animation` is the
+  /// active animation (`activeAnimationProvider`), which in v1 is the
+  /// `defaultAnimationId` the pose op writes its keyframe into — so this asks
+  /// exactly "would a keyframe-local edit here land on an existing track, or
+  /// invent one?".
+  ///
+  /// **`selectedKeyframe` is deliberately NOT consulted.** It is a highlight, not
+  /// the routing authority (AC-4.2.3): trusting it re-created a track after one
+  /// was deleted (timeline `Shift+K`, the path diamond's remove) while its key
+  /// stayed selected — a plain drag on the now-static node routed `atT: playhead`
+  /// and silently seeded a track. When a track *does* exist and its key is
+  /// selected, `selectKeyframe` has already snapped the playhead onto that key,
+  /// so `atT: playhead` still lands on it with no extra check.
+  bool _hasPathTrack(PointerCtx ctx, NodeId node) {
+    final id = ctx.animation;
+    if (id == null) return false;
+    for (final animation in ctx.doc.animations) {
+      if (animation.id == id) {
+        return animation.tracksFor(node).pathTrack() != null;
+      }
+    }
+    return false;
   }
 
   /// The handle drag, as a command.
@@ -249,7 +313,7 @@ final class DirectSelectTool implements ToolMode {
       inT: grab.part == _Part.inHandle ? tangent : null,
       outT: grab.part == _Part.outHandle ? tangent : null,
       kind: ctx.alt ? AnchorKind.corner : null,
-      atT: ctx.playhead,
+      atT: _poseTargetT(ctx, grab.node),
     );
   }
 
@@ -265,7 +329,7 @@ final class DirectSelectTool implements ToolMode {
           grab.node,
           grab.anchor,
           grab.localPoint,
-          atT: ctx.playhead,
+          atT: _poseTargetT(ctx, grab.node),
         );
       }
       final cmd = _tangentCommand(grab, ctx);

@@ -210,10 +210,20 @@ void main() {
       final chains = clipChains(doc);
       expect(chains[const NodeId('child')],
           [const NodeId('outer'), const NodeId('inner')]);
-      expect(chains[const NodeId('inner')],
-          [const NodeId('outer'), const NodeId('inner')],
-          reason: 'a clipping group is inside its own window too');
-      expect(chains[const NodeId('outer')], [const NodeId('outer')]);
+      // A clipping group is NOT in its own chain. This used to read
+      // `[outer, inner]` with the reason "a clipping group is inside its own
+      // window too" — which was wrong for the OVERLAY: a selected clipping
+      // group draws its outline (the full descendant union) from its own slot,
+      // and clipping that outline to the group's own window truncated or erased
+      // it while the hit-test still answered for the whole union. `inner` is
+      // inside its ANCESTOR `outer`, never inside itself; the clip it opens for
+      // its children opens one node later. The geometry layer is unaffected — a
+      // group draws nothing from its own slot — as the clipRect count below
+      // still shows.
+      expect(chains[const NodeId('inner')], [const NodeId('outer')],
+          reason: 'inside its ancestor, never inside itself');
+      expect(chains[const NodeId('outer')], isNull,
+          reason: 'the outermost clipping group is confined by nothing');
 
       expect(
         (Canvas canvas) => artboard(doc).paint(canvas, _size),
@@ -468,6 +478,68 @@ void main() {
         expect(canvas.getSaveCount(), before);
       });
       expect(captured, isEmpty);
+    });
+
+    test(
+        'a SELECTED clipping group strokes its outline UNCLIPPED by its own '
+        'window, while its child still enters the clip', () {
+      // The group's window is the artboard; its one child overflows it, so the
+      // selection outline (the full descendant union) lies WHOLLY OUTSIDE the
+      // window. Opening the group's own clip before that stroke — the bug —
+      // truncated the outline to the window, and here would erase it entirely,
+      // while `hitTestScene` still answered a click for the whole union. The
+      // fix removes the group from its own chain: its own slot opens no clip.
+      final doc = _clipping(clip: true);
+      final bounds = selectionBounds(evaluate(doc, const <AnimationMix>[]), doc,
+          const ScenePath(NodeId('g')));
+      expect(bounds, isNotNull);
+      expect(_window.overlaps(bounds!), isFalse,
+          reason: 'the union is outside the window — a clipped outline would '
+              'stroke nothing at all');
+
+      final painter = OverlayPainter(
+        document: doc,
+        playhead: playhead,
+        animation: null,
+        anchor: const Color(0xFFFFFFFF),
+        anchorBorder: const Color(0xFF000000),
+        pendingColor: const Color(0xFFFFAB40),
+        showAnchors: false,
+        fit: Affine.identity, // document space == screen space
+        mode: RenderMode.editor,
+        selectedPaths: {const ScenePath(NodeId('g'))},
+        selectionColor: const Color(0xFF2196F3),
+      );
+
+      // The outline `drawRect` is recorded BEFORE the child's clip opens — so it
+      // is drawn with no surrounding clipRect — and there is exactly ONE
+      // clipRect, the child's. Together: the group's own draw is outside every
+      // clip, and its descendant is still inside one.
+      expect(
+        (Canvas canvas) => painter.paint(canvas, _size),
+        paints
+          ..rect(rect: bounds)
+          ..clipRect(rect: _window),
+        reason:
+            'the outline strokes first, unclipped; then the child opens the '
+            'clip it draws inside',
+      );
+      expect((Canvas canvas) => painter.paint(canvas, _size),
+          paintsExactlyCountTimes(#clipRect, 1),
+          reason:
+              'the one clip is the child\'s — the group\'s slot opens none');
+
+      // The GEOMETRY layer is UNCHANGED: the child is still clipped and the clip
+      // still opens before it draws. Removing the group from its own chain moved
+      // no clipRect that wraps a child — the group drew nothing from its slot.
+      expect(
+        (Canvas canvas) => artboard(doc).paint(canvas, _size),
+        paints
+          ..clipRect(rect: _window)
+          ..path(),
+      );
+      expect((Canvas canvas) => artboard(doc).paint(canvas, _size),
+          paintsExactlyCountTimes(#clipRect, 1));
     });
   });
 }

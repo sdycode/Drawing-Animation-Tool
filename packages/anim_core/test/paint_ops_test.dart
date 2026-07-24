@@ -62,7 +62,8 @@ void main() {
       expect(json.containsKey('paintOrder'), isFalse);
     });
 
-    test('stroke defaults and validation', () {
+    test('stroke defaults, and width/miter CLAMP a finite out-of-range value',
+        () {
       final (out, id) = PaintOps.addStroke(_doc(), const NodeId('p'),
           width: 2.5, cap: StrokeCap.round, join: StrokeJoin.bevel);
       final s = (out.nodeIndex[const NodeId('p')]! as PathNode).strokes.single;
@@ -72,11 +73,28 @@ void main() {
       expect(s.join, StrokeJoin.bevel);
       expect(s.miterLimit, 4.0);
 
-      expect(() => PaintOps.addStroke(_doc(), const NodeId('p'), width: -1),
-          throwsArgumentError);
+      // A finite out-of-range width or miter CLAMPS at construction; it does not
+      // throw. The old assertion here (`addStroke(width: -1)` throwsArgumentError)
+      // ENCODED THE DEFECT: an ArgumentError on a value the inspector's Width /
+      // Miter fields can produce trips the command gate's `assert(false)` on
+      // legal user data (docs/v3/08 §1). Only a NaN — a non-value, not an
+      // out-of-range value — is still refused.
+      Stroke strokeOf(Document d) =>
+          (d.nodeIndex[const NodeId('p')]! as PathNode).strokes.single;
+
+      final (negWidth, _) =
+          PaintOps.addStroke(_doc(), const NodeId('p'), width: -1);
+      expect(strokeOf(negWidth).width, 0.0,
+          reason: 'a negative width pins to 0, an invisible but legal stroke');
+      final (lowMiter, _) =
+          PaintOps.addStroke(_doc(), const NodeId('p'), miterLimit: 0.5);
+      expect(strokeOf(lowMiter).miterLimit, 1.0,
+          reason: 'below 1 is geometrically meaningless; pinned to the floor');
       expect(
-          () => PaintOps.addStroke(_doc(), const NodeId('p'), miterLimit: 0.5),
-          throwsArgumentError);
+          () =>
+              PaintOps.addStroke(_doc(), const NodeId('p'), width: double.nan),
+          throwsArgumentError,
+          reason: 'a NaN is a broken write, not an out-of-range value');
     });
 
     test('an unknown node and a group both throw', () {
@@ -140,9 +158,33 @@ void main() {
       expect(s.opacity, 0.5);
       expect(s.visible, isFalse);
 
-      expect(() => PaintOps.setStrokeWidth(d, const NodeId('p'), id, -0.1),
+      // Width and miter CLAMP a finite out-of-range value at the mutation, the
+      // way opacity does — they do NOT throw. The old throw-assertions here
+      // encoded the defect: an ArgumentError on a value the inspector's Width /
+      // Miter fields accept fired the command gate's `assert(false)` on legal
+      // user data (docs/v3/08 §1) and left the field stuck on the rejected value.
+      Stroke strokeOf(Document doc) =>
+          (doc.nodeIndex[const NodeId('p')]! as PathNode).strokes.single;
+
+      d = PaintOps.setStrokeWidth(d, const NodeId('p'), id, -0.1);
+      expect(strokeOf(d).width, 0.0,
+          reason: 'a negative width pins to 0, an invisible but legal stroke');
+      d = PaintOps.setStrokeMiterLimit(d, const NodeId('p'), id, 0.9);
+      expect(strokeOf(d).miterLimit, 1.0,
+          reason: 'below 1 pins to the geometric floor of 1');
+
+      // A keystroke with an exponent can parse to infinity, and an infinite
+      // width neither rasterises nor serialises (`jsonEncode` throws on a
+      // non-finite double) — so it pins to the largest finite value rather than
+      // throwing. NaN, a non-value, is still refused.
+      d = PaintOps.setStrokeWidth(d, const NodeId('p'), id, double.infinity);
+      expect(strokeOf(d).width, double.maxFinite);
+      expect(
+          () => PaintOps.setStrokeWidth(d, const NodeId('p'), id, double.nan),
           throwsArgumentError);
-      expect(() => PaintOps.setStrokeMiterLimit(d, const NodeId('p'), id, 0.9),
+      expect(
+          () => PaintOps.setStrokeMiterLimit(
+              d, const NodeId('p'), id, double.nan),
           throwsArgumentError);
     });
 

@@ -26,13 +26,16 @@
 /// ## Two rules this tool keeps structurally
 ///
 /// 1. **The pen cannot replace a node's `PathData`** (docs/v3/05 §3 rule 1).
-///    There is no branch in this file that reads an existing node, so there is
-///    nothing to write back to one. Continuing an existing path and inserting on
-///    a segment need `PathOps.insertAnchor`, which is **M5** and does not exist;
-///    faking it with a raw path replacement would mint fresh `AnchorId`s and
-///    leave the node's topology and its keyframe poses disjoint — the one state
-///    v3 exists to make unrepresentable. So the pen always starts a new path,
-///    and the `+` cursor over a segment is M5's to add.
+///    The one topology edit it reaches is a **mid-segment insert**, and it
+///    reaches it only through `PathOps.insertAnchor` — an [InsertAnchorCommand]
+///    built from `(node, after, u)` and nothing else. There is no branch that
+///    reads an existing node's anchors into this tool and writes them back;
+///    faking a replacement would mint fresh `AnchorId`s and leave the topology
+///    and its keyframe poses disjoint, the one state v3 exists to make
+///    unrepresentable. **Continuing an open path from its endpoint stays a
+///    labelled seam** (docs/v3/06 M5): appending to an existing node's `PathData`
+///    is exactly the replacement rule 1 forbids, and no append op exists — so the
+///    pen still starts a new path when the click is not on a segment.
 /// 2. **One segment type** (AC-4.1.2). Every anchor is a cubic anchor; a
 ///    straight segment is the degenerate zero-handle case. There is no polyline
 ///    branch here to grep for.
@@ -41,6 +44,8 @@ library;
 import 'dart:math' as math;
 
 import 'package:anim_core/anim_core.dart' hide Animation;
+import 'package:anim_render/anim_render.dart'
+    show PathInsertHit, insertionCandidate;
 
 import '../../../state/command.dart';
 import '../../../state/tool_controller.dart';
@@ -113,6 +118,19 @@ final class PenTool implements ToolMode {
 
   @override
   Command? onPointerDown(PointerCtx ctx) {
+    // On an existing selected path, a click ON one of its segments inserts an
+    // anchor there — the pen's headline M5 reach (docs/v3/05 §3, AC-4.3.1). It is
+    // checked only when the pen is NOT mid-drawing a new path (`_anchors` empty),
+    // so it can never fire between placed anchors, and it reaches topology solely
+    // through `PathOps.insertAnchor` — the pen still cannot replace a node's
+    // `PathData` (rule 1 in the class doc).
+    if (_anchors.isEmpty) {
+      final insertion = _insertionAt(ctx);
+      if (insertion != null) {
+        return InsertAnchorCommand(insertion.$1, insertion.$2, insertion.$3);
+      }
+    }
+
     // Clicking the FIRST anchor closes the path and exits (docs/v3/05 §4.1
     // step 4). Checked before anything else, and in screen pixels, so the user
     // aims at the dot they can see rather than at a document-space tolerance
@@ -201,6 +219,28 @@ final class PenTool implements ToolMode {
       activate: ToolId.select,
     );
     return AddNodeCommand(node);
+  }
+
+  /// The `(node, after, u)` a click at [ctx] would insert, or null.
+  ///
+  /// Insert is offered only when **exactly one** node is selected and it is a
+  /// [PathNode], and only when the click lands within a screen grab radius of one
+  /// of that node's posed segments — the same radius direct-select grabs a handle
+  /// at, so the two never leave a gap. [insertionCandidate] does the geometry on
+  /// stages 1–3 (pre-trim, authored ids), so [PathInsertHit.after] is always an id
+  /// `PathOps.insertAnchor` finds in the topology and [PathInsertHit.u] is already
+  /// clamped into `(0,1)`. Nothing here reads or writes a node's `PathData`; the
+  /// only topology it can reach is through the returned [InsertAnchorCommand].
+  (NodeId, AnchorId, double)? _insertionAt(PointerCtx ctx) {
+    final selected = ctx.editor.selectedNodes;
+    if (selected.length != 1) return null;
+    final nodeId = selected.first.nodeId;
+    if (ctx.doc.nodeIndex[nodeId] is! PathNode) return null;
+    final PathInsertHit? hit =
+        insertionCandidate(ctx.doc, ctx.mix, nodeId, ctx.docPoint);
+    if (hit == null) return null;
+    if (ctx.screenDistanceTo(hit.world) > PointerCtx.grabRadius) return null;
+    return (nodeId, hit.after, hit.u);
   }
 
   /// [p] projected onto the nearest of the eight 45° rays from [from].

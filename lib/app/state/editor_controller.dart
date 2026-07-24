@@ -197,8 +197,46 @@ class EditorController extends AutoDisposeNotifier<EditorState> {
     state = state.copyWith(selectedKeyframe: keyframe);
   }
 
+  /// Enter edit-at-keyframe on key [index] of `(node, property)`, and **snap the
+  /// playhead to that key** (AC-6.2.6, docs/v3/05 §2 "edit-at-keyframe, not
+  /// record mode"). The next agent's canvas and inspector consume the resulting
+  /// `selectedKeyframe`; this method is the one place it is set for editing.
+  ///
+  /// [snapT] is the key's own `t`, sampled from the document **by the caller** —
+  /// this controller never reads a `Document` (docs/v3/04 §1), so it is told
+  /// where the key is rather than looking it up. Omit it to select without
+  /// moving the playhead (undo restores selection through [restoreKeyframe], not
+  /// through here).
+  ///
+  /// **It settles the playhead in `EditorState` AND writes the live
+  /// [playheadProvider] notifier.** The canvas paints at the notifier's value
+  /// (`CustomPainter(repaint:)`, docs/v3/04 §4), so committing only the settled
+  /// field would set edit-at-keyframe up correctly for the selection logic yet
+  /// leave the shown frame behind the key — the canvas would not actually snap
+  /// to it. Writing both is the same live/settled pair the scrub keeps in step
+  /// (`.value` during the drag, `commitPlayhead` on release); a keyframe click
+  /// settles both at once because it is not a drag.
+  ///
+  /// `selectedKeyframe` stays **ephemeral** — it is never in the document and
+  /// never serialized (AC-6.2.6, and the AC-2.2.7 defect this whole controller
+  /// exists to prevent).
+  void selectKeyframe(NodeId node, PropertyKey property, int index,
+      {double? snapT}) {
+    final target = snapT ?? state.playhead;
+    final clamped = target.isNaN ? 0.0 : target.clamp(0.0, 1.0);
+    // Live first, so the canvas repaint and the settled state land on the same
+    // frame; the notifier write invalidates no provider (the hot path).
+    ref.read(playheadProvider).value = clamped;
+    state = state.copyWith(
+      selectedKeyframe: (node, property, index),
+      playhead: clamped,
+    );
+  }
+
   /// Leave edit-at-keyframe — the explicit clear [restoreKeyframe] deliberately
-  /// is not.
+  /// is not. This is `clearSelectedKeyframe` under the name it has carried since
+  /// M2; the canvas/inspector call it when a pose edit finishes or the selection
+  /// moves off a key.
   void clearKeyframe() {
     state = state.copyWith(clearSelectedKeyframe: true);
   }

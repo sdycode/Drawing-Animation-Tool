@@ -1,45 +1,68 @@
 import 'dart:convert';
 
 import 'package:anim_core/anim_core.dart' hide Animation;
-import 'package:anim_render/anim_render.dart' show ArtboardPainter, artboardFit;
 import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
-import 'package:drawing_animation_tool/app/data/project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/editor_shell.dart';
 import 'package:drawing_animation_tool/app/features/canvas/widgets/canvas_view.dart';
+import 'package:drawing_animation_tool/app/features/timeline/widgets/timeline_bar.dart';
 import 'package:drawing_animation_tool/app/features/tools/registry.dart';
+import 'package:drawing_animation_tool/app/state/editor_controller.dart';
 import 'package:drawing_animation_tool/app/state/tool_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// M0 step 5: one `PathTrack`, two keyframes, and a playhead that scrubs.
+/// M4: the real timeline — per-node/per-property rows, draggable keyframe dots,
+/// per-segment easing, and the timeline's own keyboard row.
 ///
-/// The exit criterion these tests pin is reachable **by hand**: draw a triangle,
-/// move the playhead to the end, drag an anchor, and the document now holds two
-/// keys that differ. Everything else here exists to stop that slice being
-/// achieved by a shortcut that does not generalise — a rebuild storm, a
-/// playhead written into the file, or a keyframe posing an anchor set the node
-/// does not have.
+/// Most tests seed the tracks **directly** (via `KeyframeOps`) and mount only
+/// [TimelineBar]: the row/dot behaviour is about the timeline, not about the
+/// canvas that happens to author path tracks by hand. The three carried-forward
+/// tests at the bottom keep the M0 guarantees the scrub still owes — the hot
+/// path, the seconds readout, and the playhead never reaching disk — and those
+/// still drive the whole editor.
 void main() {
   late MemoryProjectStore store;
 
-  String seed({Vec2 artboard = const Vec2(400, 400)}) {
-    final doc = Document.create(name: 'Sketch', artboard: artboard).bumpRev();
-    store = MemoryProjectStore({doc.id: jsonEncode(doc.toJson())});
-    return doc.id;
+  const rotation = PropertyKey(PropKey.rotation);
+
+  // --- Direct-seeded fixtures -----------------------------------------------
+
+  PathNode tri(String id, String name) => PathNode(
+        id: NodeId(id),
+        name: name,
+        path: PathData(
+          anchors: [
+            Anchor(id: AnchorId('$id-a'), position: const Vec2(0, 0)),
+            Anchor(id: AnchorId('$id-b'), position: const Vec2(20, 0)),
+            Anchor(id: AnchorId('$id-c'), position: const Vec2(20, 20)),
+          ],
+          closed: true,
+        ),
+      );
+
+  /// A document on the LOPSIDED 450.2×250.4 board (the default) with [children].
+  Document docWith(List<Node> children) {
+    final d = Document.create(name: 'Sketch');
+    return d.copyWith(root: d.root.copyWith(children: children));
   }
 
-  /// The registry `main.dart` installs — M3 dispatches every canvas gesture
-  /// through the active `ToolMode`, so without it nothing on the canvas answers.
-  Widget harness(String id) => ProviderScope(
-        overrides: [
-          projectStoreProvider.overrideWithValue(store),
-          toolResolverProvider.overrideWithValue(toolRegistry()),
-        ],
-        child: MaterialApp(home: EditorShell(projectId: id)),
-      );
+  /// Key `rotation` on [node] at each `{t: value}`.
+  Document rotate(Document d, NodeId node, Map<double, double> keys) {
+    var doc = d;
+    keys.forEach((t, v) {
+      doc = KeyframeOps.keyAt(doc, node, rotation, t, v);
+    });
+    return doc;
+  }
+
+  String seed(Document doc) {
+    final d = doc.bumpRev(); // rev 1, matching the M0 seed shape
+    store = MemoryProjectStore({d.id: jsonEncode(d.toJson())});
+    return d.id;
+  }
 
   Future<String> raw(String id) async {
     final s = await store.load(id);
@@ -50,18 +73,423 @@ void main() {
   Future<Document> reload(String id) async =>
       Document.fromJson(jsonDecode(await raw(id)) as Map<String, Object?>);
 
-  /// Draws a triangle with the **Pen** (`P`) and leaves the editor in **Direct
-  /// select** (`A`).
-  ///
-  /// Both halves are M3's doing. M0's three-click affordance is gone — the pen
-  /// replaced it (F4.1) — and the anchor drag every test below performs is
-  /// Direct select's, not something the canvas does inline for whatever tool
-  /// happens to be active. Switching here, once, is what keeps each test about
-  /// its keyframe assertion rather than about tool modality.
+  List<double> keyTimesOf(Document doc, NodeId node, PropertyKey p) =>
+      doc.defaultAnimation?.tracksFor(node).byKey[p]?.keyTimes ??
+      const <double>[];
+
+  ScalarTrack scalarTrack(Document doc, NodeId node) =>
+      doc.defaultAnimation!.tracksFor(node).scalar(PropKey.rotation)!;
+
+  /// Mounts [TimelineBar] under a fixed height, with a sibling text field so the
+  /// "not while typing" guard has something to focus.
+  Widget lean(String id, {double height = 420}) => ProviderScope(
+        overrides: [projectStoreProvider.overrideWithValue(store)],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                const SizedBox(
+                  height: 48,
+                  child: TextField(key: Key('sink-field')),
+                ),
+                SizedBox(height: height, child: TimelineBar(projectId: id)),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  ProviderContainer containerOf(WidgetTester tester) =>
+      ProviderScope.containerOf(tester.element(find.byType(TimelineBar)),
+          listen: false);
+
+  Finder nodeHeader(String id) => find.byKey(Key('node-$id'));
+  Finder dot(NodeId node, PropertyKey p, int i) =>
+      find.byKey(Key('kf-${node.v}-${p.wire}-$i'));
+  Finder seg(NodeId node, PropertyKey p, int i) =>
+      find.byKey(Key('seg-${node.v}-${p.wire}-$i'));
+  Rect railRect(WidgetTester tester, NodeId node, PropertyKey p) =>
+      tester.getRect(find.byKey(Key('rail-${node.v}-${p.wire}')));
+
+  Future<void> expand(WidgetTester tester, String id) async {
+    await tester.tap(nodeHeader(id));
+    await tester.pumpAndSettle();
+  }
+
+  // ==========================================================================
+  // Rows & dots
+  // ==========================================================================
+
+  testWidgets(
+      'a keyed property shows one dot per key at the right x, and dragging a dot '
+      'commits one MoveKeyframeCommand', (tester) async {
+    const node = NodeId('cog');
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.2: 0.0, 0.7: 1.0}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+
+    // A dot per key, positioned by `t` across the rail — pixels appear only here
+    // (AC-9.1.4), and node A's key at 0.2 sits at 0.2 with no grid to snap to.
+    final rail = railRect(tester, node, rotation);
+    for (final pair in [(0, 0.2), (1, 0.7)]) {
+      final center = tester.getRect(dot(node, rotation, pair.$1)).center;
+      expect(center.dx, closeTo(rail.left + pair.$2 * rail.width, 1.0));
+    }
+
+    final before = await reload(id);
+
+    // Drag key 0 from 0.2 to 0.45.
+    await tester.drag(dot(node, rotation, 0), Offset(0.25 * rail.width, 0));
+    await tester.pumpAndSettle();
+
+    final after = await reload(id);
+    expect(after.rev, before.rev + 1, reason: 'exactly one move, one save');
+    expect(keyTimesOf(after, node, rotation),
+        [closeTo(0.45, 0.01), closeTo(0.7, 1e-9)]);
+    // The moved key kept its value — moveKey never touches it.
+    expect(scalarTrack(after, node).keys.first.value, 0.0);
+  });
+
+  testWidgets(
+      'a drag within minSeparation is rejected with a message and no change',
+      (tester) async {
+    const node = NodeId('cog');
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.5: 0.0, 0.6: 1.0}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+
+    final rail = railRect(tester, node, rotation);
+    final before = await reload(id);
+
+    // Drop key 0 (0.5) exactly onto key 1 (0.6): a within-minSeparation collision.
+    await tester.drag(
+        dot(node, rotation, 0), Offset((0.6 - 0.5) * rail.width, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('could not be applied'), findsOneWidget,
+        reason: 'the op refuses the merge and the panel surfaces it');
+    final after = await reload(id);
+    expect(after.rev, before.rev, reason: 'a rejected move never persists');
+    expect(keyTimesOf(after, node, rotation),
+        [closeTo(0.5, 1e-9), closeTo(0.6, 1e-9)]);
+  });
+
+  testWidgets(
+      'clicking a dot selects the keyframe and snaps the playhead to its t',
+      (tester) async {
+    const node = NodeId('cog');
+    // An interior key (not the rail edge) so the dot's whole hit box is on-rail.
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.2: 0.0, 0.6: 3.14}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+
+    await tester.tap(dot(node, rotation, 1));
+    await tester.pumpAndSettle();
+
+    final c = containerOf(tester);
+    expect(
+        c.read(editorControllerProvider).selectedKeyframe, (node, rotation, 1),
+        reason: 'edit-at-keyframe, selection in EditorState (AC-6.2.6)');
+    expect(c.read(editorControllerProvider).playhead, closeTo(0.6, 1e-9));
+    expect(c.read(playheadProvider).value, closeTo(0.6, 1e-9),
+        reason: 'the live notifier snaps too, so the canvas shows that key');
+  });
+
+  // ==========================================================================
+  // Segment easing (AC-7.1.1 / AC-7.1.2)
+  // ==========================================================================
+
+  testWidgets(
+      'a different easing on each of three segments issues three commands and '
+      'stores three CubicEasings — no preset symbol', (tester) async {
+    const node = NodeId('cog');
+    final id = seed(rotate(docWith([tri('cog', 'cog')]), node,
+        {0.1: 0.0, 0.4: 1.0, 0.7: 2.0, 1.0: 3.0}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+    final before = await reload(id);
+
+    Future<void> setSeg(int i, String presetId) async {
+      await tester.tap(seg(node, rotation, i));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('easing-$presetId')));
+      await tester.pumpAndSettle();
+    }
+
+    await setSeg(0, 'easeIn');
+    await setSeg(1, 'easeOut');
+    await setSeg(2, 'backIn');
+
+    final after = await reload(id);
+    expect(after.rev, before.rev + 3, reason: 'three independent commands');
+
+    final keys = scalarTrack(after, node).keys;
+    // Easing governs the segment LEAVING each key, addressed by the left index.
+    expect(keys[0].easing, CubicEasing.easeIn);
+    expect(keys[1].easing, CubicEasing.easeOut);
+    expect(keys[2].easing, CubicEasing.backIn);
+    // The last key's outgoing easing was never touched — it stays the linear
+    // model default (AC-7.1.3).
+    expect(keys[3].easing, const LinearEasing());
+
+    final set = {keys[0].easing, keys[1].easing, keys[2].easing};
+    expect(set, hasLength(3), reason: 'three distinct curves');
+    for (final e in set) {
+      expect(e, isA<CubicEasing>(),
+          reason: 'presets lower to CubicEasing numbers, no symbol (AC-7.1.2)');
+    }
+  });
+
+  // ==========================================================================
+  // Keyboard (docs/v3/05 §5)
+  // ==========================================================================
+
+  testWidgets(
+      'K keys the selected property at the playhead with its evaluated value',
+      (tester) async {
+    const node = NodeId('cog');
+    final id = seed(rotate(
+        docWith([tri('cog', 'cog')]), node, {0.0: 0.0, 0.5: 10.0, 1.0: 20.0}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+
+    // Select a key (focuses the timeline) then move the playhead off it.
+    await tester.tap(dot(node, rotation, 1));
+    await tester.pumpAndSettle();
+    final c = containerOf(tester);
+    c.read(playheadProvider).value = 0.25;
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.pumpAndSettle();
+
+    final after = await reload(id);
+    expect(
+        keyTimesOf(after, node, rotation),
+        [
+          closeTo(0.0, 1e-9),
+          closeTo(0.25, 1e-9),
+          closeTo(0.5, 1e-9),
+          closeTo(1.0, 1e-9),
+        ],
+        reason: 'a new key appears at the playhead');
+    // Its value is the evaluated one — the linear midpoint of 0.0 and 10.0.
+    expect(scalarTrack(after, node).sampleAt(0.25), closeTo(5.0, 1e-6));
+  });
+
+  testWidgets('Shift+K removes the keyframe under the playhead',
+      (tester) async {
+    const node = NodeId('cog');
+    final id = seed(rotate(
+        docWith([tri('cog', 'cog')]), node, {0.0: 0.0, 0.5: 1.0, 1.0: 2.0}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+
+    // Selecting key 1 snaps the playhead to 0.5 — the key under it.
+    await tester.tap(dot(node, rotation, 1));
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+
+    final after = await reload(id);
+    expect(keyTimesOf(after, node, rotation),
+        [closeTo(0.0, 1e-9), closeTo(1.0, 1e-9)]);
+  });
+
+  testWidgets(
+      'comma and period step between keys, moving the playhead and selection',
+      (tester) async {
+    const node = NodeId('cog');
+    final id = seed(rotate(
+        docWith([tri('cog', 'cog')]), node, {0.0: 0.0, 0.5: 1.0, 1.0: 2.0}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+    await tester.tap(dot(node, rotation, 1)); // playhead 0.5, selected index 1
+    await tester.pumpAndSettle();
+
+    final c = containerOf(tester);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.period);
+    await tester.pumpAndSettle();
+    expect(c.read(playheadProvider).value, closeTo(1.0, 1e-9));
+    expect(
+        c.read(editorControllerProvider).selectedKeyframe, (node, rotation, 2));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.comma);
+    await tester.pumpAndSettle();
+    expect(c.read(playheadProvider).value, closeTo(0.5, 1e-9));
+    expect(
+        c.read(editorControllerProvider).selectedKeyframe, (node, rotation, 1));
+  });
+
+  testWidgets('Home and End jump the playhead to 0 and 1', (tester) async {
+    const node = NodeId('cog');
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.3: 0.0, 0.8: 1.0}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+    await tester.tap(dot(node, rotation, 0)); // focus the timeline
+    await tester.pumpAndSettle();
+
+    final c = containerOf(tester);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.home);
+    await tester.pumpAndSettle();
+    expect(c.read(playheadProvider).value, closeTo(0.0, 1e-9));
+    expect(c.read(editorControllerProvider).playhead, closeTo(0.0, 1e-9));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.end);
+    await tester.pumpAndSettle();
+    expect(c.read(playheadProvider).value, closeTo(1.0, 1e-9));
+    expect(c.read(editorControllerProvider).playhead, closeTo(1.0, 1e-9));
+  });
+
+  testWidgets('the timeline shortcuts do not fire while a text field has focus',
+      (tester) async {
+    const node = NodeId('cog');
+    final id = seed(rotate(
+        docWith([tri('cog', 'cog')]), node, {0.0: 0.0, 0.5: 10.0, 1.0: 20.0}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+    await tester.tap(dot(node, rotation, 1)); // focus timeline, select a key
+    await tester.pumpAndSettle();
+    final c = containerOf(tester);
+    c.read(playheadProvider).value = 0.25;
+
+    // Move focus into the text field, then press K.
+    await tester.tap(find.byKey(const Key('sink-field')));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.pumpAndSettle();
+
+    expect(keyTimesOf(await reload(id), node, rotation), hasLength(3),
+        reason: 'K must not fire while an EditableText holds focus');
+
+    // Refocus the timeline and it fires again — proving the guard, not a dead key.
+    await tester.tap(dot(node, rotation, 1));
+    await tester.pumpAndSettle();
+    c.read(playheadProvider).value = 0.25;
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.pumpAndSettle();
+    expect(keyTimesOf(await reload(id), node, rotation), hasLength(4));
+  });
+
+  // ==========================================================================
+  // AC-6.2.5 & AC-6.1.5
+  // ==========================================================================
+
+  testWidgets('rendering and scrolling the timeline mutates nothing (AC-6.2.5)',
+      (tester) async {
+    final children = <Node>[for (var i = 0; i < 6; i++) tri('n$i', 'node $i')];
+    var doc = docWith(children);
+    for (var i = 0; i < 6; i++) {
+      doc = rotate(doc, NodeId('n$i'), {0.1 * (i + 1): i.toDouble(), 0.9: 9.0});
+    }
+    final id = seed(doc);
+    final original = await raw(id);
+
+    // A short panel, so six summary rows overflow and the list actually scrolls.
+    await tester.pumpWidget(lean(id, height: 120));
+    await tester.pumpAndSettle();
+
+    // Expanding is UI state, not a document edit (done first, while n0 is still
+    // at the top and on-screen).
+    await tester.tap(nodeHeader('n0'));
+    await tester.pumpAndSettle();
+    await tester.drag(
+        find.byKey(const Key('timeline-rows')), const Offset(0, -80));
+    await tester.pumpAndSettle();
+
+    expect(await raw(id), original,
+        reason: 'no build/scroll/expand path writes the document');
+    expect((await reload(id)).rev, 1, reason: 'the seed is the only write');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'four nodes with independent keys each show their own rows and dots — '
+      'no shared grid (AC-6.1.5)', (tester) async {
+    final id = seed(() {
+      var doc =
+          docWith([tri('a', 'a'), tri('b', 'b'), tri('c', 'c'), tri('d', 'd')]);
+      doc = rotate(doc, const NodeId('a'), {0.0: 0.0, 0.5: 1.0, 1.0: 2.0});
+      doc = rotate(doc, const NodeId('b'), {0.13: 0.0, 0.77: 1.0});
+      doc = rotate(doc, const NodeId('c'), {0.25: 0.0, 0.5: 1.0});
+      doc = rotate(doc, const NodeId('d'), {0.9: 0.0});
+      return doc;
+    }());
+
+    await tester.pumpWidget(lean(id, height: 520));
+    await tester.pumpAndSettle();
+
+    for (final n in ['a', 'b', 'c', 'd']) {
+      expect(nodeHeader(n), findsOneWidget);
+    }
+
+    const expected = {
+      'a': [0.0, 0.5, 1.0],
+      'b': [0.13, 0.77],
+      'c': [0.25, 0.5],
+      'd': [0.9],
+    };
+    for (final entry in expected.entries) {
+      await expand(tester, entry.key);
+      final node = NodeId(entry.key);
+      final rail = railRect(tester, node, rotation);
+      for (var i = 0; i < entry.value.length; i++) {
+        expect(dot(node, rotation, i), findsOneWidget);
+        final center = tester.getRect(dot(node, rotation, i)).center;
+        expect(center.dx, closeTo(rail.left + entry.value[i] * rail.width, 1.0),
+            reason:
+                'node ${entry.key} key $i sits at its OWN t, on its own row');
+      }
+    }
+  });
+
+  // ==========================================================================
+  // Carried forward from M0 (the scrub's still-owed guarantees)
+  // ==========================================================================
+
+  Widget shell(String id) => ProviderScope(
+        overrides: [
+          projectStoreProvider.overrideWithValue(store),
+          toolResolverProvider.overrideWithValue(toolRegistry()),
+        ],
+        child: MaterialApp(home: EditorShell(projectId: id)),
+      );
+
+  String seedEmpty() {
+    final doc = Document.create(name: 'Sketch').bumpRev();
+    store = MemoryProjectStore({doc.id: jsonEncode(doc.toJson())});
+    return doc.id;
+  }
+
   Future<void> drawTriangle(WidgetTester tester) async {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
     await tester.pumpAndSettle();
-
     final box = tester.getRect(find.byKey(const Key('canvas')));
     final first =
         Offset(box.left + box.width * 0.3, box.top + box.height * 0.3);
@@ -69,189 +497,23 @@ void main() {
       first,
       Offset(box.left + box.width * 0.7, box.top + box.height * 0.3),
       Offset(box.left + box.width * 0.5, box.top + box.height * 0.7),
-      first, // closes the path and exits to Select
+      first,
     ]) {
       await tester.tapAt(o);
       await tester.pumpAndSettle();
     }
-
     await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
     await tester.pumpAndSettle();
   }
 
-  /// Where the overlay draws [anchor], in global coordinates.
-  ///
-  /// Derived from the *same* [artboardFit] the painters and the hit-test use.
-  /// A second hand-rolled mapping here would let a broken app pass — which is
-  /// exactly how legacy's y-scaled-by-width bug survived its own test suite.
-  Offset anchorOnScreen(WidgetTester tester, Document doc, Anchor anchor) {
-    final box = tester.getRect(find.byKey(const Key('canvas')));
-    final at = artboardFit(doc.artboard, box.size).apply(anchor.position);
-    return box.topLeft + Offset(at.x, at.y);
-  }
-
-  /// Drags the scrub bar past its right edge, so `t` clamps to exactly 1.0.
-  Future<void> scrubToEnd(WidgetTester tester) async {
-    await tester.drag(find.byKey(const Key('timeline')), const Offset(2000, 0));
-    await tester.pumpAndSettle();
-  }
-
-  PathTrack onlyPathTrack(Document doc) {
-    final animation = doc.defaultAnimation;
-    expect(animation, isNotNull, reason: 'Document.create mints exactly one');
-
-    final tracks = <PathTrack>[];
-    for (final a in doc.animations) {
-      for (final set in a.tracks.values) {
-        final t = set.pathTrack();
-        if (t != null) tracks.add(t);
-      }
-    }
-    expect(tracks, hasLength(1),
-        reason: 'one drag on one node authors exactly one path track');
-    return tracks.single;
-  }
-
-  testWidgets(
-      'a drag at the playhead authors two keys at t = 0.0 and t = 1.0, '
-      'each posing the node topology exactly', (tester) async {
-    final id = seed();
-    await tester.pumpWidget(harness(id));
-    await tester.pumpAndSettle();
-    await drawTriangle(tester);
-
-    await scrubToEnd(tester);
-
-    final before = await reload(id);
-    final node = before.root.children.single as PathNode;
-    final target = node.path.anchors.first;
-    final from = anchorOnScreen(tester, before, target);
-
-    await tester.dragFrom(from, const Offset(40, -30));
-    await tester.pumpAndSettle();
-
-    final after = await reload(id);
-    final posed = after.root.children.single as PathNode;
-
-    // The rest pose is untouched: a pose edit at a playhead is KEYFRAME-LOCAL
-    // (docs/v3/01 §1, governing rule 1). If this drifted, the shape would move
-    // at every t at once and the two keys would be indistinguishable.
-    expect(posed.path.anchors.first.position, target.position);
-
-    final track = onlyPathTrack(after);
-    expect(track.keys.map((k) => k.t).toList(), [0.0, 1.0],
-        reason: 'the first drag at t > 0 seeds a t = 0.0 key from the rest '
-            'pose, so there are two keys that DIFFER');
-
-    // docs/v3/01 §12's invariant, stated on the wire format rather than in
-    // memory: every keyframe poses exactly the node's AnchorId sequence. A pose
-    // keyed by index, or a backfill that skipped an anchor, fails here.
-    final topology = posed.path.anchors.map((a) => a.id).toList();
-    for (final key in track.keys) {
-      expect(key.value.anchors.keys.toList(), topology);
-    }
-
-    // Two keys that differ, at the dragged anchor and nowhere else.
-    final k0 = track.keys.first.value.anchors[target.id];
-    final k1 = track.keys.last.value.anchors[target.id];
-    expect(k0, isNotNull);
-    expect(k1, isNotNull);
-    expect(k0?.position.x, closeTo(target.position.x, 1e-9));
-    expect(k1?.position.x, greaterThan(target.position.x));
-    expect(k1?.position.y, lessThan(target.position.y));
-  });
-
-  testWidgets('t = 0.5 evaluates strictly between the two keys',
+  testWidgets('a live scrub rebuilds no canvas widget (AC-9.1.3, the hot path)',
       (tester) async {
-    final id = seed();
-    await tester.pumpWidget(harness(id));
-    await tester.pumpAndSettle();
-    await drawTriangle(tester);
-    await scrubToEnd(tester);
-
-    final before = await reload(id);
-    final target = (before.root.children.single as PathNode).path.anchors.first;
-    await tester.dragFrom(
-        anchorOnScreen(tester, before, target), const Offset(60, 40));
-    await tester.pumpAndSettle();
-
-    // Asserted on the evaluated Scene, not on pixels: a golden image would go
-    // green the moment the shape merely *looks* animated, and a frozen shape
-    // drawn at the wrong colour looks animated too.
-    final doc = await reload(id);
-    final animation = doc.defaultAnimation;
-    expect(animation, isNotNull);
-    final id0 = animation?.id;
-    if (id0 == null) return;
-
-    Vec2 at(double t) {
-      final scene = evaluate(doc, [AnimationMix(id0, t)]);
-      final resolved = scene.byPath[ScenePath(doc.root.children.single.id)];
-      expect(resolved, isNotNull);
-      final geometry = resolved?.geometry;
-      expect(geometry, isNotNull);
-      return geometry!.anchors.firstWhere((a) => a.id == target.id).position;
-    }
-
-    final start = at(0.0);
-    final end = at(1.0);
-    final mid = at(0.5);
-
-    expect(end.x, greaterThan(start.x));
-    expect(mid.x, greaterThan(start.x));
-    expect(mid.x, lessThan(end.x));
-    expect(mid.x, closeTo((start.x + end.x) / 2, 1e-6),
-        reason: 'linear easing at u = 0.5 is the midpoint');
-    expect(mid.y, closeTo((start.y + end.y) / 2, 1e-6));
-  });
-
-  testWidgets('the playhead never reaches the saved JSON', (tester) async {
-    final id = seed();
-    await tester.pumpWidget(harness(id));
-    await tester.pumpAndSettle();
-    await drawTriangle(tester);
-    await scrubToEnd(tester);
-
-    final before = await reload(id);
-    final target = (before.root.children.single as PathNode).path.anchors.first;
-    await tester.dragFrom(
-        anchorOnScreen(tester, before, target), const Offset(30, 30));
-    await tester.pumpAndSettle();
-
-    // AC-2.2.7 as a string search, because that is the only check that cannot
-    // be satisfied by a field that merely happens to be zero today. Legacy
-    // persisted the playhead and the selection; a file saved mid-selection then
-    // referenced ids a later edit deleted, and the document refused to open.
-    final json = await raw(id);
-    for (final banned in [
-      'playhead',
-      'playing',
-      'selectedAnchors',
-      'selection',
-      'hover',
-      'viewport',
-    ]) {
-      expect(json.contains(banned), isFalse, reason: '"$banned" is ephemeral');
-    }
-    // The keyframe it DID author is there, so this is not passing by writing
-    // nothing at all.
-    expect(json.contains('"path"'), isTrue);
-  });
-
-  testWidgets('scrubbing the playhead rebuilds no canvas widget',
-      (tester) async {
-    final id = seed();
-    await tester.pumpWidget(harness(id));
+    final id = seedEmpty();
+    await tester.pumpWidget(shell(id));
     await tester.pumpAndSettle();
     await drawTriangle(tester);
     await tester.pumpAndSettle();
 
-    // The whole point of `playheadProvider` being a ValueNotifier (docs/v3/04
-    // §4): the drag writes `.value`, the two painters repaint through
-    // `super(repaint:)`, and `build()` is never entered. Routing it through a
-    // provider instead is a named antipattern — it couples every panel to the
-    // frame budget, and a rebuild that produces identical pixels is invisible
-    // to every other kind of assertion.
     final baseline = CanvasView.debugBuildCount;
 
     final rail = tester.getRect(find.byKey(const Key('timeline')));
@@ -263,224 +525,63 @@ void main() {
     }
 
     expect(CanvasView.debugBuildCount, baseline,
-        reason: 'a live scrub must rebuild nothing');
-
-    // The readout is the one thing that did change, and it changed by
-    // ValueListenableBuilder — a leaf rebuild, not a tree one.
+        reason: 'the drag writes playhead.value; no provider invalidates');
     expect(find.byKey(const Key('timeline-readout')), findsOneWidget);
 
     await gesture.up();
     await tester.pumpAndSettle();
   });
 
-  testWidgets('keyframe dots appear only after a key exists', (tester) async {
-    final id = seed();
-    await tester.pumpWidget(harness(id));
-    await tester.pumpAndSettle();
-
-    expect(find.text('0 keys'), findsOneWidget);
-
-    await drawTriangle(tester);
-    await tester.pumpAndSettle();
-    // Drawing authors no track: the node is fully static and legal
-    // (docs/v3/05 §4.1, AC-6.1.4).
-    expect(find.text('0 keys'), findsOneWidget);
-
-    await scrubToEnd(tester);
-    final before = await reload(id);
-    final target = (before.root.children.single as PathNode).path.anchors.first;
-    await tester.dragFrom(
-        anchorOnScreen(tester, before, target), const Offset(35, 25));
-    await tester.pumpAndSettle();
-
-    expect(find.text('2 keys'), findsOneWidget);
-  });
-
   testWidgets('the timeline displays seconds derived from durationSeconds',
       (tester) async {
-    // AC-9.1.5: the document stores fractions and the UI derives seconds, so a
-    // retime is one field and re-authors no keyframe. Legacy stored 0.769 and
-    // could never be retimed at all.
-    final doc = Document.create(name: 'Sketch', artboard: const Vec2(400, 400))
-        .bumpRev();
+    final doc = Document.create(name: 'Sketch').bumpRev();
     final retimed = doc.copyWith(
       animations: [doc.animations.single.copyWith(durationSeconds: 2.6)],
     );
     store = MemoryProjectStore({retimed.id: jsonEncode(retimed.toJson())});
 
-    await tester.pumpWidget(harness(retimed.id));
+    await tester.pumpWidget(shell(retimed.id));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('/ 2.60 s'), findsOneWidget);
-    await scrubToEnd(tester);
+    await tester.drag(find.byKey(const Key('timeline')), const Offset(2000, 0));
+    await tester.pumpAndSettle();
     expect(find.textContaining('2.60 s / 2.60 s'), findsOneWidget);
     expect(find.textContaining('t = 1.000'), findsOneWidget);
   });
 
-  testWidgets('a drag on empty canvas mutates nothing', (tester) async {
-    final id = seed();
-    await tester.pumpWidget(harness(id));
+  testWidgets('the playhead never reaches the saved JSON (AC-2.2.7)',
+      (tester) async {
+    final id = seedEmpty();
+    await tester.pumpWidget(shell(id));
     await tester.pumpAndSettle();
     await drawTriangle(tester);
+    await tester.drag(find.byKey(const Key('timeline')), const Offset(2000, 0));
+    await tester.pumpAndSettle();
 
+    final before = await reload(id);
+    final target = (before.root.children.single as PathNode).path.anchors.first;
     final box = tester.getRect(find.byKey(const Key('canvas')));
-    await tester.dragFrom(
-        box.topLeft + const Offset(6, 6), const Offset(40, 8));
+    final at = box.topLeft +
+        Offset(
+          (target.position.x / before.artboard.x) * box.width,
+          (target.position.y / before.artboard.y) * box.height,
+        );
+    // A pose edit at t = 1 authors a path track; the drag itself is M3's, only
+    // used here to make the file hold a keyframe.
+    await tester.dragFrom(at, const Offset(30, 30));
     await tester.pumpAndSettle();
 
-    final doc = await reload(id);
-    expect(doc.rev, 2, reason: 'the pen commit is the only save so far');
-    expect(doc.animations.single.tracks, isEmpty);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('the whole shape follows the anchor while the drag is in flight',
-      (tester) async {
-    // Before this, a drag moved a lone overlay dot across a stale outline: the
-    // artboard layer kept painting the committed document until release, so the
-    // user posed a shape they could not see until they let go. Direct
-    // manipulation that only shows its result afterwards is not direct.
-    //
-    // The preview is the *same* `PathOps.moveAnchor` the release commits, so
-    // what is on screen mid-drag cannot disagree with what lands. A separate
-    // preview-only geometry path would be a second evaluator (docs/v3/08 §4).
-    final id = seed();
-    await tester.pumpWidget(harness(id));
-    await tester.pumpAndSettle();
-    await drawTriangle(tester);
-    await scrubToEnd(tester);
-
-    final before = await reload(id);
-    final target = (before.root.children.single as PathNode).path.anchors.first;
-    final revBefore = before.rev;
-
-    final gesture =
-        await tester.startGesture(anchorOnScreen(tester, before, target));
-    await tester.pump(const Duration(milliseconds: 300));
-    await gesture.moveBy(const Offset(60, -40));
-    await tester.pump();
-
-    // What the artboard layer is drawing, right now, mid-gesture.
-    final painter = tester
-        .widgetList<CustomPaint>(find.byType(CustomPaint))
-        .map((w) => w.painter)
-        .whereType<ArtboardPainter>()
-        .single;
-    final anim = painter.animation;
-    final scene = evaluate(
-      painter.document,
-      anim == null
-          ? const <AnimationMix>[]
-          : <AnimationMix>[AnimationMix(anim, 1.0)],
-    );
-    final geometry =
-        scene.drawOrder.map((n) => n.geometry).whereType<PathData>().single;
-    final posed = geometry.anchors.firstWhere((a) => a.id == target.id);
-
-    // Screen +x/-y is artboard +x/-y: the fit is a uniform scale plus a
-    // translation, never a flip, so the drag's direction survives the mapping.
-    expect(posed.position.x, greaterThan(target.position.x),
-        reason: 'the painted shape must already hold the dragged position');
-    expect(posed.position.y, lessThan(target.position.y));
-
-    // The other two anchors are untouched — a preview that moved the whole
-    // shape would also look "live" and would be wrong.
-    for (final other
-        in (before.root.children.single as PathNode).path.anchors.skip(1)) {
-      final still = geometry.anchors.firstWhere((a) => a.id == other.id);
-      expect(still.position.x, closeTo(other.position.x, 1e-9));
-      expect(still.position.y, closeTo(other.position.y, 1e-9));
+    final json = await raw(id);
+    for (final banned in [
+      'playhead',
+      'playing',
+      'selectedKeyframe',
+      'selectedAnchors',
+      'selection',
+      'viewport',
+    ]) {
+      expect(json.contains(banned), isFalse, reason: '"$banned" is ephemeral');
     }
-
-    // And none of it has been written: the preview is painted, never saved.
-    final onDisk = await reload(id);
-    expect(onDisk.rev, revBefore, reason: 'no command runs until release');
-    expect(onDisk.animations.single.tracks, isEmpty,
-        reason: 'a mid-drag preview must not author a keyframe');
-
-    await gesture.up();
-    await tester.pumpAndSettle();
-
-    // On release the commit matches what was previewed.
-    final after = await reload(id);
-    final committed = onlyPathTrack(after).keys.last.value.anchors[target.id];
-    expect(committed, isNotNull);
-    expect(committed?.position.x, closeTo(posed.position.x, 1e-9));
-    expect(committed?.position.y, closeTo(posed.position.y, 1e-9));
-  });
-
-  testWidgets('an unhurried anchor drag mints no phantom node', (tester) async {
-    // `BaseTapGestureRecognizer` fires `onTapDown` from `didExceedDeadline()`
-    // after `kPressTimeout` (100 ms) whether or not the tap goes on to lose the
-    // arena to the pan. Wiring the drawing affordance to tap-down therefore
-    // meant that any drag where the user pressed and hesitated left a stray
-    // point behind — and three unhurried drags committed a phantom triangle
-    // whose vertices were the three grab points. On the deployed URL that is
-    // the exit-criterion gesture: a stranger drags an anchor at a human pace and
-    // gets an unexplained blue triangle in their document.
-    //
-    // M3 makes the class of bug unrepresentable rather than merely absent: the
-    // tools are modal, so the tool that owns anchors (Direct select) is not the
-    // tool that places them (Pen), and a press dispatches `onPointerDown` on
-    // tap-UP or pan-START — never on the tap deadline. The test stays, because
-    // "unrepresentable" is a claim worth re-checking.
-    //
-    // `tester.dragFrom` cannot see this — it synthesizes down/move/up with no
-    // elapsed time, so the deadline never fires. Hence the explicit pump.
-    final id = seed();
-    await tester.pumpWidget(harness(id));
-    await tester.pumpAndSettle();
-    await drawTriangle(tester);
-    await scrubToEnd(tester);
-
-    final before = await reload(id);
-    final anchors = (before.root.children.single as PathNode).path.anchors;
-
-    for (final target in anchors) {
-      final gesture =
-          await tester.startGesture(anchorOnScreen(tester, before, target));
-      await tester.pump(const Duration(milliseconds: 300));
-      await gesture.moveBy(const Offset(40, 30));
-      await tester.pump();
-      await gesture.up();
-      await tester.pumpAndSettle();
-    }
-
-    final after = await reload(id);
-    expect(after.root.children, hasLength(1),
-        reason: 'three slow drags must not commit a fourth-wall triangle');
-    expect(find.textContaining('Direct select'), findsOneWidget,
-        reason: 'and the modal state is unchanged — a slow drag is a drag, not '
-            'a tool switch and not a click');
-
-    // The drags themselves still did their job.
-    expect(onlyPathTrack(after).keyCount, 2);
-  });
-
-  testWidgets('a save failure during an anchor drag leaves the editor usable',
-      (tester) async {
-    final id = seed();
-    await tester.pumpWidget(harness(id));
-    await tester.pumpAndSettle();
-    await drawTriangle(tester);
-    await scrubToEnd(tester);
-
-    final before = await reload(id);
-    final target = (before.root.children.single as PathNode).path.anchors.first;
-
-    store.failNext = StoreFailure.network;
-    await tester.dragFrom(
-        anchorOnScreen(tester, before, target), const Offset(40, 40));
-    await tester.pumpAndSettle();
-
-    expect(find.text(StoreFailure.network.message), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    // The document on disk is untouched and `rev` did not advance — a failed
-    // save must never bump it (docs/v3/08 §2, last row).
-    final doc = await reload(id);
-    expect(doc.rev, 2);
-    expect(doc.animations.single.tracks, isEmpty);
-    expect(find.byKey(const Key('canvas')), findsOneWidget);
-    expect(find.byKey(const Key('timeline')), findsOneWidget);
   });
 }

@@ -211,10 +211,10 @@ abstract final class PaintOps {
     final stroke = Stroke(
       id: PaintId(uuidV4()),
       paint: SolidPaint(color),
-      width: _nonNegative(width, 'width'),
+      width: _clampWidth(width, 'width'),
       cap: cap,
       join: join,
-      miterLimit: _atLeastOne(miterLimit, 'miterLimit'),
+      miterLimit: _clampMiterLimit(miterLimit, 'miterLimit'),
       opacity: _unit(opacity, 'opacity'),
       visible: visible,
     );
@@ -255,15 +255,21 @@ abstract final class PaintOps {
       _mapStroke(d, n, id, (s) => _stroke(s, paint: SolidPaint(color)),
           requireSolid: true);
 
-  /// Set stroke [id]'s width in node-local units.
+  /// Set stroke [id]'s width in node-local units, clamped to `>= 0`.
   ///
-  /// Zero is legal and means a hairline the renderer draws at its thinnest;
-  /// negative is not a thin stroke, it is a caller bug, and it reaches the
-  /// rasteriser as an inverted outline.
+  /// **Clamped at the mutation, not thrown**, exactly as [setStrokeOpacity] is:
+  /// the inspector's Width field permits a leading `-` and has no minimum, so a
+  /// normal keystroke can commit `-2`, and a negative width is
+  /// not a caller bug — it is out-of-range *user data* that belongs pinned to
+  /// `0` (a zero-width stroke is invisible, which is a legal authored state).
+  /// Throwing here instead fired the inspector command gate's `assert(false)` on
+  /// legal user input — which docs/v3/08 §1 forbids — and left the field stuck
+  /// showing the value the op had refused. See [_clampWidth] for the
+  /// infinity/NaN rules.
   static Document setStrokeWidth(
           Document d, NodeId n, PaintId id, double width) =>
       _mapStroke(
-          d, n, id, (s) => _stroke(s, width: _nonNegative(width, 'width')));
+          d, n, id, (s) => _stroke(s, width: _clampWidth(width, 'width')));
 
   /// Set stroke [id]'s end cap.
   static Document setStrokeCap(
@@ -276,15 +282,23 @@ abstract final class PaintOps {
       _mapStroke(d, n, id, (s) => _stroke(s, join: join));
 
   /// Set stroke [id]'s miter limit — the ratio at which a [StrokeJoin.miter]
-  /// spike is cut back to a bevel.
+  /// spike is cut back to a bevel — clamped to `>= 1`.
   ///
-  /// It is a ratio of miter length to stroke width, so values below `1` describe
-  /// a miter shorter than the stroke is wide: geometrically meaningless, and the
-  /// rasteriser's own answer to it varies by backend.
+  /// **Clamped, not thrown**, for the reason [setStrokeWidth] is: the inspector's
+  /// Miter field has no minimum, so a keystroke can commit `0.5`. A value below
+  /// `1` describes a miter shorter than the stroke is wide —
+  /// geometrically meaningless, and the rasteriser's own answer to it varies by
+  /// backend — so it is pinned to its floor of `1` rather than refused into the
+  /// command gate's `assert(false)` on legal user input (docs/v3/08 §1). See
+  /// [_clampMiterLimit].
   static Document setStrokeMiterLimit(
           Document d, NodeId n, PaintId id, double miterLimit) =>
-      _mapStroke(d, n, id,
-          (s) => _stroke(s, miterLimit: _atLeastOne(miterLimit, 'miterLimit')));
+      _mapStroke(
+          d,
+          n,
+          id,
+          (s) => _stroke(s,
+              miterLimit: _clampMiterLimit(miterLimit, 'miterLimit')));
 
   /// Set stroke [id]'s authored opacity, clamped to `0..1`.
   static Document setStrokeOpacity(
@@ -442,16 +456,36 @@ double _unit(double v, String name) {
   return v.clamp(0.0, 1.0);
 }
 
-double _nonNegative(double v, String name) {
-  if (v.isNaN || v < 0.0 || v.isInfinite) {
-    throw ArgumentError.value(v, name, 'must be finite and >= 0');
-  }
-  return v;
+/// Clamp an authored stroke width to `[0, maxFinite]`, and keep [double.nan]
+/// out.
+///
+/// **Clamps a finite out-of-range value rather than throwing**, the same choice
+/// [_unit] makes for opacity. The inspector's Width field permits a leading `-`
+/// and an exponent, so a single keystroke can hand this `-2` or a value that
+/// overflows to infinity; those are legal *user data*, not
+/// caller bugs, and throwing on them trips the inspector command gate's
+/// `assert(false)` — which docs/v3/08 §1 reserves for programming errors and
+/// forbids on legal input — while leaving the field stuck on the rejected value.
+///
+/// - negative -> `0`: a zero-width stroke is invisible, a legal authored state;
+/// - `+infinity` -> [double.maxFinite]: an infinite width means nothing to the
+///   rasteriser and cannot even be serialized (`jsonEncode` throws on a
+///   non-finite double), so the range's high end is its largest representable
+///   value — the same shape as [_unit] pinning an overshoot to `1.0`;
+/// - [double.nan] -> throw: a NaN is not out-of-range, it is a non-value / a
+///   broken write, rejected exactly as [_unit] rejects it.
+double _clampWidth(double v, String name) {
+  if (v.isNaN) throw ArgumentError.value(v, name, 'must be a number');
+  return v.clamp(0.0, double.maxFinite);
 }
 
-double _atLeastOne(double v, String name) {
-  if (v.isNaN || v < 1.0 || v.isInfinite) {
-    throw ArgumentError.value(v, name, 'must be finite and >= 1');
-  }
-  return v;
+/// Clamp an authored miter limit to `[1, maxFinite]`, and keep [double.nan] out.
+///
+/// Clamps rather than throws on a finite value, for the reason [_clampWidth]
+/// does. Below `1` describes a miter shorter than the stroke is wide, so `1` is
+/// its geometric floor; `+infinity` pins to [double.maxFinite] and [double.nan]
+/// throws, both exactly as [_clampWidth].
+double _clampMiterLimit(double v, String name) {
+  if (v.isNaN) throw ArgumentError.value(v, name, 'must be a number');
+  return v.clamp(1.0, double.maxFinite);
 }

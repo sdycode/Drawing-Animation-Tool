@@ -262,6 +262,50 @@ void main() {
     });
 
     test(
+        'a CLOSED draft (a dragged shape) strokes its whole outline — no rubber '
+        'band, no corner dots', () {
+      // The shape tools feed the overlay a CLOSED `PathData`, exactly as the pen
+      // feeds an open one — the outline the user is dragging out. A closed draft
+      // is a finished shape: it has no open end to chase the cursor from, and
+      // its corners are not click-targets, so neither the rubber-band segment
+      // nor the anchor dots apply. Dotting them would put back the very scatter
+      // of dots this channel replaced. The cursor is supplied (the drag point)
+      // to prove it draws NO rubber band regardless.
+      final shape = DraftPath(
+        path: PathData(anchors: const [
+          Anchor(id: AnchorId('tl'), position: Vec2(20, 20)),
+          Anchor(id: AnchorId('tr'), position: Vec2(80, 20)),
+          Anchor(id: AnchorId('br'), position: Vec2(80, 80)),
+          Anchor(id: AnchorId('bl'), position: Vec2(20, 80)),
+        ], closed: true),
+        cursor: const Vec2(80, 80),
+      );
+      final painter = overlay(draft: shape);
+
+      // Exactly one path op — the closed outline — stroked, never filled.
+      expect((Canvas canvas) => painter.paint(canvas, _size),
+          paintsExactlyCountTimes(#drawPath, 1));
+      expect(
+        (Canvas canvas) => painter.paint(canvas, _size),
+        paints
+          ..path(
+            style: PaintingStyle.stroke,
+            strokeWidth: OverlayPainter.draftWidth,
+            color: _pending,
+          ),
+      );
+      // The recorded path IS the closed box: it spans all four corners, so the
+      // closing edge (bl→tl) was drawn — the whole boundary, not an open run.
+      expect(drawnBounds(painter), const ui.Rect.fromLTRB(20, 20, 80, 80));
+
+      // Not one dot, and not one rubber-band segment.
+      expect((Canvas canvas) => painter.paint(canvas, _size),
+          paintsExactlyCountTimes(#drawCircle, 0),
+          reason: 'a shape preview is an outline, not a scatter of dots');
+      expect(captured, isEmpty);
+    });
+
+    test(
         'rides THE composed fit — the same one the artboard layer is drawn '
         'with', () {
       // A pan+zoom. If the draft built a mapping of its own, this is where the

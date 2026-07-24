@@ -137,8 +137,20 @@ final class SelectTool implements ToolMode {
     _preview = null;
   }
 
+  /// `Esc` mid-drag **abandons the move** (docs/v3/05 §5 — Esc cancels).
+  ///
+  /// It drops the in-flight [_NodeDrag] so the pointer release that follows
+  /// commits nothing: `onPointerUp` sees a null drag and returns null. Without
+  /// this, `Esc` cleared the selection (the canvas fallback) but the pending
+  /// `onPointerUp` still ran `SetTransformCommand` — the move landed anyway,
+  /// which is not what pressing Esc mid-drag means in any editor. Returning null
+  /// with no effect leaves the canvas free to also clear the selection, which is
+  /// the rest of Esc's meaning here.
   @override
-  Command? onKey(ToolKey key, PointerCtx ctx) => null;
+  Command? onKey(ToolKey key, PointerCtx ctx) {
+    if (key == ToolKey.escape && _drag != null) cancel();
+    return null;
+  }
 
   /// A press selects what is under it and arms the move.
   ///

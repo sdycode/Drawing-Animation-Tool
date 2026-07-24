@@ -13,7 +13,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/document_controller.dart';
 import '../../state/editor_controller.dart';
-import '../../state/recipe_guard.dart';
 
 /// The selected nodes as `NodeId`s — the same shared editor slice the canvas and
 /// layers panel read, projected off `ScenePath` (`instancePath` is `const []` in
@@ -122,6 +121,236 @@ final inspectorTargetProvider =
   return view == null
       ? const InspectorTarget.summary(1)
       : InspectorTarget.node(view);
+});
+
+// ---------------------------------------------------------------------------
+// Keyframe diamonds — F6.2, AC-6.2.6 (the edit-at-keyframe authoring surface)
+// ---------------------------------------------------------------------------
+
+/// Which of the selected node's animatable channels are tracked, and each
+/// track's key times — the one read behind every inspector keyframe **diamond**
+/// and the tracked-vs-static routing of every inspector field.
+///
+/// **A named slice, keyed by wire string** (docs/v3/08 §2): a property absent
+/// from [keyTimes] has no track, so its diamond shows empty and its field writes
+/// the static pose; a property present is tracked, so its diamond reflects the
+/// playhead and its field upserts the keyframe. The slice never reads the
+/// playhead — the diamond leaf combines these key times with the live
+/// `playheadProvider` to tell "on a key" from "between keys", so **scrubbing
+/// rebuilds nothing here** (AC-13.3), only the diamond leaf repaints.
+///
+/// It is value-projected so an edit that leaves every key list untouched (a
+/// colour changed, a node dragged) yields an equal view and no rebuild.
+@immutable
+final class InspectorTracksView {
+  const InspectorTracksView(this.keyTimes);
+
+  static const InspectorTracksView empty =
+      InspectorTracksView(<String, List<double>>{});
+
+  /// `PropertyKey.wire` → the track's key times, in order. Absent = untracked.
+  final Map<String, List<double>> keyTimes;
+
+  /// The key times for [property], or null when it has no track.
+  List<double>? operator [](PropertyKey property) => keyTimes[property.wire];
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! InspectorTracksView) return false;
+    if (other.keyTimes.length != keyTimes.length) return false;
+    for (final entry in keyTimes.entries) {
+      final theirs = other.keyTimes[entry.key];
+      if (theirs == null || theirs.length != entry.value.length) return false;
+      for (var i = 0; i < theirs.length; i++) {
+        if (theirs[i] != entry.value[i]) return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode {
+    var h = 0;
+    // XOR so the hash is independent of the map's iteration order.
+    for (final entry in keyTimes.entries) {
+      h ^= Object.hash(entry.key, Object.hashAll(entry.value));
+    }
+    return h;
+  }
+}
+
+/// The animatable channels the inspector draws a diamond for, on the one
+/// selected node, in the active animation. `pivot`, `visible` and the trim
+/// channels are deliberately absent: `pivot`/`visible` have no inspector field
+/// and trim is a still-unbuilt seam. `path` **is** present — it has no *field*
+/// (a `PathPose` is edited on the canvas by direct-select), but it carries the
+/// inspector's path **diamond**, the one hand affordance that authors the first
+/// path keyframe (F6.1). A dangling or many/zero selection resolves to
+/// [InspectorTracksView.empty] — every diamond empty, never a crash
+/// (docs/v3/08 §2).
+final inspectorTracksProvider =
+    Provider.autoDispose.family<InspectorTracksView, String>((ref, projectId) {
+  final ids = ref.watch(inspectorSelectionProvider);
+  if (ids.length != 1) return InspectorTracksView.empty;
+  final id = ids.single;
+  final animationId = ref.watch(activeAnimationProvider(projectId));
+
+  return ref.watch(documentControllerProvider(projectId).select((async) {
+    final doc = async.valueOrNull;
+    final node = doc?.nodeIndex[id];
+    if (doc == null || node == null || animationId == null) {
+      return InspectorTracksView.empty;
+    }
+
+    var tracks = TrackSet.empty;
+    for (final animation in doc.animations) {
+      if (animation.id == animationId) {
+        tracks = animation.tracksFor(id);
+        break;
+      }
+    }
+
+    final times = <String, List<double>>{};
+    void add(PropertyKey key) {
+      final track = tracks.byKey[key];
+      if (track != null) {
+        times[key.wire] = List<double>.unmodifiable(track.keyTimes);
+      }
+    }
+
+    add(const PropertyKey(PropKey.position));
+    add(const PropertyKey(PropKey.scale));
+    add(const PropertyKey(PropKey.rotation));
+    add(const PropertyKey(PropKey.skewX));
+    add(const PropertyKey(PropKey.opacity));
+    if (node is PathNode) {
+      // The path diamond's key times — the row has no field, but the diamond
+      // reads this exactly like every other channel.
+      add(const PropertyKey(PropKey.path));
+      if (node.fills.isNotEmpty) {
+        final fillId = node.fills.first.id.v;
+        add(PropertyKey(PropKey.fillColor, fillId));
+        add(PropertyKey(PropKey.fillOpacity, fillId));
+      }
+      if (node.strokes.isNotEmpty) {
+        final strokeId = node.strokes.first.id.v;
+        add(PropertyKey(PropKey.strokeColor, strokeId));
+        add(PropertyKey(PropKey.strokeOpacity, strokeId));
+        add(PropertyKey(PropKey.strokeWidth, strokeId));
+      }
+    }
+    return InspectorTracksView(Map<String, List<double>>.unmodifiable(times));
+  }));
+});
+
+// ---------------------------------------------------------------------------
+// Sampled field values — the WYSIWYG half of edit-at-keyframe (AC-6.2.6)
+// ---------------------------------------------------------------------------
+
+/// The selected node's typed tracks for its **numeric/colour fields**, so a
+/// tracked field can show the value the canvas is showing — sampled at the live
+/// playhead — instead of the static rest pose (AC-6.2.6, UX §3 "that keyframe
+/// loads onto the field").
+///
+/// **A leaf reads this and samples inside a `ValueListenableBuilder` on the
+/// playhead** (the diamond's pattern), so a scrub repaints only the field's text
+/// and rebuilds no panel (AC-13.3): the view here does not read the playhead and
+/// so does not change on a scrub.
+///
+/// **Value-equal by track *identity*.** anim_core's ops thread the `animations`
+/// list through untouched on an edit that does not touch a track, so an unrelated
+/// commit (a node dragged, the rest pose moved) yields the *same* `Track` objects
+/// and an equal view — nothing rebuilds. A keyframe *value* edit mints a new
+/// track object, which is exactly when the field must re-read, so the view is
+/// then unequal and the leaf rebuilds. `path` is absent: it has a diamond, not a
+/// field, and nothing samples it here.
+@immutable
+final class InspectorSamplesView {
+  const InspectorSamplesView(this.tracks);
+
+  static const InspectorSamplesView empty =
+      InspectorSamplesView(<PropertyKey, Track>{});
+
+  final Map<PropertyKey, Track> tracks;
+
+  /// The track for [property], or null when it is untracked.
+  Track? operator [](PropertyKey property) => tracks[property];
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! InspectorSamplesView) return false;
+    if (other.tracks.length != tracks.length) return false;
+    for (final entry in tracks.entries) {
+      if (!identical(other.tracks[entry.key], entry.value)) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode {
+    var h = 0;
+    // XOR so the hash is independent of iteration order.
+    for (final entry in tracks.entries) {
+      h ^= Object.hash(entry.key, identityHashCode(entry.value));
+    }
+    return h;
+  }
+}
+
+/// The typed tracks behind the one selected node's fields — the read every
+/// tracked field's displayed value is sampled from. Same walk as
+/// [inspectorTracksProvider], but keeping the track objects (not just key times)
+/// and comparing by identity, because it feeds *values*, not dot positions.
+final inspectorSamplesProvider =
+    Provider.autoDispose.family<InspectorSamplesView, String>((ref, projectId) {
+  final ids = ref.watch(inspectorSelectionProvider);
+  if (ids.length != 1) return InspectorSamplesView.empty;
+  final id = ids.single;
+  final animationId = ref.watch(activeAnimationProvider(projectId));
+
+  return ref.watch(documentControllerProvider(projectId).select((async) {
+    final doc = async.valueOrNull;
+    final node = doc?.nodeIndex[id];
+    if (doc == null || node == null || animationId == null) {
+      return InspectorSamplesView.empty;
+    }
+
+    var tracks = TrackSet.empty;
+    for (final animation in doc.animations) {
+      if (animation.id == animationId) {
+        tracks = animation.tracksFor(id);
+        break;
+      }
+    }
+
+    final out = <PropertyKey, Track>{};
+    void add(PropertyKey key) {
+      final track = tracks.byKey[key];
+      if (track != null) out[key] = track;
+    }
+
+    add(const PropertyKey(PropKey.position));
+    add(const PropertyKey(PropKey.scale));
+    add(const PropertyKey(PropKey.rotation));
+    add(const PropertyKey(PropKey.skewX));
+    add(const PropertyKey(PropKey.opacity));
+    if (node is PathNode) {
+      if (node.fills.isNotEmpty) {
+        final fillId = node.fills.first.id.v;
+        add(PropertyKey(PropKey.fillColor, fillId));
+        add(PropertyKey(PropKey.fillOpacity, fillId));
+      }
+      if (node.strokes.isNotEmpty) {
+        final strokeId = node.strokes.first.id.v;
+        add(PropertyKey(PropKey.strokeColor, strokeId));
+        add(PropertyKey(PropKey.strokeOpacity, strokeId));
+        add(PropertyKey(PropKey.strokeWidth, strokeId));
+      }
+    }
+    return InspectorSamplesView(Map<PropertyKey, Track>.unmodifiable(out));
+  }));
 });
 
 // ---------------------------------------------------------------------------
@@ -410,9 +639,12 @@ final inspectorShapeProvider =
     return NodeShapeView(
       node: id,
       recipe: recipe,
-      refusal: recipe is UnknownRecipe
-          ? kUnreadableRecipeMessage
-          : recipeRegenerationRefusal(doc, id),
+      // A tracked node is **no longer refused** — its regeneration routes through
+      // `PathOps.retopologize` (AC-4.1.5, see `InspectorCommands.regenerateRecipe`),
+      // so its fields are editable. The only refusal left is an `UnknownRecipe`:
+      // this build cannot read it, so it must never overwrite the outline it did
+      // not create (docs/v3/02 §7).
+      refusal: recipe is UnknownRecipe ? kUnreadableRecipeMessage : null,
     );
   }));
 });
