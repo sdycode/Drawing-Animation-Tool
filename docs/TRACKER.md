@@ -2,7 +2,7 @@
 
 ⚪ not started · 🔵 in progress · 🟡 thin/stubbed · 🟢 done · 🔴 broken
 
-**Now:** M5 ★ — **F4.3 topology editing**. ⏸ **PAUSED at a clean green checkpoint.** M5's **domain half is DONE and machine-proven**: `PathOps.insertAnchor` (exact de Casteljau — reproduces `v3/01 §13.5` to 1e-12, pixel-identical golden ~1e-12), `deleteAnchor`, `retopologize` (arc-length correspondence), the AC-4.3.6 invariant checker, and the three command classes. **M5's UI half is IN PROGRESS** (pen hover→insert, `Del`→delete, tracked recipe→`retopologize`): recipe-regeneration routing is wired; pen-insert / Del gestures are partially wired; ONE M4-era inspector test is `skip:true` (documented, un-skip on resume). Gate is green: anim_core 426 · anim_render 64 · app 209 (+1 skipped). **To resume: say "continue M5" — finish the UI stream, un-skip the test, then the 6-lens M5 audit.** F12.1 deploy stays parked (web build CI-verified).
+**Now:** ✅ **M5 ★ COMPLETE — the load-bearing feature is done and demonstrable** (the roadmap's designated permanent stopping point). Topology editing: `PathOps.insertAnchor` (exact de Casteljau, `v3/01 §13.5` to 1e-12), `deleteAnchor`, `retopologize` (arc-length), pen hover→insert, `Del`→delete, tracked recipe→`retopologize`, the AC-4.3.6 CI invariant. Audited by **6 lenses — 3 returned NO FINDINGS (both math lenses + isolation); the exit criterion is reachable by hand and pixel-identical with a biting golden.** Remaining fixes (1 medium degenerate-recipe guard + lows) applied post-audit. Gate: anim_core 426 · anim_render 64 · app 210 · 0 skipped · web build ✓. **Next: M6** — `PathTrim` (draw-on/reveal), transport (play/pause/loop), the full 8-stage evaluator. F12.1 deploy stays parked (web build CI-verified).
 
 | M | Feature | S |
 |---|---|---|
@@ -41,13 +41,16 @@
 | | Direct-select `A` — drag anchors & handles, `AnchorKind` baked into stored tangents, `Alt` breaks symmetry; `PathOps.setTangents` | 🟢 |
 | | F5.1 Solid fill & stroke **authoring** (inspector) — colour/opacity/rule + width/cap/join/miter; fills-before-strokes; addressed by `PaintId`; gradients rendered-not-authored | 🟢 |
 | | Tool rail + `V`/`A`/`P`/`R`/`O`/`G` bindings — tool layer now real (dispatch through `ToolMode`, cancelled on switch/cancel/dispose) | 🟢 |
-| | `regenerateRecipe` — replaces an untracked node's path; **refuses** a path-tracked node (correspondence is M5) | 🟢 |
+| | `regenerateRecipe` — replaces an untracked node's path; a path-tracked node was refused at M3, **now routes through `retopologize` (M5)** | 🟢 |
 | **M4** | F6.1 Per-node/per-property tracks · F6.2 keyframe ops — `TrackOps.moveKeyframe`/`removeKeyframeAt`/`setEasing`/`pinEndpoints` · `KeyframeOps` Document-level route | 🟢 |
 | | **Timeline** — per-node→per-property rows, dots dragged (index frozen at drag start), per-segment easing picker (presets→`CubicEasing`), `,`/`.`/Home/End/`K`/`Shift+K` | 🟢 |
 | | F4.2 edit-at-keyframe — direct-select routes on `_hasPathTrack` (untracked→rest pose, AC-4.2.3); inspector keyframe diamonds; **path diamond** (`PathOps.keyPose`) authors the first path key | 🟢 |
 | | F7.1 easing · F7.2 interpolation (ID-join, bool-step, unbounded rotation, hold-first/last) · F7.3 spatial motion-path tangents — all verified, most shipped in M0/M1 | 🟢 |
 | | Playhead hot path holds under the timeline + diamonds — a scrub rebuilds nothing but leaf value-builders (audited) | 🟢 |
-| **M5** ★ | **F4.3 Topology editing** — insert/delete anchor mid-animation | ⚪ |
+| **M5** ★ | **F4.3 Topology editing** — `PathOps.insertAnchor` (exact de Casteljau, `§13.5` to 1e-12, pixel-identical golden that bites) · `deleteAnchor` · `retopologize` (arc-length correspondence) | 🟢 |
+| | Pen hover→`+`→insert (nearest-point `u`-solve) · `Del`/`Backspace`→delete anchor · tracked recipe edit→`retopologize` (square→star rewrites every keyframe) | 🟢 |
+| | AC-4.3.6 CI invariant — identical `AnchorId` sequence across every keyframe, a property sweep (8 seeds × 30 random ops × 2 animations) that blocks the build | 🟢 |
+| | Audited by 6 lenses — 3 NO-FINDINGS (both math + isolation); degenerate-recipe erasure fixed, `u`-solve self-crossing branch fixed | 🟢 |
 | **M6** | F8.1 `PathTrim` · F9.1 Transport · F9.2 Full evaluator | ⚪ |
 | **M7** | F10.3 Autosave + dirty/saved indicator · E13 perf pass | ⚪ |
 | **M8** | F11.1 Export · F11.2 `anim_core` replay · F11.3 Importer · F11.4 Samples | ⚪ |

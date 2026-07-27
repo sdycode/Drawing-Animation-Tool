@@ -1020,19 +1020,74 @@ class _PaintSection extends ConsumerWidget {
   }
 }
 
+/// The floor a shape's extent (`w`/`h`/`rx`/`ry`/`radius`) is clamped to at the
+/// field, before a recipe is committed.
+///
+/// `toPath()` collapses to `PathData.empty` for a non-positive or non-finite
+/// extent, or for `sides < 3` (`shape_geometry.dart`). On a path-TRACKED node
+/// that empty path routes to `retopologize`, which rewrites every keyframe onto
+/// nothing and **silently erases the animation** — the M5 defect this floor
+/// closes. So the shape fields clamp, at the mutation, the same way the stroke
+/// width/miter fields do: a degenerate recipe can no longer be authored from a
+/// number field, tracked or not. `1` (not a sub-pixel epsilon) so a fat-fingered
+/// `0` parks the shape at a value the user can *see* and correct in place.
+const double _kMinShapeExtent = 1.0;
+
+/// [v] pinned to a finite value at or above [_kMinShapeExtent]. A non-finite
+/// entry — `1e999` parses to infinity, which `toPath` reads as degenerate just as
+/// it does `0` — drops to the floor rather than falling through to empty geometry.
+double _shapeExtent(double v) =>
+    v.isFinite ? math.max(v, _kMinShapeExtent) : _kMinShapeExtent;
+
+/// The recipe a shape field built, clamped out of every degenerate corner that
+/// `toPath()` returns [PathData.empty] for (see [_kMinShapeExtent]).
+///
+/// Non-extent parameters clamp to their own valid ranges: `cornerRadius >= 0`
+/// (0 is a plain rectangle, and the geometry already caps it at `min(w, h) / 2`),
+/// `innerRatio` into `0..1` (outside it inverts the star, and the geometry clamps
+/// there anyway), `sides >= 3` (two is a line, one a point). An [UnknownRecipe]
+/// has no readable parameters and is passed through untouched — the routing
+/// backstop refuses it, and no field ever builds one.
+ShapeRecipe _clampShapeRecipe(ShapeRecipe recipe) => switch (recipe) {
+      final RectRecipe r => RectRecipe(
+          w: _shapeExtent(r.w),
+          h: _shapeExtent(r.h),
+          cornerRadius:
+              r.cornerRadius.isFinite ? math.max(r.cornerRadius, 0.0) : 0.0,
+          unknownKeys: r.unknownKeys,
+        ),
+      final EllipseRecipe e => EllipseRecipe(
+          rx: _shapeExtent(e.rx),
+          ry: _shapeExtent(e.ry),
+          unknownKeys: e.unknownKeys,
+        ),
+      final PolygonRecipe p => PolygonRecipe(
+          sides: math.max(p.sides, 3),
+          radius: _shapeExtent(p.radius),
+          star: p.star,
+          innerRatio: p.innerRatio.isFinite
+              ? p.innerRatio.clamp(0.0, 1.0).toDouble()
+              : 0.0,
+          unknownKeys: p.unknownKeys,
+        ),
+      UnknownRecipe() => recipe,
+    };
+
 /// Shape-parameter re-editing — AC-4.1.5.
 ///
 /// A [ShapeRecipe] is inert metadata about how a shape tool generated the node's
 /// anchors, so "make that rectangle 20 units wider" stays a one-field edit
 /// instead of a manual drag of four anchors. Editing one regenerates the
-/// geometry through the **one sanctioned route**, `PathOps.regenerateRecipe`.
+/// geometry through the **one sanctioned route**, `InspectorCommands.regenerateRecipe`.
 ///
-/// **Disabled, with the reason on screen, on a node whose path is animated.**
-/// The op refuses that case because regeneration mints fresh `AnchorId`s while
-/// every existing keyframe poses the old ones; the correct answer is arc-length
-/// correspondence, which does not exist yet. The predicate and its sentence come
-/// from `state/recipe_guard.dart` — the same ones the command gate uses — so a
-/// field can never look editable while the write behind it is refused.
+/// **Enabled on a tracked node — that is M5's whole point.** An animated path was
+/// refused until `PathOps.retopologize` existed; now the edit routes through it
+/// (arc-length correspondence rewrites every keyframe onto the recipe's new id
+/// set and clears the recipe), so tracked-ness no longer disables anything. The
+/// one thing still shown read-only is a recipe this build cannot read
+/// ([kUnreadableRecipeMessage]): it has no parameters to draw a field for, and
+/// `PathOps.regenerateRecipe` refuses it as the backstop — so a field can never
+/// look editable while the write behind it is refused.
 class _ShapeSection extends ConsumerWidget {
   const _ShapeSection({required this.projectId});
 
@@ -1045,8 +1100,15 @@ class _ShapeSection extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final enabled = view.refusal == null;
 
-    void commit(ShapeRecipe next) => _report(context,
-        InspectorCommands(ref, projectId).regenerateRecipe(view.node, next));
+    // Clamp the recipe the field built out of every degenerate corner before it
+    // reaches the command (see [_clampShapeRecipe]). This is the primary guard
+    // for the M5 erase-on-degenerate defect: a `w = 0` / `sides = 2` recipe whose
+    // `toPath()` is empty would, on a path-TRACKED node, retopologize every
+    // keyframe onto nothing and silently wipe the animation.
+    void commit(ShapeRecipe next) => _report(
+        context,
+        InspectorCommands(ref, projectId)
+            .regenerateRecipe(view.node, _clampShapeRecipe(next)));
 
     return Column(
       key: const Key('inspector-shape'),
@@ -1118,8 +1180,15 @@ class _ShapeSection extends ConsumerWidget {
             innerRatio: inner ?? recipe.innerRatio,
           );
       return [
-        _number('Sides', 'inspector-shape-sides', recipe.sides.toDouble(),
-            enabled, (v) => commit(next(sides: v.round()))),
+        // `v.round()` throws on a non-finite entry (a `1e999` parses to infinity
+        // in the field), so the double is settled before it becomes a side count;
+        // [_clampShapeRecipe] then applies the `>= 3` floor.
+        _number(
+            'Sides',
+            'inspector-shape-sides',
+            recipe.sides.toDouble(),
+            enabled,
+            (v) => commit(next(sides: v.isFinite ? v.round() : recipe.sides))),
         _number('Radius', 'inspector-shape-radius', recipe.radius, enabled,
             (v) => commit(next(radius: v))),
         _toggleRow(

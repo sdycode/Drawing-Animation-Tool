@@ -368,11 +368,11 @@ abstract final class PathOps {
   /// The wrong-shape bug the authority rule (docs/v3/01 §5) guards against needs
   /// a *hand anchor edit* that diverges from the recipe, and there is none here.
   ///
-  /// The node is now tracked, so [regenerateRecipe] will *refuse* it until M5's
-  /// `retopologize` — but that refusal is **loud** (docs/v3/08 §1), not silent
-  /// loss, so keeping the recipe risks nothing and buys the inspector the
-  /// ability to keep naming the shape ("Rectangle", disabled with M5 named)
-  /// instead of silently degrading it to an anonymous path.
+  /// The node is now tracked. Keeping the recipe lets the inspector keep naming
+  /// the shape ("Rectangle") and, as of M5, keep its parameter fields editable —
+  /// an edit retopologizes every keyframe onto the new recipe by arc-length
+  /// correspondence. (Before M5 a tracked node's recipe edit was refused; that
+  /// refusal is gone.) Degrading to an anonymous path here would throw both away.
   ///
   /// Throws [ArgumentError] for an unknown node, a node that is not a
   /// [PathNode], or a [t] outside `[0,1]`.
@@ -487,13 +487,16 @@ abstract final class PathOps {
   ///   correspondence over the old and new outlines, it is a real piece of work,
   ///   and shipping a cheap approximation of it under the same name is how the
   ///   next milestone inherits a bug it cannot see. So this throws
-  ///   [ArgumentError] until `retopologize` exists, and the command layer turns
-  ///   that into a visible refusal (docs/v3/08 §1) instead of a wrong document.
+  ///   [ArgumentError] on a tracked node — but as of M5 it is only an
+  ///   unreachable **backstop**: [retopologize] now exists, and the command
+  ///   layer routes a tracked node's recipe edit through it (`recipe_guard`'s
+  ///   `hasPathTrack` → `RetopologizeCommand`) rather than here. This throw fires
+  ///   only if a future call site bypasses that route with a tracked node.
   ///
-  /// The UI consequence is precise and worth handing to the inspector: the shape
-  /// parameter fields are editable on an un-animated node and must be disabled,
-  /// with M5 named, on a node that has path keyframes. That is a smaller lie
-  /// than a slider that destroys an animation.
+  /// The UI consequence, post-M5: a tracked node's shape parameter fields are
+  /// **editable**, and editing one retopologizes every keyframe onto the new
+  /// recipe's anchor set by arc-length correspondence. (Before M5 they were
+  /// disabled with M5 named — that is no longer the behaviour.)
   ///
   /// An [UnknownRecipe] is refused too. It is preserve-and-ignore metadata from
   /// a build that knows shapes this one does not (docs/v3/02 §7); regenerating

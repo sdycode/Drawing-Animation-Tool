@@ -63,8 +63,8 @@ final class CanvasCommands {
   /// Regenerate a node's geometry from an edited [ShapeRecipe] (AC-4.1.5).
   ///
   /// Forks on **one predicate — does the node carry a `path` track?**
-  /// ([recipeRegenerationRefusal], non-null exactly when it does), so the answer
-  /// stays in `state/` where the inspector reads the same one to enable its fields:
+  /// ([hasPathTrack]), so the answer stays in `state/` where the inspector reads
+  /// the same one to route its shape fields:
   ///
   /// - **Untracked** → [RegenerateRecipeCommand] regenerates in place, keeping the
   ///   recipe as inert metadata.
@@ -74,19 +74,28 @@ final class CanvasCommands {
   ///   onto the recipe's new id set (AC-4.3.7) and clears the stale recipe. Once
   ///   per edit, from a command, never in the tick.
   ///
-  /// An [UnknownRecipe] builds no geometry, so it never takes the tracked branch
-  /// (retopologising to it would erase the outline); it falls through to
-  /// [RegenerateRecipeCommand], whose op refuses it as before.
+  /// A recipe with no geometry never takes the tracked branch: an [UnknownRecipe]
+  /// builds none, and neither does a degenerate one (a `RectRecipe` with `w <= 0`,
+  /// a `PolygonRecipe` with `sides < 3`) — its `toPath()` is empty. Retopologising
+  /// onto an empty path rewrites every keyframe to an empty pose and silently
+  /// erases the animation, so the fork also requires `toPath()` to carry anchors;
+  /// a degenerate recipe falls through to [RegenerateRecipeCommand], which keeps
+  /// the recipe (recoverable in place, exactly like the untracked case) and never
+  /// touches the keyframes. This predicate is kept **identical** to the
+  /// inspector's so the two features cannot route the same document two ways.
   ///
-  /// **Call site:** the inspector's shape-parameter fields. It lives in the
-  /// canvas's command file because `PathOps` edits the geometry the canvas
-  /// paints, and because the shape *tools* — which construct whole nodes and
-  /// need no op at all — are the other half of AC-4.1.4 and are one feature away.
+  /// **Call site:** the inspector's shape-parameter fields, which clamp the
+  /// recipe past its floor first (`_clampShapeRecipe`), so this guard is the
+  /// routing backstop, not a path legal input reaches. It lives in the canvas's
+  /// command file because `PathOps` edits the geometry the canvas paints, and
+  /// because the shape *tools* — which construct whole nodes and need no op at
+  /// all — are the other half of AC-4.1.4 and are one feature away.
   Future<String?> regenerateRecipe(NodeId node, ShapeRecipe recipe) {
     final doc = _ref.read(documentControllerProvider(_projectId)).valueOrNull;
     if (doc == null) return Future<String?>.value(kRejectedEditMessage);
-    final tracked = recipeRegenerationRefusal(doc, node) != null;
-    if (tracked && recipe is! UnknownRecipe) {
+    if (hasPathTrack(doc, node) &&
+        recipe is! UnknownRecipe &&
+        recipe.toPath().anchors.isNotEmpty) {
       return run(RetopologizeCommand(node, recipe.toPath()));
     }
     return run(RegenerateRecipeCommand(node, recipe));

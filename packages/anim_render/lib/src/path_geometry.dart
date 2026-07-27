@@ -331,10 +331,15 @@ PathInsertHit? insertionCandidate(
 }
 
 /// Samples for the coarse nearest-point pass. A cubic's foot-of-perpendicular
-/// solve can have more than one stationary point, so a dense sweep locates the
-/// global-nearest region *before* Newton refines it — Newton alone slides into
-/// whichever root it started next to.
-const int _insertSamples = 24;
+/// solve is a quintic in `u` with up to three stationary points, so a dense
+/// sweep brackets **every** local minimum *before* Newton refines it — Newton
+/// alone slides into whichever root it started next to.
+///
+/// Dense enough (was 24) that a self-crossing cubic whose two branches fold to
+/// within a few px still lands one sample on each: at 48, adjacent samples are
+/// ~1/48 of the arc apart, so two feet that close resolve to two separate
+/// coarse minima rather than merging into one and hiding a branch.
+const int _insertSamples = 48;
 
 /// `u` is kept strictly inside `(0,1)`; `PathOps.insertAnchor` refuses the
 /// endpoints (they are existing anchors, not a split).
@@ -342,48 +347,73 @@ const double _insertMinU = 1e-6;
 
 /// The parameter and point on the cubic `[p0,p1,p2,p3]` nearest to [q].
 ///
-/// A dense sample finds the region; a few Newton steps on `d/du |B(u)-q|²`,
-/// **clamped to the sample's bracket**, refine it to the true foot without ever
-/// leaving the neighbourhood the sweep chose. Accurate to machine precision for a
-/// query exactly on the curve — the case the insert test asserts on.
+/// **Every** local minimum of `|B(u)-q|²` is refined, not just the one nearest
+/// coarse sample. The old single-bracket solve found one minimum and Newton'd
+/// from it, which is correct on a convex/monotone cubic — but a cubic can fold so
+/// two of its branches pass within ~3 px of each other (a loop drawn with strong
+/// opposing tangents), and then the true foot can sit on the branch the single
+/// bracket did *not* cover: measured up to 2.63 px along the curve onto the wrong
+/// branch. So the coarse sweep keeps every sample that is a local min of squared
+/// distance, a few Newton steps on `d/du |B(u)-q|²` — **clamped to that sample's
+/// bracket** so refinement never leaves the neighbourhood the sweep chose —
+/// polish each, and the global best is returned. Still accurate to machine
+/// precision for a query exactly on the curve (a single minimum), the case the
+/// insert test asserts on; cheap enough for a hover frame (a fixed sweep and one
+/// short Newton per local min, of which a cubic has at most three).
 (double, Vec2) _projectOntoCubic(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, Vec2 q) {
-  var bestU = 0.0;
-  var bestDist = double.infinity;
-  for (var i = 0; i <= _insertSamples; i++) {
-    final u = i / _insertSamples;
+  double squaredDist(double u) {
     final b = _cubicAt(p0, p1, p2, p3, u);
     final dx = b.x - q.x;
     final dy = b.y - q.y;
-    final dist = dx * dx + dy * dy;
-    if (dist < bestDist) {
-      bestDist = dist;
+    return dx * dx + dy * dy;
+  }
+
+  // Coarse sweep: squared distance at every sample, kept so each interior point
+  // can be tested against both neighbours for a local minimum.
+  final dist = List<double>.generate(
+      _insertSamples + 1, (i) => squaredDist(i / _insertSamples),
+      growable: false);
+
+  const step = 1.0 / _insertSamples;
+  var bestU = 0.0;
+  var bestDist = double.infinity;
+  for (var i = 0; i <= _insertSamples; i++) {
+    // A local minimum of the coarse samples (endpoints compare only inward).
+    // `<=` so a flat run still yields a seed; the global sample-min always
+    // qualifies, so there is always at least one candidate to refine.
+    final downLeft = i == 0 || dist[i] <= dist[i - 1];
+    final downRight = i == _insertSamples || dist[i] <= dist[i + 1];
+    if (!(downLeft && downRight)) continue;
+
+    final seed = i * step;
+    final lo = (seed - step).clamp(0.0, 1.0);
+    final hi = (seed + step).clamp(0.0, 1.0);
+    var u = seed;
+    for (var iter = 0; iter < 16; iter++) {
+      final b = _cubicAt(p0, p1, p2, p3, u);
+      final d1 = _cubicDeriv(p0, p1, p2, p3, u);
+      final d2 = _cubicDeriv2(p0, p1, p2, p3, u);
+      final ex = b.x - q.x;
+      final ey = b.y - q.y;
+      final f1 = ex * d1.x + ey * d1.y; // ½·f'(u)
+      final f2 = d1.x * d1.x + d1.y * d1.y + ex * d2.x + ey * d2.y; // ½·f''(u)
+      if (f2 == 0 || !f2.isFinite) break;
+      final next = (u - f1 / f2).clamp(lo, hi);
+      if ((next - u).abs() < 1e-12) {
+        u = next;
+        break;
+      }
+      u = next;
+    }
+    final refined = squaredDist(u);
+    if (refined < bestDist) {
+      bestDist = refined;
       bestU = u;
     }
   }
 
-  const step = 1.0 / _insertSamples;
-  final lo = (bestU - step).clamp(0.0, 1.0);
-  final hi = (bestU + step).clamp(0.0, 1.0);
-  var u = bestU;
-  for (var iter = 0; iter < 16; iter++) {
-    final b = _cubicAt(p0, p1, p2, p3, u);
-    final d1 = _cubicDeriv(p0, p1, p2, p3, u);
-    final d2 = _cubicDeriv2(p0, p1, p2, p3, u);
-    final ex = b.x - q.x;
-    final ey = b.y - q.y;
-    final f1 = ex * d1.x + ey * d1.y; // ½·f'(u)
-    final f2 = d1.x * d1.x + d1.y * d1.y + ex * d2.x + ey * d2.y; // ½·f''(u)
-    if (f2 == 0 || !f2.isFinite) break;
-    final next = (u - f1 / f2).clamp(lo, hi);
-    if ((next - u).abs() < 1e-12) {
-      u = next;
-      break;
-    }
-    u = next;
-  }
-
-  u = u.clamp(_insertMinU, 1.0 - _insertMinU);
-  return (u, _cubicAt(p0, p1, p2, p3, u));
+  bestU = bestU.clamp(_insertMinU, 1.0 - _insertMinU);
+  return (bestU, _cubicAt(p0, p1, p2, p3, bestU));
 }
 
 Vec2 _cubicAt(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, double u) {

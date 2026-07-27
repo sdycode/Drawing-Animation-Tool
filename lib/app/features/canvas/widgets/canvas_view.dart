@@ -420,6 +420,10 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
   /// user sees and the point the click lands on are one computation. A singular
   /// camera yields a null inverse and therefore no `+`: an early return, never
   /// `invert()!` (docs/v3/08 §4).
+  ///
+  /// **Suppressed while a pan is armed**, the same [_panArmed] gate `_onTapUp`
+  /// returns on: a Space-held (or middle-button) click pans and inserts nothing,
+  /// so painting the `+` would advertise an edit the click will not make.
   Vec2? _penInsertCursor({
     required ToolMode tool,
     required PathData? previewPath,
@@ -428,6 +432,7 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
     required Set<ScenePath> selection,
     required Affine fit,
   }) {
+    if (_panArmed) return null;
     if (tool.id != ToolId.pen || previewPath != null) return null;
     if (selection.length != 1) return null;
     final nodeId = selection.first.nodeId;

@@ -1382,6 +1382,75 @@ void main() {
         reason: 'the square is untouched — insert needs a selected path');
   });
 
+  testWidgets(
+      'AC-4.3.1: the pen draws the insert `+` on HOVER over a selected path '
+      'segment — and NOT while Space pans, nor mid-drawing a new path',
+      (tester) async {
+    // The exit test drives the CLICK insert; nothing proved the visible `+`
+    // renders on hover, so a refactor could drop the affordance and the suite
+    // would stay green (the M2/M4 "affordance unproven" shape).
+    final t =
+        await open(tester, children: [square('sq', const Vec2(80, 60), 90)]);
+    const node = NodeId('sq');
+
+    // The live OverlayPainter (layer 3 of three). A headless raster is blank, so
+    // the assertions read the RECORDED canvas ops: the `+` is two crossed
+    // `drawLine`s, and nothing else on a pen hover records a line (handle lines
+    // belong to Direct select's `showAnchors`, off here).
+    OverlayPainter overlay() => tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((c) => c.painter)
+        .whereType<OverlayPainter>()
+        .single;
+    final size = canvasRect(tester).size;
+
+    // Select the path (Select tool, click its interior) and arm the Pen.
+    await selectByClick(tester, t.c, const Vec2(125, 100));
+    expect(
+        t.c.read(canvasSelectionProvider).map((p) => p.nodeId).toSet(), {node});
+    activate(t.c, ToolId.pen);
+    await tester.pumpAndSettle();
+
+    // Hover the midpoint of the top edge sq-0 → sq-1 ((80,60) → (170,60)). No
+    // tool is handed a hover, so the canvas tracks the pointer itself.
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: toScreen(tester, const Vec2(80, 60)));
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(toScreen(tester, const Vec2(125, 60)));
+    await tester.pumpAndSettle();
+
+    expect(overlay().insertCursor, isNotNull,
+        reason: 'the `+` sits on the hovered segment');
+    expect((Canvas c) => overlay().paint(c, size),
+        paintsExactlyCountTimes(#drawLine, 2),
+        reason: 'the `+` is drawn — two crossed lines, recorded on the canvas');
+
+    // Fix 3: a Space-held click PANS and inserts nothing (`_onTapUp` returns on
+    // `_panArmed`), so advertising the `+` would promise an edit the click will
+    // not make. `HardwareKeyboard` reads the held Space, the same gate.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+    await mouse.moveTo(toScreen(tester, const Vec2(126, 60)));
+    await tester.pumpAndSettle();
+    expect(overlay().insertCursor, isNull,
+        reason: 'Space arms the pan — the insert `+` is suppressed');
+    expect((Canvas c) => overlay().paint(c, size),
+        paintsExactlyCountTimes(#drawLine, 0));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+    await mouse.moveTo(toScreen(tester, const Vec2(125, 60)));
+    await tester.pumpAndSettle();
+    expect(overlay().insertCursor, isNotNull,
+        reason: 'Space released — the `+` returns');
+
+    // Mid-drawing a NEW path: place a first anchor far from the square, and the
+    // pen is now building geometry — the insert `+` must not compete with the
+    // live rubber band.
+    await click(tester, const Vec2(300, 200));
+    await mouse.moveTo(toScreen(tester, const Vec2(125, 60)));
+    await tester.pumpAndSettle();
+    expect(overlay().insertCursor, isNull,
+        reason: 'mid-drawing, the pen builds a path — no insert affordance');
+  });
+
   // ==========================================================================
   // M5 — DELETE ANCHOR (AC-4.3.5), Del / Backspace with Direct select
   // ==========================================================================

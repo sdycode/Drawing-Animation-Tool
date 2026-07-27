@@ -246,9 +246,8 @@ final class InspectorCommands {
   /// sanctioned route** from a shape parameter to geometry (AC-4.1.5).
   ///
   /// The route forks on **one predicate — does the node carry a `path` track?**
-  /// ([recipeRegenerationRefusal], non-null exactly when it does), the same one
-  /// the panel reads to decide whether the fields are editable, so the control and
-  /// the write can never disagree:
+  /// ([hasPathTrack]), the same one the canvas reads for the shape tools' re-edit,
+  /// so the two features route the same document the same way:
   ///
   /// - **Untracked** → [RegenerateRecipeCommand] regenerates the geometry and
   ///   keeps the recipe as inert metadata, exactly as before.
@@ -259,19 +258,27 @@ final class InspectorCommands {
   ///   id set by **arc-length correspondence** (AC-4.3.7) and clears the now-stale
   ///   recipe. Retopologize runs once here, from a command — never inside the tick.
   ///
-  /// An [UnknownRecipe] never reaches the tracked branch: it builds no geometry
-  /// (`toPath()` is empty), so retopologising to it would erase the outline. It
-  /// falls through to [RegenerateRecipeCommand], whose op refuses it — but the
-  /// panel shows an `UnknownRecipe` with no fields at all, so no commit is issued
-  /// for one and this is a backstop, not a path a user reaches.
+  /// **A recipe with no geometry never reaches the tracked branch either.** An
+  /// [UnknownRecipe] builds none (`toPath()` is empty), and so does any recipe
+  /// clamped past its own floor — a `RectRecipe` with `w <= 0`, a `PolygonRecipe`
+  /// with `sides < 3`. Retopologising onto an empty path rewrites every keyframe
+  /// to an empty pose and silently erases the animation, so the fork requires the
+  /// recipe's `toPath()` to carry anchors. A degenerate recipe falls through to
+  /// [RegenerateRecipeCommand] — which keeps the recipe, leaving the value
+  /// recoverable in place exactly like the untracked case, never touching the
+  /// keyframes. The field-level clamp (`_clampShapeRecipe`) is the primary
+  /// defence and keeps this fork off legal input; this is the routing backstop,
+  /// kept **identical** to the canvas's so the two features cannot route the same
+  /// document two different ways.
   Future<String?> regenerateRecipe(NodeId node, ShapeRecipe recipe) {
     final document =
         _ref.read(documentControllerProvider(_projectId)).valueOrNull;
     if (document == null) {
       return Future<String?>.value(kRejectedInspectorEditMessage);
     }
-    final tracked = recipeRegenerationRefusal(document, node) != null;
-    if (tracked && recipe is! UnknownRecipe) {
+    if (hasPathTrack(document, node) &&
+        recipe is! UnknownRecipe &&
+        recipe.toPath().anchors.isNotEmpty) {
       return _guard(
           () => _controller.run(RetopologizeCommand(node, recipe.toPath())));
     }

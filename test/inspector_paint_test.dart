@@ -560,14 +560,14 @@ void main() {
     expect(ctrl(t.c, t.id).canUndo, isFalse);
   });
 
-  // SKIPPED — M5 UI in progress. Tracked recipe regeneration is being re-enabled
-  // to route through PathOps.retopologize (M5), so this M4-era "shape fields
-  // disabled on a tracked node" assertion is mid-transition. Un-skip and rewrite
-  // it to assert the fields are ENABLED once the M5 UI stream completes.
+  // M5 — the M4-era "disabled on a tracked node" assertion, rewritten. Tracked
+  // recipe regeneration now WORKS: it routes through `PathOps.retopologize`
+  // (arc-length correspondence), so the fields are ENABLED and an edit rewrites
+  // every keyframe onto the new topology rather than being refused.
   testWidgets(
-      'on a PATH-TRACKED node the shape fields are DISABLED and say why in '
-      'plain language (AC-4.1.5, docs/v3/06 M5)',
-      skip: true, (tester) async {
+      'on a PATH-TRACKED node the shape fields are ENABLED, and editing one '
+      'RETOPOLOGIZES — the topology becomes the new recipe id set and every '
+      'keyframe still poses exactly it (AC-4.1.5, AC-4.3.6)', (tester) async {
     final node = square('sq', recipe: const RectRecipe(w: 40, h: 20));
     final animation = core.Animation(
       id: const AnimationId('anim'),
@@ -594,29 +594,66 @@ void main() {
     );
     final t = await open(tester, [node], animations: [animation]);
 
-    await reveal(tester, 'inspector-shape-disabled');
-    expect(find.text(kAnimatedPathRecipeMessage), findsOneWidget);
+    PathTrack trackOf(Document doc) {
+      for (final clip in doc.animations) {
+        final track = clip.tracksFor(sq).pathTrack();
+        if (track != null) return track;
+      }
+      fail('expected a path track on sq');
+    }
 
-    // Named in plain language, never by roadmap code: the stranger who runs the
-    // ship gate has not read docs/v3/06 and cannot act on "M5".
-    expect(kAnimatedPathRecipeMessage, contains('keyframe'));
-    expect(kAnimatedPathRecipeMessage, isNot(contains('M5')));
+    // The node IS tracked, so the routing predicate the command reads sends this
+    // edit through retopologize — never the in-place regeneration that refuses.
+    expect(hasPathTrack(docOf(t.c, t.id), sq), isTrue);
+    final beforeIds = pathOf(t.c, t.id).path.anchors.map((a) => a.id.v).toSet();
+    expect(trackOf(docOf(t.c, t.id)).keyCount, 2);
 
+    // No disabled banner, and the fields are live — the M4-era "come back after
+    // M5" state is gone (the shape section is a ListView row, so reveal it first).
+    await reveal(tester, 'inspector-shape-w');
+    expect(find.byKey(const Key('inspector-shape-disabled')), findsNothing,
+        reason: 'M5 makes tracked recipe regeneration work; no refusal');
     for (final field in ['inspector-shape-w', 'inspector-shape-h']) {
       expect(
           tester
               .widget<CommittedNumberField>(await reveal(tester, field))
               .enabled,
-          isFalse,
-          reason: 'a field that looks editable and refuses on Enter is a trap');
+          isTrue,
+          reason:
+              'a tracked node retopologizes; its shape fields are editable');
     }
 
-    // The panel's disabled state and the command gate's refusal come from the
-    // one shared predicate, so they cannot disagree about the same document.
-    expect(recipeRegenerationRefusal(docOf(t.c, t.id), sq),
-        kAnimatedPathRecipeMessage);
-    expect(ctrl(t.c, t.id).canUndo, isFalse,
-        reason: 'nothing was written, so there is nothing to undo');
+    // Editing width regenerates the geometry through PathOps.retopologize.
+    await commitField(tester, 'inspector-shape-w', '80');
+
+    final after = pathOf(t.c, t.id);
+    // The topology is the NEW recipe's anchor set — a rect is four anchors, minted
+    // fresh by the op (PathOps is the only route to a topology change, AC-4.3.8).
+    expect(after.path.anchors, hasLength(4));
+    final newIds = after.path.anchors.map((a) => a.id.v).toList();
+    expect(newIds.toSet().intersection(beforeIds), isEmpty,
+        reason: 'retopologize mints a fresh id set; the old ids are gone');
+
+    // AC-4.3.6 on the new id set: BOTH keyframes survive and each poses exactly
+    // the topology's AnchorId sequence, in order — the disjoint-id-set state the
+    // whole of v3 exists to make unrepresentable never reached the evaluator.
+    final track = trackOf(docOf(t.c, t.id));
+    expect(track.keyCount, 2, reason: 'both keyframes survive the rewrite');
+    for (final key in track.keys) {
+      expect(key.value.anchors.keys.map((a) => a.v).toList(), newIds,
+          reason: 'AC-4.3.6: identical AnchorId sequence at every keyframe');
+    }
+
+    // ONE undo entry, labelled for what it did — a retopologise, not an in-place
+    // "Shape" regeneration.
+    expect(ctrl(t.c, t.id).undoLabel, 'Retopologize');
+
+    // The recipe is cleared — a retopologise is a manual topology edit no recipe
+    // regenerates (docs/v3/01 §5) — so the Shape section drops away entirely.
+    expect(after.recipe, isNull);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('inspector-shape')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a recipe this build cannot read is shown, not regenerated',
@@ -666,6 +703,134 @@ void main() {
     expect(
         (pathOf(t.c, t.id, const NodeId('poly')).recipe! as PolygonRecipe).star,
         isTrue);
+  });
+
+  // --- AC-4.1.5 — a degenerate shape value can never erase the geometry -----
+  //
+  // A shape field is a plain number field with no minimum, so `0`, a negative,
+  // and `sides: 2` are all committable keystrokes. Each makes `toPath()` empty,
+  // and on an UNTRACKED node the old route recorded the empty recipe (recoverable)
+  // while on a TRACKED node it retopologized every keyframe onto nothing —
+  // silently erasing the animation. The field clamps the recipe at the mutation
+  // so the degenerate value can never be authored.
+
+  double shapeWidth(PathNode n) {
+    final xs = n.path.anchors.map((a) => a.position.x);
+    return xs.reduce((a, b) => a > b ? a : b) -
+        xs.reduce((a, b) => a < b ? a : b);
+  }
+
+  testWidgets(
+      'a degenerate shape value CLAMPS at the field (untracked): the recipe '
+      'survives, geometry is regenerated not erased, recoverable in place',
+      (tester) async {
+    final t = await open(tester, [
+      square('sq', recipe: const RectRecipe(w: 40, h: 20)),
+      square('poly', recipe: const PolygonRecipe(sides: 5, radius: 40)),
+    ]);
+
+    // Width 0 — `toPath()` is empty for a non-positive extent. It clamps to the
+    // positive floor instead of authoring nothing.
+    await commitField(tester, 'inspector-shape-w', '0');
+    final after = pathOf(t.c, t.id);
+    expect(after.recipe, isNotNull,
+        reason: 'the recipe survives a degenerate entry, unlike an erase');
+    expect((after.recipe! as RectRecipe).w, greaterThanOrEqualTo(1.0),
+        reason: 'clamped to the positive floor, never 0');
+    expect(after.path.anchors, isNotEmpty,
+        reason: 'geometry was regenerated at the floor, not wiped to empty');
+    expect(ctrl(t.c, t.id).undoLabel, 'Shape',
+        reason: 'one ordinary regenerate entry, no assert, no crash');
+    expect(tester.takeException(), isNull);
+
+    // A negative extent is degenerate the same way, and clamps the same way.
+    await commitField(tester, 'inspector-shape-h', '-5');
+    expect(
+        (pathOf(t.c, t.id).recipe! as RectRecipe).h, greaterThanOrEqualTo(1.0),
+        reason: 'a negative height clamps to the floor');
+
+    // Recoverable IN PLACE: the field is still there (recipe kept), so typing a
+    // valid value back just takes — no undo needed.
+    await commitField(tester, 'inspector-shape-w', '120');
+    expect((pathOf(t.c, t.id).recipe! as RectRecipe).w, 120.0);
+    expect(shapeWidth(pathOf(t.c, t.id)), closeTo(120, 1e-9));
+
+    // A polygon needs three sides to enclose an area; `sides: 2` is a line.
+    t.c
+        .read(editorControllerProvider.notifier)
+        .selectNode(const ScenePath(NodeId('poly')));
+    await tester.pumpAndSettle();
+    await commitField(tester, 'inspector-shape-sides', '2');
+    final poly =
+        pathOf(t.c, t.id, const NodeId('poly')).recipe! as PolygonRecipe;
+    expect(poly.sides, greaterThanOrEqualTo(3),
+        reason: 'sides clamps to the 3-side floor, never 2');
+    expect(pathOf(t.c, t.id, const NodeId('poly')).path.anchors, isNotEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a degenerate shape value on a PATH-TRACKED node does NOT erase the '
+      'animation — the keyframes survive, one undo entry, no assert',
+      (tester) async {
+    final node = square('sq', recipe: const RectRecipe(w: 40, h: 20));
+    PathPose poseAt(Vec2 offset) => PathPose({
+          for (final a in node.path.anchors)
+            a.id: AnchorPose(a.position + offset, a.inTangent, a.outTangent),
+        });
+    final animation = core.Animation(
+      id: const AnimationId('anim'),
+      name: 'Main',
+      tracks: {
+        sq: TrackSet({
+          const PropertyKey(PropKey.path): PathTrack([
+            Keyframe(t: 0.0, value: poseAt(Vec2.zero)),
+            Keyframe(t: 1.0, value: poseAt(const Vec2(5, 5))),
+          ]),
+        }),
+      },
+    );
+    final t = await open(tester, [node], animations: [animation]);
+
+    PathTrack trackOf(Document doc) {
+      for (final clip in doc.animations) {
+        final track = clip.tracksFor(sq).pathTrack();
+        if (track != null) return track;
+      }
+      fail('expected a path track on sq');
+    }
+
+    expect(hasPathTrack(docOf(t.c, t.id), sq), isTrue);
+    expect(trackOf(docOf(t.c, t.id)).keyCount, 2);
+
+    // Committing width 0 clamps to the floor, so a VALID (tiny) rectangle
+    // retopologizes — the keyframes are rewritten onto real anchors, never the
+    // empty poses the unclamped route produced. No assert(false) trips, because
+    // the recipe reaching the command is never degenerate.
+    await commitField(tester, 'inspector-shape-w', '0');
+    expect(tester.takeException(), isNull);
+
+    final after = pathOf(t.c, t.id);
+    expect(after.path.anchors, isNotEmpty,
+        reason:
+            'the topology is a real (tiny) rect, not the erased empty path');
+    final track = trackOf(docOf(t.c, t.id));
+    expect(track.keyCount, 2, reason: 'both keyframes survive');
+    for (final key in track.keys) {
+      expect(key.value.anchors, isNotEmpty,
+          reason: 'every keyframe still poses real anchors — NOT erased');
+      expect(key.value.anchors.length, after.path.anchors.length,
+          reason: 'AC-4.3.6: each keyframe poses exactly the topology');
+    }
+
+    // ONE undo entry, and it restores the original 40×20 rect and its keyframes.
+    expect(ctrl(t.c, t.id).canUndo, isTrue);
+    await ctrlZ(tester);
+    final restored = pathOf(t.c, t.id);
+    expect(shapeWidth(restored), closeTo(40, 1e-9),
+        reason: 'one undo brings back the original width');
+    expect(trackOf(docOf(t.c, t.id)).keyCount, 2);
+    expect(tester.takeException(), isNull);
   });
 
   // --- docs/v3/05 §5 — the colour field's focus contract -------------------

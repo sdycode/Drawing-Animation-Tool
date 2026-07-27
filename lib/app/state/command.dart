@@ -277,12 +277,14 @@ final class SetTangentsCommand implements Command {
 /// exists as a command rather than as a call so that the refusal it can raise is
 /// caught at the one gate every other edit is caught at (docs/v3/08 §1).
 ///
-/// [PathOps.regenerateRecipe] **throws, naming M5**, on a node that already
-/// carries path keyframes: the recipe mints fresh `AnchorId`s and every existing
-/// keyframe poses the old ones, so a raw replacement would leave the topology
-/// and its keyframes disjoint. Arc-length correspondence (`PathOps.retopologize`)
-/// is the correct answer and it is M5's, so the refusal is surfaced to the user
-/// rather than approximated.
+/// This runs only for an **untracked** node (a plain in-place regeneration) and
+/// as an `UnknownRecipe` backstop. As of M5 a *tracked* node's recipe edit is
+/// routed to [RetopologizeCommand] instead (`recipe_guard`'s `hasPathTrack`), so
+/// arc-length correspondence rewrites every keyframe rather than refusing.
+/// [PathOps.regenerateRecipe] still **throws, naming M5**, on a tracked node —
+/// the recipe mints fresh `AnchorId`s while every keyframe poses the old ones, so
+/// a raw replacement would leave topology and keyframes disjoint — but that throw
+/// is now an unreachable backstop, not a user-visible refusal in the normal flow.
 final class RegenerateRecipeCommand implements Command {
   const RegenerateRecipeCommand(this.node, this.recipe);
 

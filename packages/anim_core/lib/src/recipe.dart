@@ -26,18 +26,19 @@
 ///
 /// The shape **tools** that mint these — rect / ellipse / polygon, with
 /// `EllipseRecipe` emitting real cubics at κ = 0.5523 rather than legacy's 114
-/// straight segments — are **M3** (docs/v3/06). Nothing in v1's UI writes a
-/// recipe yet. These types exist now for one reason: so a rectangle authored by
-/// a later build survives this build's autosave as a rectangle rather than
-/// being flattened into four anonymous anchors, which is the same forward
-/// -compatibility debt `UnknownNode` and `UnknownPaint` pay off.
+/// straight segments — shipped in **M3** (docs/v3/06). These types also carry a
+/// second, older weight: a rectangle authored by a later build survives this
+/// build's autosave as a rectangle rather than being flattened into four
+/// anonymous anchors — the same forward-compatibility debt `UnknownNode` and
+/// `UnknownPaint` pay off.
 ///
-/// Regeneration is likewise absent. Rewriting a recipe on a node that has a
-/// `path` track must route through `PathOps.retopologize` (**M5**), never a raw
-/// path replacement: a raw replacement mints fresh `AnchorId`s, which makes the
-/// node's topology and its keyframe poses disjoint id sets and breaks the whole
-/// model. There is no partial version of that op worth shipping, so there is
-/// none.
+/// Regeneration exists as of **M5**. On an untracked node it is a plain path
+/// replacement; on a node with a `path` track it routes through
+/// `PathOps.retopologize`, which rewrites every keyframe onto the new recipe's
+/// anchor set by arc-length correspondence — never a raw replacement, which would
+/// mint fresh `AnchorId`s and leave topology and keyframe poses disjoint. That
+/// arc-length correspondence is exactly the op M3 could not ship a partial
+/// version of, which is why regeneration on a tracked node waited for M5.
 library;
 
 // Imported for the `[DocumentException]` doc reference below — the one place

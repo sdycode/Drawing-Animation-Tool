@@ -602,9 +602,12 @@ final class NodeShapeView {
 
   /// Non-null means **the fields render disabled and carry this sentence**.
   ///
-  /// The same string is what `InspectorCommands.regenerateRecipe` would return,
-  /// from the same predicate — so the control the user sees and the write they
-  /// cannot make can never disagree.
+  /// The only refusal left after M5 is a recipe this build cannot read
+  /// ([kUnreadableRecipeMessage]): a tracked node is no longer refused — its edit
+  /// routes through `PathOps.retopologize` — so tracked-ness never disables a
+  /// field here. An [UnknownRecipe] draws no fields at all, so nothing beneath
+  /// this sentence could be committed; `PathOps.regenerateRecipe` refuses one as
+  /// the backstop, and the control the user sees and the write behind it agree.
   final String? refusal;
 
   @override
