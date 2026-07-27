@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 
-import 'package:anim_core/anim_core.dart';
+import 'package:anim_core/anim_core.dart' hide Animation;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/project_store.dart';
 import '../data/providers.dart';
 import 'command.dart';
 import 'command_stack.dart';
+import 'save_state.dart';
 
 /// Owns the open document and nothing else (docs/v3/04 §4).
 ///
@@ -46,12 +49,64 @@ class DocumentController
   CommandStack get _commands =>
       _stack ?? (throw StateError('No document is open.'));
 
+  // --- Debounced autosave (docs/v3/03 F10.3) ------------------------------
+  //
+  // An edit no longer writes the moment it applies. It applies, is **shown**
+  // (`state = after`), marks the document dirty, and (re)arms a timer; the store
+  // write fires once after edits settle (AC-10.3.1). This generalises the
+  // gesture span — which already shows a whole drag while writing once at commit
+  // — to every discrete edit, so a burst of keystrokes or keyframe ops is one
+  // write, not one each. The dirty window is also what makes the save indicator
+  // meaningful: with an instant write, "dirty" would never be visible.
+
+  /// Fires the debounced flush. Ephemeral, per-controller — never on `Document`,
+  /// so it can never serialize. Cancelled and re-armed on every edit.
+  Timer? _flushTimer;
+
+  /// True between an edit and the write that persists it. Retained across a
+  /// failed write (AC-10.3.4): the edit stays in memory until a later flush
+  /// lands it.
+  bool _pendingSave = false;
+
+  /// Captured in [build] so the settle window is injectable (tests shorten it or
+  /// pump across it) and read once per open.
+  Duration _debounce = const Duration(milliseconds: 600);
+
+  /// Captured in [build] so the teardown flush can reach storage even as the
+  /// provider is disposed (reading a provider off a half-torn-down `ref` is
+  /// unsafe; the store reference is not).
+  ProjectStore? _store;
+
+  /// The save indicator this controller drives. Captured in [build]; the chrome
+  /// watches the same notifier. Null before the first load.
+  ValueNotifier<SaveState>? _saveNotifier;
+
+  /// Update the indicator if it is still alive (it disposes with the editor; the
+  /// teardown flush deliberately does not touch it).
+  void _setSave(SaveState Function(SaveState) f) {
+    final n = _saveNotifier;
+    if (n != null) n.value = f(n.value);
+  }
+
   @override
   Future<Document> build(String projectId) async {
     // Drop any stack from a previous (or failed) load *first*: a retry must not
     // inherit the history of the document that would not open.
     _stack = null;
-    final raw = await ref.read(projectStoreProvider).load(projectId);
+    // A fresh open starts clean: cancel any pending flush from a prior document
+    // and reset the indicator to saved.
+    _flushTimer?.cancel();
+    _pendingSave = false;
+    _store = ref.read(projectStoreProvider);
+    _debounce = ref.read(autosaveDebounceProvider);
+    final notifier = ref.read(saveStateProvider(projectId));
+    notifier.value = SaveState.initial;
+    _saveNotifier = notifier;
+    // A pending edit at teardown (project switch, provider GC) must not be lost.
+    // The queue and the indicator are gone by then, so this writes straight to
+    // the captured store, best-effort (AC-10.3.1's data-safety half).
+    ref.onDispose(_disposeFlush);
+    final raw = await _store!.load(projectId);
     if (raw == null) {
       throw const StoreException(StoreFailure.notFound);
     }
@@ -61,6 +116,9 @@ class DocumentController
       // is seeded with the loaded document so the first command branches from
       // exactly what is on disk.
       _stack = CommandStack(doc);
+      // The last-persisted `rev` starts at what is on disk; every save derives
+      // the next one from here, never from `state`.
+      _persistedRev = doc.rev;
       return doc;
     } on StoreException {
       rethrow;
@@ -103,14 +161,17 @@ class DocumentController
   /// Run [cmd] against the **latest persisted** document, then save.
   ///
   /// The command applies through [CommandStack.run] (the one place an edit
-  /// replaces the document) and persists inside the serialised chain, so it
-  /// always branches from the document the previous edit actually persisted. On
-  /// a save failure the optimistic advance is rolled back with
-  /// [CommandStack.abortLast], so a Firestore hiccup neither corrupts the
-  /// history nor loses the earlier edit — the error still reaches the caller.
+  /// replaces the document), is **shown immediately**, and marks the document
+  /// dirty; the store write is **debounced** ([_markDirty] → [_flush], AC-10.3.1)
+  /// and branches from the document the previous edit actually persisted. A save
+  /// failure is **not** thrown to the caller and does **not** roll back: the edit
+  /// is retained in memory and the indicator shows error (AC-10.3.4), so a
+  /// Firestore hiccup loses no work — the next edit, [flushNow], or the teardown
+  /// flush lands it. (An op-level `ArgumentError` — an *invalid* edit — is a
+  /// different thing and still throws synchronously to the command gate, below.)
   ///
-  /// Inside a gesture span the command applies and is **shown but not saved**:
-  /// a span persists exactly once, at [commitGesture]. That is the second half
+  /// Inside a gesture span the command applies and is **shown but not scheduled**:
+  /// a span marks dirty exactly once, at [commitGesture]. That is the second half
   /// of "a 200-event drag is one entry" — it is one *write* too, instead of 200
   /// store round trips for intermediate documents the user never asked to keep.
   ///
@@ -122,12 +183,19 @@ class DocumentController
         // May throw ArgumentError from the op on an invariant violation —
         // before anything is recorded, so a rejected edit leaves history
         // untouched.
+        final before = _commands.current;
         final after = _commands.run(cmd, keyframe: keyframe);
         if (_commands.isCoalescing) {
           state = AsyncData(after);
           return;
         }
-        await _persist(after);
+        if (identical(after, before)) {
+          // The op changed nothing (idempotent, clamped to the value already
+          // held): no entry was recorded, so there is nothing to persist and no
+          // `rev` to bump. `state` already holds this document.
+          return;
+        }
+        await _markDirty(after);
       });
 
   /// Reverse the last edit — and **persist the result**.
@@ -161,15 +229,12 @@ class DocumentController
         }
         final restore = _commands.undo();
         if (restore == null) return null;
-        try {
-          await _save(restore.document);
-        } on Object {
-          _commands.redo(); // put the entry back where undo took it from
-          rethrow;
-        }
-        final persisted = state.requireValue;
-        _commands.syncCurrent(persisted);
-        return Restore(persisted, restore.selectedKeyframe);
+        // Show the reverted document now; the debounced flush persists it and
+        // re-stamps `rev`. "disk always matches the screen" holds on settle, not
+        // synchronously — a failed flush retains the reverted document in memory
+        // (AC-10.3.4) instead of rolling the undo back under the user.
+        await _markDirty(restore.document);
+        return Restore(restore.document, restore.selectedKeyframe);
       });
 
   /// Replay the last undone edit — the mirror of [undo], and it persists for the
@@ -184,15 +249,8 @@ class DocumentController
         }
         final restore = _commands.redo();
         if (restore == null) return null;
-        try {
-          await _save(restore.document);
-        } on Object {
-          _commands.undo(); // put the entry back where redo took it from
-          rethrow;
-        }
-        final persisted = state.requireValue;
-        _commands.syncCurrent(persisted);
-        return Restore(persisted, restore.selectedKeyframe);
+        await _markDirty(restore.document);
+        return Restore(restore.document, restore.selectedKeyframe);
       });
 
   /// Coalesce a gesture into one undo entry (docs/v3/04 §6). The canvas wraps a
@@ -218,7 +276,7 @@ class DocumentController
         if (_stack == null) return;
         final settled = _commands.commit(label);
         if (settled == null) return;
-        await _persist(settled);
+        await _markDirty(settled);
       });
 
   /// Abandon the open gesture: rewind to the document the drag started from and
@@ -242,31 +300,106 @@ class DocumentController
     await _closeOpenSpan();
   }
 
-  /// Commit whatever span is open, under its pending label, and persist it.
+  /// Commit whatever span is open, under its pending label, and schedule its
+  /// persist.
   Future<void> _closeOpenSpan() async {
     if (!_commands.isCoalescing) return;
     final settled = _commands.commit(_commands.pendingSpanLabel ?? 'Edit');
     if (settled == null) return;
-    await _persist(settled);
+    await _markDirty(settled);
   }
 
-  /// Save [next], or roll the stack back to what is actually on disk.
+  /// Show [shown], mark the document dirty, and (re)arm the debounced flush.
   ///
-  /// The rollback also re-publishes the document, because inside a span `state`
-  /// has been running ahead of storage — leaving the screen on a document the
-  /// store rejected is how a "saved" drag survives on screen until the next
-  /// reload eats it.
-  Future<void> _persist(Document next) async {
-    try {
-      await _save(next);
-    } on Object {
-      _commands.abortLast();
-      state = AsyncData(_commands.current);
-      rethrow;
+  /// The single edit→persist seam. The edit is on screen immediately; the store
+  /// write waits for edits to settle (AC-10.3.1). `rev` is untouched until the
+  /// flush, so a burst of edits shares one bump and the indicator reads **dirty**
+  /// in between (AC-10.3.3).
+  Future<void> _markDirty(Document shown) async {
+    state = AsyncData(shown);
+    _pendingSave = true;
+    _setSave((s) => s.dirty());
+    // A zero window means "save eagerly" — the flush runs inline, so the caller
+    // (already on the queue) awaits the write, preserving the pre-debounce
+    // contract that an awaited edit is a persisted edit. That is the default;
+    // the app opts into a real settle window (AC-10.3.1) by overriding
+    // [autosaveDebounceProvider].
+    if (_debounce == Duration.zero) {
+      await _flush();
+    } else {
+      _scheduleFlush();
     }
-    // Keep the stack's current rev-consistent with what actually persisted;
-    // the next command then branches from the rev-correct document.
-    _commands.syncCurrent(state.requireValue);
+  }
+
+  void _scheduleFlush() {
+    _flushTimer?.cancel();
+    _flushTimer = Timer(_debounce, () => _enqueue(_flush));
+  }
+
+  /// Persist any pending edit **now**, cancelling the debounce. The lifecycle
+  /// hook the shell calls on hide/detach so an edit still in the settle window
+  /// survives a tab close or a project switch. A no-op when nothing is pending.
+  Future<void> flushNow() {
+    _flushTimer?.cancel();
+    return _enqueue(_flush);
+  }
+
+  /// The one deferred write, enqueued on the chain so it keeps the store-order
+  /// and `rev`-monotonicity guarantees [_queue] was built for.
+  Future<void> _flush() async {
+    if (_stack == null || !_pendingSave) return;
+    // Never write a half-finished drag: an open span persists itself at commit,
+    // which schedules the flush that matters. Retry once the span closes.
+    if (_commands.isCoalescing) {
+      _scheduleFlush();
+      return;
+    }
+    final next = _commands.current;
+    _setSave((s) => s.saving());
+    try {
+      await _save(next); // rev bump + store write + state = saved
+      _commands.syncCurrent(state.requireValue);
+      _pendingSave = false;
+      _setSave((s) => s.saved(DateTime.now()));
+    } on StoreException catch (e) {
+      // AC-10.3.4: the edit stays in memory, the indicator shows error, there is
+      // no modal and no silent success. The next edit — or [flushNow] — retries;
+      // Firestore's own offline queue recovers a transient drop (AC-10.3.2), so
+      // the app layer does not busy-retry here (which a read-only doc, a
+      // permanent failure, would spin on).
+      _setSave((s) => s.errored(e.failure));
+    } on Object catch (e) {
+      // A non-StoreException here is not a storage outage but an unexpected bug
+      // (a serialization or store-contract violation). Retain + flag error so
+      // release stays data-safe, but fail loudly in debug rather than masking the
+      // bug as a transient failure (docs/v3/08 §1: a catch reports AND asserts).
+      assert(false, 'unexpected error in autosave flush: $e');
+      _setSave((s) => s.errored(StoreFailure.unknown));
+    }
+  }
+
+  /// Best-effort flush at provider teardown (project switch, provider GC). The
+  /// queue and the indicator are gone by now, so this writes straight to the
+  /// captured store and awaits nothing — the [flushNow] counterpart for the path
+  /// where the whole controller is being disposed.
+  void _disposeFlush() {
+    _flushTimer?.cancel();
+    if (!_pendingSave || _stack == null) return;
+    // A drag still open at teardown must NOT leak to storage (docs/v3/08 §1 —
+    // "an unfinished pen stroke being autosaved"). Rewind it to the span base —
+    // which still holds the pending pre-span edit — exactly as `cancelGesture`
+    // and `_flush`'s `isCoalescing` guard do; only committed work is written.
+    if (_commands.isCoalescing) _commands.cancel();
+    final doc = _commands.current;
+    if (doc.isReadOnly) return;
+    final store = _store;
+    if (store == null) return;
+    final saved = doc.copyWith(rev: _persistedRev).bumpRev();
+    // Best-effort: the indicator is gone and there is nothing to retry onto, so a
+    // failed teardown write is swallowed — never rethrown as an unhandled async
+    // error (docs/v3/08 §1). Firestore's own offline queue backstops the network
+    // case (AC-10.3.2).
+    store.save(saved.id, jsonEncode(saved.toJson())).ignore();
   }
 
   /// Appends a node to the root and persists.
@@ -303,9 +436,17 @@ class DocumentController
 
   Future<void> rename(String name) => run(RenameDocumentCommand(name));
 
-  /// The `rev` of the document that most recently reached storage. Zero only
-  /// before the first load, where nothing can be saved anyway.
-  int get _liveRev => state.valueOrNull?.rev ?? 0;
+  /// The `rev` of the document that most recently reached storage — updated in
+  /// [_save] on a successful write and nowhere else.
+  ///
+  /// It must **not** be read off `state`: with debounced autosave `state` shows
+  /// the un-persisted edit (whose `rev` is stale), and an undo shows a snapshot
+  /// carrying the `rev` it had when captured. Re-stamping the next save from
+  /// either would march the counter **backwards** — the exact defect docs/v3/01
+  /// §11 forbids. Deriving every new `rev` from the last *persisted* one keeps it
+  /// strictly monotonic across edits, undos and redos alike. Zero only before the
+  /// first load, where nothing can be saved anyway.
+  int _persistedRev = 0;
 
   /// `rev` advances here and nowhere else, because this is the only place a
   /// write actually reaches storage (docs/v3/01 §11).
@@ -329,10 +470,11 @@ class DocumentController
     if (next.isReadOnly) {
       throw const StoreException(StoreFailure.readOnly);
     }
-    final saved = next.copyWith(rev: _liveRev).bumpRev();
+    final saved = next.copyWith(rev: _persistedRev).bumpRev();
     await ref
         .read(projectStoreProvider)
         .save(saved.id, jsonEncode(saved.toJson()));
+    _persistedRev = saved.rev;
     state = AsyncData(saved);
   }
 }

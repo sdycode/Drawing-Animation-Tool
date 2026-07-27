@@ -63,6 +63,16 @@ final class InspectorCommands {
   Future<String?> setOpacity(NodeId node, double opacity) =>
       _guard(() => _controller.run(SetOpacityCommand(node, opacity)));
 
+  /// Author one `PathNode`'s own `PathTrim` — the inspector's draw-on/reveal
+  /// fields (F8.1, AC-8.1.1). Each of `start`/`end`/`offset` is the stored
+  /// **0..1** fraction of total arc length; the panel shows percent and converts,
+  /// the same display-vs-storage split rotation and opacity use. Range clamping
+  /// lives in `NodeOps.setTrim`, at the mutation. This is the **untracked** write
+  /// only; a tracked trim channel edits its `ScalarTrack` keyframe through
+  /// [keyValue] instead, exactly like a tracked opacity field.
+  Future<String?> setTrim(NodeId node, PathTrim trim) =>
+      _guard(() => _controller.run(SetTrimCommand(node, trim)));
+
   // --- Fill (F5.1) ---------------------------------------------------------
   //
   // Every method takes the fill's `PaintId`, which the panel reads off the

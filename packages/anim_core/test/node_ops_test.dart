@@ -557,6 +557,67 @@ void main() {
       expect(d.nodeIndex[const NodeId('leaf')]!.opacity, 0.5);
     });
 
+    test('setTrim writes the one field, clamps each channel, and is idempotent',
+        () {
+      final d = _threeSquareDoc();
+      final out = NodeOps.setTrim(
+          d, const NodeId('A'), const PathTrim(start: 0.2, end: 0.8));
+      final a = out.nodeIndex[const NodeId('A')]! as PathNode;
+      expect(a.trim.start, 0.2);
+      expect(a.trim.end, 0.8);
+      expect(a.trim.offset, 0.0);
+      // One node's own value: the siblings keep the full (default) trim.
+      expect(
+          (out.nodeIndex[const NodeId('B')]! as PathNode).trim, PathTrim.full);
+
+      // Idempotent: writing the trim it already holds returns the same doc.
+      expect(
+          identical(
+              NodeOps.setTrim(
+                  out, const NodeId('A'), const PathTrim(start: 0.2, end: 0.8)),
+              out),
+          isTrue);
+
+      // Out-of-range fractions clamp at the mutation, each channel independently
+      // — an authored 1.7 / -0.3 is a bad write (as opacity/width are clamped).
+      final clamped = NodeOps.setTrim(d, const NodeId('A'),
+          const PathTrim(start: -0.3, end: 1.7, offset: 2.0));
+      final ct = (clamped.nodeIndex[const NodeId('A')]! as PathNode).trim;
+      expect(ct.start, 0.0);
+      expect(ct.end, 1.0);
+      expect(ct.offset, 1.0);
+    });
+
+    test(
+        'setTrim renders the window, and end<=start renders nothing (no throw)',
+        () {
+      final d = _threeSquareDoc();
+      // A half reveal of a closed square opens it and reveals ~half the arc.
+      final half = NodeOps.setTrim(
+          d, const NodeId('A'), const PathTrim(start: 0.0, end: 0.5));
+      final scene = evaluate(half, const <AnimationMix>[]);
+      final geo = scene.byPath[const ScenePath(NodeId('A'))]!.geometry!;
+      expect(geo.closed, isFalse,
+          reason: 'a partial reveal of a closed path cannot be filled');
+      expect(geo.anchors, isNotEmpty);
+
+      // end <= start renders empty geometry — never a throw, never a null deref.
+      final empty = NodeOps.setTrim(
+          d, const NodeId('A'), const PathTrim(start: 0.8, end: 0.3));
+      final emptyScene = evaluate(empty, const <AnimationMix>[]);
+      expect(emptyScene.byPath[const ScenePath(NodeId('A'))]!.geometry!.anchors,
+          isEmpty);
+    });
+
+    test('setTrim refuses an unknown node and a non-PathNode', () {
+      final d = _threeSquareDoc();
+      expect(() => NodeOps.setTrim(d, const NodeId('nope'), PathTrim.full),
+          throwsArgumentError);
+      // 'root' is a GroupNode — a group has no trim (AC-8.1.10 is per-PathNode).
+      expect(() => NodeOps.setTrim(d, const NodeId('root'), PathTrim.full),
+          throwsArgumentError);
+    });
+
     test('a hidden group hides every descendant regardless of their own flag',
         () {
       // group 'g' wraps a visible leaf; hiding g must hide the leaf (AC-2.2.4).

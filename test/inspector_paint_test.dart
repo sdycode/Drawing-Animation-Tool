@@ -123,7 +123,6 @@ void main() {
   /// off-screen — it is not built at all, and `find.byKey` cannot see it.
   Future<Finder> reveal(WidgetTester tester, String key) async {
     final target = find.byKey(Key(key));
-    if (target.evaluate().isNotEmpty) return target;
 
     // `.first` is the ListView's own viewport: every `TextField` already on
     // screen contributes its own inner `Scrollable`, so an unqualified
@@ -135,14 +134,22 @@ void main() {
         )
         .first;
 
-    // Back to the top first. `scrollUntilVisible` only walks one way, and an
-    // earlier reveal may have left the panel scrolled *past* the row wanted now.
-    await tester.drag(list, const Offset(0, 3000));
-    await tester.pumpAndSettle();
     if (target.evaluate().isEmpty) {
-      await tester.scrollUntilVisible(target, 90, scrollable: list);
+      // Back to the top first. `scrollUntilVisible` only walks one way, and an
+      // earlier reveal may have left the panel scrolled *past* the wanted row.
+      await tester.drag(list, const Offset(0, 3000));
       await tester.pumpAndSettle();
+      if (target.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(target, 90, scrollable: list);
+        await tester.pumpAndSettle();
+      }
     }
+    // BUILT is not the same as HITTABLE: a taller panel can leave a row inside
+    // the ListView's cache extent (so `find` sees it) but scrolled under the
+    // shell header, where a tap misses. Scroll it fully into the viewport before
+    // returning so the caller always taps a real target.
+    await tester.ensureVisible(target);
+    await tester.pumpAndSettle();
     return target;
   }
 

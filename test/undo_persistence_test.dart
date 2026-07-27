@@ -6,6 +6,7 @@ import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
 import 'package:drawing_animation_tool/app/data/project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/state/document_controller.dart';
+import 'package:drawing_animation_tool/app/state/save_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -296,21 +297,22 @@ void main() {
         reason: 'ordinary edits persist again immediately after a cancel');
   });
 
-  test('a failed save at drag end rolls the whole gesture back', () async {
+  test('a failed save at drag end retains the gesture on screen and flags error',
+      () async {
     final id = seed();
     final (container, controller) = await open(id);
+    final save = container.read(saveStateProvider(id));
 
     unawaited(controller.beginGesture(label: 'Move'));
     unawaited(
         controller.setTransform(node, const Transform2(position: Vec2(5, 5))));
     store.failNext = StoreFailure.network;
-    await expectLater(
-      controller.commitGesture('Move'),
-      throwsA(isA<StoreException>()),
-    );
+    await controller.commitGesture('Move');
 
-    // The screen must not keep a drag the store refused: inside a span `state`
-    // runs ahead of storage, so the rollback has to re-publish the document.
+    // AC-10.3.4: a drag whose save fails is NOT rolled back under the user — it
+    // stays on screen, retained in memory, with an error indicator and no rev
+    // bump. The gesture is still one undo entry, and a retry lands it.
+    expect(save.value.phase, SavePhase.error);
     expect(
         container
             .read(documentControllerProvider(id))
@@ -318,9 +320,18 @@ void main() {
             .nodeIndex[node]!
             .transform
             .position,
-        Vec2.zero);
-    expect(controller.canUndo, isFalse, reason: 'no phantom entry');
+        const Vec2(5, 5),
+        reason: 'the gesture is retained, not lost');
+    expect(controller.canUndo, isTrue, reason: 'the commit is one entry');
     expect((await onDisk(id)).rev, 1, reason: 'a failed save never bumps rev');
+
+    // It lands on the next successful write.
+    store.failNext = null;
+    await controller.flushNow();
+    expect(save.value.phase, SavePhase.saved);
+    expect((await onDisk(id)).nodeIndex[node]!.transform.position,
+        const Vec2(5, 5));
+    expect((await onDisk(id)).rev, 2, reason: 'the recovery bumps once');
   });
 
   // --- The public getters are total ----------------------------------------

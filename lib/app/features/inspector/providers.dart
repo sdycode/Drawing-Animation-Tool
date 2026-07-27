@@ -181,9 +181,11 @@ final class InspectorTracksView {
 }
 
 /// The animatable channels the inspector draws a diamond for, on the one
-/// selected node, in the active animation. `pivot`, `visible` and the trim
-/// channels are deliberately absent: `pivot`/`visible` have no inspector field
-/// and trim is a still-unbuilt seam. `path` **is** present — it has no *field*
+/// selected node, in the active animation. `pivot` and `visible` are deliberately
+/// absent: they have no inspector field. The three **trim** channels
+/// (`trimStart`/`trimEnd`/`trimOffset`) are present as of M6 — each is a
+/// `ScalarTrack` behind the Trim section's percentage fields (F8.1). `path`
+/// **is** present — it has no *field*
 /// (a `PathPose` is edited on the canvas by direct-select), but it carries the
 /// inspector's path **diamond**, the one hand affordance that authors the first
 /// path keyframe (F6.1). A dangling or many/zero selection resolves to
@@ -228,6 +230,11 @@ final inspectorTracksProvider =
       // The path diamond's key times — the row has no field, but the diamond
       // reads this exactly like every other channel.
       add(const PropertyKey(PropKey.path));
+      // The three trim channels — the Trim section's fields and diamonds route
+      // static-vs-keyframe off exactly this slice (F8.1, AC-8.1.1).
+      add(const PropertyKey(PropKey.trimStart));
+      add(const PropertyKey(PropKey.trimEnd));
+      add(const PropertyKey(PropKey.trimOffset));
       if (node.fills.isNotEmpty) {
         final fillId = node.fills.first.id.v;
         add(PropertyKey(PropKey.fillColor, fillId));
@@ -337,6 +344,11 @@ final inspectorSamplesProvider =
     add(const PropertyKey(PropKey.skewX));
     add(const PropertyKey(PropKey.opacity));
     if (node is PathNode) {
+      // The trim fields are WYSIWYG at the playhead when tracked, so their
+      // ScalarTracks feed values here just like rotation/opacity (F8.1).
+      add(const PropertyKey(PropKey.trimStart));
+      add(const PropertyKey(PropKey.trimEnd));
+      add(const PropertyKey(PropKey.trimOffset));
       if (node.fills.isNotEmpty) {
         final fillId = node.fills.first.id.v;
         add(PropertyKey(PropKey.fillColor, fillId));
@@ -569,6 +581,52 @@ final inspectorPaintProvider =
       fillCount: node.fills.length,
       strokeCount: node.strokes.length,
     );
+  }));
+});
+
+// ---------------------------------------------------------------------------
+// Trim (draw-on / reveal) — F8.1
+// ---------------------------------------------------------------------------
+
+/// The one selected `PathNode`'s `PathTrim`, projected by value.
+///
+/// `PathTrim` has `==`/`hashCode`, so the `.select` below dedups: an edit that
+/// leaves the trim alone yields an equal view and no rebuild.
+@immutable
+final class NodeTrimView {
+  const NodeTrimView({required this.node, required this.trim});
+
+  final NodeId node;
+  final PathTrim trim;
+
+  @override
+  bool operator ==(Object other) =>
+      other is NodeTrimView && other.node == node && other.trim == trim;
+
+  @override
+  int get hashCode => Object.hash(node, trim);
+}
+
+/// The selected path node's static `PathTrim`, or null when the selection is not
+/// exactly one `PathNode` (F8.1, AC-8.1.10 — **per-`PathNode` only**: no group,
+/// no subpath).
+///
+/// A **separate named slice** from paint and transform, so a trim commit and a
+/// paint/transform commit rebuild different sub-trees (docs/v3/08 §2). The
+/// tracked-vs-static routing of the three trim fields reads
+/// [inspectorTracksProvider] (the same slice the transform/paint fields read, so
+/// diamond and field cannot disagree); this slice only supplies the static value
+/// the untracked field shows and the diamond keys.
+final inspectorTrimProvider =
+    Provider.autoDispose.family<NodeTrimView?, String>((ref, projectId) {
+  final ids = ref.watch(inspectorSelectionProvider);
+  if (ids.length != 1) return null;
+  final id = ids.single;
+
+  return ref.watch(documentControllerProvider(projectId).select((async) {
+    final node = async.valueOrNull?.nodeIndex[id];
+    if (node is! PathNode) return null;
+    return NodeTrimView(node: id, trim: node.trim);
   }));
 });
 

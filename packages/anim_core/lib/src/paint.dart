@@ -220,6 +220,17 @@ final class Fill {
         'opacity': opacity,
         'visible': visible,
       };
+
+  /// The same fill with an animated paint channel written over it — the
+  /// evaluator's [resolvePaint] is the one caller (docs/v3/01 §11). [id] and
+  /// [rule] never animate, so there is no parameter for them.
+  Fill copyWith({PaintSource? paint, double? opacity, bool? visible}) => Fill(
+        id: id,
+        paint: paint ?? this.paint,
+        rule: rule,
+        opacity: opacity ?? this.opacity,
+        visible: visible ?? this.visible,
+      );
 }
 
 final class Stroke {
@@ -280,4 +291,20 @@ final class Stroke {
         'opacity': opacity,
         'visible': visible,
       };
+
+  /// The same stroke with animated paint channels written over it — the
+  /// evaluator's [resolvePaint] is the one caller (docs/v3/01 §11). Only the
+  /// animatable channels (`strokeColor`/`strokeOpacity`/`strokeWidth`) have
+  /// parameters; [id], [cap], [join] and [miterLimit] never animate.
+  Stroke copyWith({PaintSource? paint, double? width, double? opacity}) =>
+      Stroke(
+        id: id,
+        paint: paint ?? this.paint,
+        width: width ?? this.width,
+        cap: cap,
+        join: join,
+        miterLimit: miterLimit,
+        opacity: opacity ?? this.opacity,
+        visible: visible,
+      );
 }

@@ -13,9 +13,11 @@ import 'features/layers/providers.dart';
 import 'features/layers/widgets/layers_panel.dart';
 import 'features/timeline/widgets/timeline_bar.dart';
 import 'features/tools/widgets/tool_rail.dart';
+import 'features/transport/widgets/transport_bar.dart';
 import 'state/command.dart';
 import 'state/document_controller.dart';
 import 'state/editor_controller.dart';
+import 'state/save_state.dart';
 import 'state/tool_controller.dart';
 
 /// Screen 2 — the editor (docs/v3/05 §2).
@@ -56,7 +58,7 @@ import 'state/tool_controller.dart';
 /// The async wrapper is consumed with `.when`, never `.requireValue`, because a
 /// `.requireValue` on the first frame throws at every `ref.watch` and takes the
 /// tree with it (docs/v3/08 §2).
-class EditorShell extends StatelessWidget {
+class EditorShell extends ConsumerStatefulWidget {
   const EditorShell({required this.projectId, super.key});
 
   final String projectId;
@@ -68,14 +70,56 @@ class EditorShell extends StatelessWidget {
   static const double inspectorWidth = 260.0;
   static const double timelineHeight = 84.0;
 
+  /// The TRANSPORT row (docs/v3/05 §2), between the canvas and the timeline.
+  /// Fixed like the timeline, and for the same reason (docs/v3/08 §2, last row):
+  /// an unconstrained slot is what makes the fallback `ErrorWidget` throw again
+  /// during layout — the literal white screen.
+  static const double transportHeight = 48.0;
+
+  @override
+  ConsumerState<EditorShell> createState() => _EditorShellState();
+}
+
+class _EditorShellState extends ConsumerState<EditorShell> {
+  /// Flushes a pending autosave when the tab is hidden or the app is torn down,
+  /// so an edit still inside the debounce window survives a close (AC-10.3.1's
+  /// data-safety half). `AppLifecycleListener` is the portable, test-reachable
+  /// hook — `onHide`/`onDetach` fire on a web tab-visibility change and close —
+  /// so no web-only `beforeunload` interop is needed.
+  AppLifecycleListener? _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(
+      onHide: _flushPending,
+      onPause: _flushPending,
+      onDetach: _flushPending,
+    );
+  }
+
+  void _flushPending() {
+    // Fire-and-forget: the app may be going away, and a no-op when nothing is
+    // pending.
+    ref.read(documentControllerProvider(widget.projectId).notifier).flushNow();
+  }
+
+  @override
+  void dispose() {
+    _lifecycle?.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final projectId = widget.projectId;
     // Nothing is watched at this level, so this widget builds once per open and
     // the body it hands down keeps its identity across every commit.
     return Scaffold(
       appBar: AppBar(
         title: _ChromeTitle(projectId: projectId),
         actions: [
+          _SaveIndicator(projectId: projectId),
           _ChromeActions(projectId: projectId),
           const ThemeToggleButton(),
           const SizedBox(width: 4),
@@ -199,6 +243,73 @@ class _ChromeActions extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The autosave status (docs/v3/03 AC-10.3.3): always exactly one of
+/// **saved / dirty / saving / error**, and on failure it shows error while the
+/// edit stays in memory — no modal (AC-10.3.4).
+///
+/// A leaf that watches only the `SaveState` notifier, so a status change repaints
+/// this chip and nothing else — the same discipline as the playhead. It never
+/// watches the document, so a scrub or an ordinary commit does not rebuild it.
+class _SaveIndicator extends ConsumerWidget {
+  const _SaveIndicator({required this.projectId});
+
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.watch(saveStateProvider(projectId));
+    return ValueListenableBuilder<SaveState>(
+      valueListenable: notifier,
+      builder: (context, save, _) {
+        final scheme = Theme.of(context).colorScheme;
+        final (IconData icon, String label, Color color) = switch (save.phase) {
+          SavePhase.saved => (
+              Icons.cloud_done_outlined,
+              'Saved',
+              scheme.onSurfaceVariant
+            ),
+          SavePhase.dirty => (
+              Icons.cloud_queue,
+              'Unsaved',
+              scheme.onSurfaceVariant
+            ),
+          SavePhase.saving => (
+              Icons.cloud_sync_outlined,
+              'Saving…',
+              scheme.onSurfaceVariant
+            ),
+          SavePhase.error => (
+              Icons.cloud_off_outlined,
+              'Save failed',
+              scheme.error
+            ),
+        };
+        final tooltip = switch (save.phase) {
+          SavePhase.error =>
+            save.failure?.message ?? 'The last change could not be saved.',
+          SavePhase.saved when save.lastSaved != null => 'All changes saved',
+          _ => label,
+        };
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Tooltip(
+            message: tooltip,
+            child: Row(
+              key: Key('save-indicator-${save.phase.name}'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: color),
+                const SizedBox(width: 4),
+                Text(label, style: TextStyle(fontSize: 12, color: color)),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -334,6 +445,16 @@ class _EditorBody extends ConsumerWidget {
             _deleteAnchors(context, ref, projectId),
         const SingleActivator(LogicalKeyboardKey.backspace): () =>
             _deleteAnchors(context, ref, projectId),
+        // docs/v3/05 §5 & §"Enter is resolved by focus": `Enter` is play/pause —
+        // NOT `Space`, which is pan. It reaches here only when the canvas has NOT
+        // consumed it: with the canvas focused the pen owns `Enter` (its `_onKey`
+        // returns `handled`), so the event bubbles to this scope only when the
+        // canvas is unfocused. The transport `Ticker` lives in the panel, but the
+        // toggle is shared state, so the shortcut flips `playing` and the panel's
+        // `ref.listen` starts/stops the Ticker.
+        const SingleActivator(LogicalKeyboardKey.enter): () => _togglePlay(ref),
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): () =>
+            _togglePlay(ref),
       },
       // **The scope that catches released focus** (docs/v3/05 §5).
       //
@@ -371,7 +492,32 @@ class _EditorBody extends ConsumerWidget {
                     child: LayersPanel(projectId: projectId),
                   ),
                   VerticalDivider(width: 1, color: scheme.outlineVariant),
-                  Expanded(child: CanvasView(projectId: projectId)),
+                  // The canvas and, directly beneath it, the TRANSPORT row
+                  // (docs/v3/05 §2: below the canvas, above the timeline). It is
+                  // stacked in the **centre column** rather than spanning the
+                  // whole width, on purpose: a full-width strip would shorten the
+                  // side rails, and the inspector's field list is a lazy
+                  // `ListView` whose bottom fields stop building the moment its
+                  // viewport loses ~50 px (docs/v3/08 §2's "constraints from the
+                  // parent" cuts both ways — a panel silently dropping controls is
+                  // as bad as one overflowing). Keeping the rails full height
+                  // leaves the timeline the one full-width strip below.
+                  //
+                  // Both slots take an explicit constraint from this parent
+                  // (docs/v3/08 §2): an unconstrained one makes the fallback
+                  // ErrorWidget throw again during layout — the white screen.
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Expanded(child: CanvasView(projectId: projectId)),
+                        Divider(height: 1, color: scheme.outlineVariant),
+                        SizedBox(
+                          height: EditorShell.transportHeight,
+                          child: TransportBar(projectId: projectId),
+                        ),
+                      ],
+                    ),
+                  ),
                   VerticalDivider(width: 1, color: scheme.outlineVariant),
                   SizedBox(
                     width: EditorShell.inspectorWidth,
@@ -382,7 +528,11 @@ class _EditorBody extends ConsumerWidget {
             ),
             SizedBox(
               height: EditorShell.timelineHeight,
-              child: TimelineBar(projectId: projectId),
+              // AC-13.1: the timeline gets its own raster layer, like the canvas,
+              // so a scrub — which drives both the canvas and the timeline's
+              // playhead marker via the shared notifier — repaints each in
+              // isolation and neither forces the other's whole subtree to redraw.
+              child: RepaintBoundary(child: TimelineBar(projectId: projectId)),
             ),
           ],
         ),
@@ -414,6 +564,19 @@ const Map<ToolId, LogicalKeyboardKey> _toolKeys = <ToolId, LogicalKeyboardKey>{
 void _activate(WidgetRef ref, ToolId id) {
   if (_typingInAField()) return;
   ref.read(toolControllerProvider.notifier).activate(id);
+}
+
+/// `Enter` — play/pause (docs/v3/05 §5). `playing` is ephemeral, so this is a
+/// pure `EditorController` write: no `Command`, no save, nothing serialized.
+///
+/// **Refused while a text field has focus** (the same `_typingInAField` guard
+/// the tool letters use). Committing the duration field or a layer rename with
+/// `Enter` must not also toggle playback; and `Enter` in a single-line field is
+/// consumed by the field before it could bubble here anyway, so this is the belt
+/// to that braces.
+void _togglePlay(WidgetRef ref) {
+  if (_typingInAField()) return;
+  ref.read(editorControllerProvider.notifier).togglePlaying();
 }
 
 /// True when the primary focus is inside an [EditableText].

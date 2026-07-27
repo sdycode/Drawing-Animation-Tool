@@ -4,7 +4,9 @@ import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
 import 'package:drawing_animation_tool/app/data/project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
+import 'package:drawing_animation_tool/app/state/command.dart';
 import 'package:drawing_animation_tool/app/state/document_controller.dart';
+import 'package:drawing_animation_tool/app/state/save_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -127,23 +129,56 @@ void main() {
     expect(doc.rev, 3, reason: 'seeded at 1, plus one per persisted save');
   });
 
-  test('a failed save does not wedge the commands behind it', () async {
+  test('a failed save is retained in memory and lands on the next edit',
+      () async {
     final id = seed();
-    final (_, controller) = await open(id);
+    final (container, controller) = await open(id);
+    final save = container.read(saveStateProvider(id));
 
+    // AC-10.3.4: a write that fails does not throw and does not lose the edit —
+    // it stays in memory and the indicator shows error, with no rev bump.
     memory.failNext = StoreFailure.network;
-    await expectLater(
-      controller.moveAnchorAt(node, a1, const Vec2(5, 5), atT: 0.5),
-      throwsA(isA<StoreException>()),
-    );
+    await controller.moveAnchorAt(node, a1, const Vec2(5, 5), atT: 0.5);
+    expect(save.value.phase, SavePhase.error);
+    expect(save.value.failure, StoreFailure.network);
+
+    // The next edit carries the retained one with it: both land in one write,
+    // one rev bump, and the indicator recovers to saved.
     await controller.moveAnchorAt(node, a2, const Vec2(7, 7), atT: 0.5);
+    expect(save.value.phase, SavePhase.saved);
 
     final doc = await reload(id);
+    expect(poseOf(doc, a1)?.position, const Vec2(5, 5),
+        reason: 'the failed edit was retained and saved with the next one');
     expect(poseOf(doc, a2)?.position, const Vec2(7, 7));
-    expect(doc.rev, 2, reason: 'the failed save never bumped it');
+    expect(doc.rev, 2,
+        reason: 'the failed save bumped nothing; the recovery bumped once');
   });
 
-  test('a newer-schema document refuses every save path', () async {
+  test('a no-op edit neither bumps rev nor reaches the store', () async {
+    final id = seed();
+    final (container, controller) = await open(id);
+
+    // One real edit for a baseline: rev 1 -> 2, one save.
+    await controller.moveAnchorAt(node, a1, const Vec2(5, 5), atT: 0.5);
+    expect(store.saves, 1);
+    expect(container.read(documentControllerProvider(id)).value!.rev, 2);
+    final label = controller.undoLabel;
+
+    // The node holds the default `PathTrim.full`; writing it again is an
+    // idempotent op that returns the SAME Document. It must not persist — a
+    // phantom `rev` bump here is exactly what M7's autosave would wake on.
+    await controller.run(const SetTrimCommand(node, PathTrim()));
+
+    expect(store.saves, 1, reason: 'a no-op writes nothing to the store');
+    expect(container.read(documentControllerProvider(id)).value!.rev, 2,
+        reason: 'no phantom rev bump on an unchanged document');
+    expect(controller.undoLabel, label,
+        reason: 'no phantom undo entry stacked on the real edit');
+  });
+
+  test('a newer-schema document refuses every save path — error, no write',
+      () async {
     // docs/v3/02 §1 rule 7. `Document.isReadOnly` existed and was unit-tested,
     // but nothing consulted it: the editor happily wrote a schemaVersion-4
     // document back with `rev` bumped and every v4-only field stripped, because
@@ -151,18 +186,20 @@ void main() {
     // `Transform2` — a v4 addition there is a version bump, not an unknown key.
     final id = seed(schemaVersion: 4);
     final (container, controller) = await open(id);
+    final save = container.read(saveStateProvider(id));
 
     final before = await memory.load(id);
     expect(container.read(documentControllerProvider(id)).value!.isReadOnly,
         isTrue);
 
-    await expectLater(
-      controller.moveAnchorAt(node, a1, const Vec2(5, 5), atT: 0.5),
-      throwsA(isA<StoreException>()
-          .having((e) => e.failure, 'failure', StoreFailure.readOnly)),
-    );
-    await expectLater(
-        controller.rename('renamed'), throwsA(isA<StoreException>()));
+    // The read-only gate lives in `_save`. An edit no longer throws — the flush
+    // surfaces the refusal as the error indicator (AC-10.3.4, no modal) and the
+    // store is never touched.
+    await controller.moveAnchorAt(node, a1, const Vec2(5, 5), atT: 0.5);
+    expect(save.value.phase, SavePhase.error);
+    expect(save.value.failure, StoreFailure.readOnly);
+    await controller.rename('renamed');
+    expect(save.value.failure, StoreFailure.readOnly);
 
     expect(store.saves, 0, reason: 'the gate is before the store, not after');
     expect(await memory.load(id), before, reason: 'byte-identical on disk');

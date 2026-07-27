@@ -332,17 +332,19 @@ class InspectorPanel extends ConsumerWidget {
         // bottom in paint order and offers no reorder, no z-index and no "bring
         // to front" to disagree with it.
         _PaintSection(projectId: projectId),
+        // Draw-on / reveal (F8.1). SHIPPED in M6 — the "Draw-on trim — not yet
+        // available" seam this replaced is gone; the row now authors a real
+        // `PathTrim` per PathNode (AC-8.1.10). It sits below the paint it reveals
+        // and reads its own named slice, so a trim commit rebuilds a different
+        // sub-tree (docs/v3/08 §2).
+        _TrimSection(projectId: projectId),
         _ShapeSection(projectId: projectId),
         const SizedBox(height: 16),
-        Text('Not yet available',
-            key: const Key('inspector-seams'),
-            style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
-        const SizedBox(height: 4),
-        _seam(context, 'Draw-on trim'),
         // Easing and anchor-kind editing SHIPPED (M4 timeline, M3 direct-select),
         // so these rows point at where the feature lives rather than claiming it
         // is "not yet available" as they used to — that read as a broken tool to
-        // the ship-gate stranger (docs/v3/00 §5).
+        // the ship-gate stranger (docs/v3/00 §5). After M6's trim there is no
+        // "not yet available" seam left at all.
         _hint(context, 'Easing — set it per segment on the timeline'),
         _hint(context,
             'Corner and smooth anchors — Alt-click an anchor with Direct Select'),
@@ -428,26 +430,6 @@ class InspectorPanel extends ConsumerWidget {
           Expanded(child: _fieldLabel(label)),
         ],
       );
-
-  /// A named-but-absent editor, in **plain language**.
-  ///
-  /// These rows used to read "Fill / M3" and "Path trim / M4". A milestone code
-  /// is this project's internal vocabulary; the person docs/v3/00 §5 sends
-  /// through the ship gate has never read the roadmap, and "M4" beside a
-  /// control tells them nothing about whether the tool is broken or unfinished.
-  /// They stay non-interactive on purpose: a stub that opens an empty editor
-  /// would be a worse lie than an honest absence.
-  Widget _seam(BuildContext context, String title) {
-    final scheme = Theme.of(context).colorScheme;
-    return Opacity(
-      opacity: 0.5,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Text('$title — not yet available',
-            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-      ),
-    );
-  }
 
   /// A pointer to a feature that **is** built but lives on another surface — the
   /// honest replacement for a "not yet available" row on a shipped feature.
@@ -678,6 +660,129 @@ class _PathSection extends ConsumerWidget {
           'Key the whole outline here, then move anchors on the canvas with '
           'Direct Select — each edit lands on the keyframe at the playhead.',
           style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+/// Draw-on / reveal authoring — the `PathTrim` row (F8.1, docs/v3/05 §2).
+///
+/// Three percentage fields — **Trim start / Trim end / Trim offset** — each
+/// display `%` and store the underlying `0..1` fraction of total arc length (the
+/// same display-vs-store split rotation and opacity use), each `0..100`. Each
+/// carries a keyframe diamond backed by its `trimStart`/`trimEnd`/`trimOffset`
+/// `ScalarTrack`, and routes static-vs-keyframe **exactly** like the
+/// transform/paint fields — reading the SAME [inspectorTracksProvider] slice so
+/// the diamond and field can never disagree:
+///   * UNtracked → editing writes the static `PathTrim` via
+///     `InspectorCommands.setTrim`; the empty diamond keys the current value
+///     (`keyCurrent`, creating the `ScalarTrack`).
+///   * TRACKED → editing upserts the keyframe at the playhead (edit-at-keyframe,
+///     `keyValue`), and the field is WYSIWYG — it shows the value sampled at the
+///     playhead via the leaf [_numberField] `ValueListenableBuilder`, so a scrub
+///     repaints only the field text and rebuilds no panel (AC-13.3). A filled
+///     diamond removes the key under the playhead.
+///
+/// **Its own `ConsumerWidget` reading [inspectorTrimProvider]**, so a trim commit
+/// rebuilds a different sub-tree than a transform/paint commit (docs/v3/08 §2).
+/// Present for any single `PathNode`; absent for a group or a many/zero
+/// selection — trim is per-`PathNode` (AC-8.1.10): no per-subpath, no
+/// group-level, no `Stroke.dash`.
+class _TrimSection extends ConsumerWidget {
+  const _TrimSection({required this.projectId});
+
+  final String projectId;
+
+  static const PropertyKey _kTrimStart = PropertyKey(PropKey.trimStart);
+  static const PropertyKey _kTrimEnd = PropertyKey(PropKey.trimEnd);
+  static const PropertyKey _kTrimOffset = PropertyKey(PropKey.trimOffset);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final view = ref.watch(inspectorTrimProvider(projectId));
+    if (view == null) return const SizedBox.shrink();
+    // The same tracked-ness slice the transform/paint rows read — so the trim
+    // diamonds and fields agree with them about which world they are in.
+    final tracks = ref.watch(inspectorTracksProvider(projectId));
+    final commands = InspectorCommands(ref, projectId);
+    final node = view.node;
+    final trim = view.trim;
+
+    Widget diamond(PropertyKey property, double authored) => _KeyframeDiamond(
+          keyName: 'kf-${property.wire}',
+          keyTimes: tracks[property],
+          onKey: () => _report(context,
+              commands.keyCurrent(node, property, _playheadT(ref), authored)),
+          onRemoveAt: (index) =>
+              _report(context, commands.removeKeyAt(node, property, index)),
+        );
+
+    // One trim channel's field: percent in, 0..1 stored. Untracked writes the
+    // whole next `PathTrim` (the one channel replaced) via `setTrim`; tracked
+    // upserts the keyframe at the playhead, pre-clamped to 0..1 (the static path
+    // clamps in `NodeOps.setTrim`, but `keyValue → KeyframeOps.keyAt` does not,
+    // matching how tracked opacity/width are pre-clamped in the paint section).
+    Widget field({
+      required String fieldKey,
+      required PropertyKey property,
+      required double stored,
+      required PathTrim Function(double fraction) rebuild,
+    }) =>
+        _numberField(
+          projectId: projectId,
+          fieldKey: fieldKey,
+          tracked: tracks[property] != null,
+          property: property,
+          staticDisplay: stored * 100,
+          toDisplay: (s) => s is double ? s * 100 : stored * 100,
+          onCommit: tracks[property] != null
+              ? (percent) => _report(
+                  context,
+                  commands.keyValue(node, property, _playheadT(ref),
+                      (percent / 100).clamp(0.0, 1.0)))
+              : (percent) => _report(
+                  context, commands.setTrim(node, rebuild(percent / 100))),
+        );
+
+    return Column(
+      key: const Key('inspector-trim'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 12),
+        _groupLabel(context, 'Trim'),
+        _labelled(
+          'Start (%)',
+          field(
+            fieldKey: 'inspector-trim-start',
+            property: _kTrimStart,
+            stored: trim.start,
+            rebuild: (f) =>
+                PathTrim(start: f, end: trim.end, offset: trim.offset),
+          ),
+          leading: diamond(_kTrimStart, trim.start),
+        ),
+        _labelled(
+          'End (%)',
+          field(
+            fieldKey: 'inspector-trim-end',
+            property: _kTrimEnd,
+            stored: trim.end,
+            rebuild: (f) =>
+                PathTrim(start: trim.start, end: f, offset: trim.offset),
+          ),
+          leading: diamond(_kTrimEnd, trim.end),
+        ),
+        _labelled(
+          'Offset (%)',
+          field(
+            fieldKey: 'inspector-trim-offset',
+            property: _kTrimOffset,
+            stored: trim.offset,
+            rebuild: (f) =>
+                PathTrim(start: trim.start, end: trim.end, offset: f),
+          ),
+          leading: diamond(_kTrimOffset, trim.offset),
         ),
       ],
     );

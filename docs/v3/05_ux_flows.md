@@ -49,6 +49,15 @@ Three screens. That is the whole app.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+> **Shipped deviation (M6).** The diagram draws `TRANSPORT` as one full-width
+> strip under all four columns. In code it lives in the **centre column beneath
+> the canvas** (`Expanded > Column > [CanvasView, TransportBar]`), spanning the
+> canvas width, so the side rails stay full-height and the inspector's lazy
+> `ListView` never drops its bottom fields to a shrinking transport row. The
+> `TIMELINE` below it *is* full-width as drawn. The transport stays visible and
+> reachable at every width (it scrolls horizontally under ~460 px). This is a
+> deliberate layout trade-off, not a scope change.
+
 ### Panel contracts
 
 | Panel | Owns | Never owns |

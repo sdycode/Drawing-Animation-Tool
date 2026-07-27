@@ -49,6 +49,7 @@ import '../animation.dart';
 import '../document.dart';
 import '../easing.dart';
 import '../eval/evaluate.dart';
+import '../geom/arc_length.dart';
 import '../node.dart';
 import '../path.dart';
 import '../primitives.dart';
@@ -635,7 +636,7 @@ abstract final class PathOps {
 
     // The rest-pose split, which is what an UNTRACKED node renders after the
     // insert, and the tangents the topology carries for missing-pose fallback.
-    final restSplit = _deCasteljau(
+    final restSplit = deCasteljauSplit(
       restAfter.position,
       restAfter.position + restAfter.outTangent,
       restNext.position + restNext.inTangent,
@@ -674,7 +675,7 @@ abstract final class PathOps {
       final np = pose.anchors[nextId] ??
           AnchorPose(
               restNext.position, restNext.inTangent, restNext.outTangent);
-      final s = _deCasteljau(
+      final s = deCasteljauSplit(
         ap.position,
         ap.position + ap.outTangent,
         np.position + np.inTangent,
@@ -787,11 +788,11 @@ abstract final class PathOps {
     final node = found;
 
     // Arc-length fraction of each NEW anchor along the NEW path — computed once.
-    final newFractions = _ArcTable.build(newTopology).anchorFractions();
+    final newFractions = ArcTable.build(newTopology).anchorFractions();
 
     PathPose resample(PathPose oldPose) {
       // The old geometry THIS keyframe draws, resolved over the current topology.
-      final table = _ArcTable.build(_poseGeometry(node.path, oldPose));
+      final table = ArcTable.build(_poseGeometry(node.path, oldPose));
       return PathPose(Map.unmodifiable(<AnchorId, AnchorPose>{
         for (var i = 0; i < newTopology.anchors.length; i++)
           newTopology.anchors[i].id: AnchorPose(
@@ -1055,31 +1056,6 @@ Animation _rewriteAnimation(
   );
 }
 
-/// The pieces of a de Casteljau split of the cubic [p0]..[p3] at parameter [u]
-/// that a topology insert needs (docs/v3/01 §13.5).
-///
-/// The new anchor sits at [pos] with handles [inT]/[outT]; the left neighbour's
-/// outgoing handle becomes [leftOut] and the right neighbour's incoming handle
-/// [rightIn]. The two sub-cubics `[p0, p0+leftOut, pos+inT, pos]` and
-/// `[pos, pos+outT, p3+rightIn, p3]` reproduce [p0]..[p3] exactly, which is why
-/// the insert is pixel-identical (AC-4.3.2).
-({Vec2 pos, Vec2 inT, Vec2 outT, Vec2 leftOut, Vec2 rightIn}) _deCasteljau(
-    Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, double u) {
-  final q0 = Vec2.lerp(p0, p1, u);
-  final q1 = Vec2.lerp(p1, p2, u);
-  final q2 = Vec2.lerp(p2, p3, u);
-  final r0 = Vec2.lerp(q0, q1, u);
-  final r1 = Vec2.lerp(q1, q2, u);
-  final s = Vec2.lerp(r0, r1, u);
-  return (
-    pos: s,
-    inT: r0 - s,
-    outT: r1 - s,
-    leftOut: q0 - p0,
-    rightIn: q2 - p3,
-  );
-}
-
 /// A [PathData] whose anchors carry [pose]'s values (rest fallback for a missing
 /// entry) — the geometry one keyframe actually draws over [topology]. Equivalent
 /// to a single-bracket `resolveNodePose`, inlined here so the mutation op does
@@ -1095,123 +1071,4 @@ PathData _poseGeometry(PathData topology, PathPose pose) {
         outTangent: p.outTangent));
   }
   return PathData(anchors: anchors, closed: topology.closed);
-}
-
-/// A cumulative arc-length table over an immutable [PathData], built by adaptive
-/// flattening (docs/v3/01 §5). Used by [PathOps.retopologize] for arc-length
-/// correspondence.
-///
-/// Correct, not fast: it is built once per edit (never in the tick), and rebuilt
-/// per keyframe because each keyframe draws different geometry. M6's trim needs
-/// the same machinery **memoised per immutable `PathData`**; hoisting this onto
-/// `PathData` is that milestone's, and is why it lives as a plain helper here
-/// rather than baked into a public API this milestone would have to guess at.
-class _ArcTable {
-  _ArcTable(this._points, this._cumulative, this._total, this._anchorArc);
-
-  /// Flattened polyline of the whole path, in draw order.
-  final List<Vec2> _points;
-
-  /// Cumulative arc length at each entry of [_points]. `_cumulative[0] == 0`.
-  final List<double> _cumulative;
-
-  final double _total;
-
-  /// Arc length at each anchor (the start of its outgoing segment; the final
-  /// anchor of an open path sits at [_total]).
-  final List<double> _anchorArc;
-
-  /// Flatness tolerance in document units. Well below any downstream raster
-  /// tolerance, so the sampled length is exact for a correspondence morph.
-  static const double _tolerance = 0.01;
-  static const int _maxDepth = 20;
-
-  static _ArcTable build(PathData path) {
-    final points = <Vec2>[];
-    final cumulative = <double>[];
-    final anchorArc = <double>[];
-
-    if (path.segmentCount == 0) {
-      // 0 or 1 anchor renders nothing (invariant P2); every fraction collapses
-      // to the single point (or the origin for the empty path).
-      for (final a in path.anchors) {
-        anchorArc.add(0.0);
-        if (points.isEmpty) {
-          points.add(a.position);
-          cumulative.add(0.0);
-        }
-      }
-      return _ArcTable(points, cumulative, 0.0, anchorArc);
-    }
-
-    var length = 0.0;
-    points.add(path.segment(0).$1);
-    cumulative.add(0.0);
-    for (var k = 0; k < path.segmentCount; k++) {
-      anchorArc.add(length); // arc at anchor k (start of segment k)
-      final (p0, p1, p2, p3) = path.segment(k);
-      final flat = <Vec2>[];
-      _flatten(p0, p1, p2, p3, 0, flat);
-      for (final pt in flat) {
-        length += (pt - points.last).length;
-        points.add(pt);
-        cumulative.add(length);
-      }
-    }
-    // An open path has one more anchor than segments; it sits at the far end.
-    if (!path.closed) anchorArc.add(length);
-    return _ArcTable(points, cumulative, length, anchorArc);
-  }
-
-  /// The arc-length fraction `[0,1]` of each anchor, in topology order.
-  List<double> anchorFractions() => <double>[
-        for (final a in _anchorArc) _total <= 0.0 ? 0.0 : a / _total,
-      ];
-
-  /// The point at arc-length fraction [f] along the flattened path.
-  Vec2 pointAtFraction(double f) {
-    if (_points.isEmpty) return Vec2.zero;
-    if (_points.length == 1 || _total <= 0.0) return _points.first;
-    final target = f.clamp(0.0, 1.0) * _total;
-    for (var i = 1; i < _cumulative.length; i++) {
-      if (_cumulative[i] >= target) {
-        final span = _cumulative[i] - _cumulative[i - 1];
-        final t = span <= 0.0 ? 0.0 : (target - _cumulative[i - 1]) / span;
-        return Vec2.lerp(_points[i - 1], _points[i], t);
-      }
-    }
-    return _points.last;
-  }
-
-  /// Adaptive subdivision of one cubic, emitting the points **after** [p0] up to
-  /// and including [p3]. The classic control-point-deviation flatness test.
-  static void _flatten(
-      Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3, int depth, List<Vec2> out) {
-    if (depth >= _maxDepth || _flatEnough(p0, p1, p2, p3)) {
-      out.add(p3);
-      return;
-    }
-    final p01 = Vec2.lerp(p0, p1, 0.5);
-    final p12 = Vec2.lerp(p1, p2, 0.5);
-    final p23 = Vec2.lerp(p2, p3, 0.5);
-    final p012 = Vec2.lerp(p01, p12, 0.5);
-    final p123 = Vec2.lerp(p12, p23, 0.5);
-    final mid = Vec2.lerp(p012, p123, 0.5);
-    _flatten(p0, p01, p012, mid, depth + 1, out);
-    _flatten(mid, p123, p23, p3, depth + 1, out);
-  }
-
-  static bool _flatEnough(Vec2 p0, Vec2 p1, Vec2 p2, Vec2 p3) {
-    var ux = 3.0 * p1.x - 2.0 * p0.x - p3.x;
-    ux *= ux;
-    var uy = 3.0 * p1.y - 2.0 * p0.y - p3.y;
-    uy *= uy;
-    var vx = 3.0 * p2.x - p0.x - 2.0 * p3.x;
-    vx *= vx;
-    var vy = 3.0 * p2.y - p0.y - 2.0 * p3.y;
-    vy *= vy;
-    if (ux < vx) ux = vx;
-    if (uy < vy) uy = vy;
-    return ux + uy <= 16.0 * _tolerance * _tolerance;
-  }
 }

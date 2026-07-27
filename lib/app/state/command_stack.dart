@@ -177,7 +177,15 @@ class CommandStack {
     final leaving = _Snapshot(_current, _keyframe, cmd.label);
     final after = cmd.apply(_current); // throws → the lines below never run
     if (_coalesceBase == null) {
-      _push(leaving);
+      // A command that changes nothing — an idempotent op clamping to the value
+      // the node already holds returns the *same* Document instance — must not
+      // push a phantom entry: undo would restore an identical document, `_push`
+      // would clear a live redo branch, and `DocumentController` would bump `rev`
+      // and write unchanged content (waking M7 autosave on a no-op edit). Mirror
+      // the identity guard the coalescing branch already applies below.
+      if (!identical(after, _current)) {
+        _push(leaving);
+      }
     } else {
       if (!identical(after, _current)) {
         // A coalesced run mutates the document, so the redo branch is just as

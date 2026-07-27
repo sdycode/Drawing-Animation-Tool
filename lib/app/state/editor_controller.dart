@@ -147,6 +147,29 @@ class EditorController extends AutoDisposeNotifier<EditorState> {
     state = state.copyWith(playhead: clamped);
   }
 
+  // --- Transport (M6) -------------------------------------------------------
+  //
+  // `playing` is EPHEMERAL: it is not a field of `Document` and never
+  // serializes (the AC-2.2.7 split this whole controller exists to keep — a file
+  // saved mid-playback must not carry a "playing" bit a reopen would honour).
+  // The `Ticker` in the transport bar keys its lifecycle off this bit and is the
+  // ONLY thing that moves the playhead; neither method below moves it. On PAUSE
+  // the transport commits the settled playhead once via [commitPlayhead],
+  // exactly as scrub-end does — the live value lived in `playheadProvider` (the
+  // hot path) for the duration of play and never round-tripped through pixels or
+  // a `BuildContext` (the legacy defect, docs/v3/04 §4).
+
+  /// Flip play/pause — the play button and the shell's `Enter` both route here
+  /// (AC-9.1.1, docs/v3/05 §5). `Enter`, not `Space`: `Space` is pan.
+  void togglePlaying() => setPlaying(!state.playing);
+
+  /// Set the transport play state. A no-op when unchanged, so a redundant flip
+  /// notifies nothing.
+  void setPlaying(bool playing) {
+    if (state.playing == playing) return;
+    state = state.copyWith(playing: playing);
+  }
+
   void selectAnchor(AnchorId? anchor) {
     state = state.copyWith(
       selectedAnchors: anchor == null ? const <AnchorId>{} : <AnchorId>{anchor},

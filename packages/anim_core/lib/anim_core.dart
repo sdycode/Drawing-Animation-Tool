@@ -20,6 +20,7 @@ export 'src/document.dart';
 export 'src/easing.dart';
 export 'src/eval/evaluate.dart';
 export 'src/eval/scene.dart';
+export 'src/geom/arc_length.dart';
 export 'src/json.dart' show d, i;
 export 'src/node.dart';
 export 'src/ops/keyframe_ops.dart';

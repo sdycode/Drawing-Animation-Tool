@@ -3,6 +3,17 @@ import 'package:drawing_animation_tool/app/state/command.dart';
 import 'package:drawing_animation_tool/app/state/command_stack.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// A command that changes nothing — it hands back the *same* Document instance,
+/// exactly as an idempotent op does when it clamps to the value already held
+/// (`NodeOps.setTrim` returns `d` when `node.trim == next`).
+final class _NoopCommand implements Command {
+  const _NoopCommand();
+  @override
+  String get label => 'Noop';
+  @override
+  Document apply(Document before) => before;
+}
+
 /// The undo stack in isolation — no widgets, no store, no controller. It is a
 /// pure in-memory history of immutable [Document] pointers (docs/v3/04 §6), so
 /// every property below is a `dart test`-shaped assertion about pointers and
@@ -51,6 +62,36 @@ void main() {
     expect(stack.redo()!.document, same(doc1));
     expect(stack.redo()!.document, same(doc2));
     expect(stack.current, same(doc2));
+  });
+
+  test('a no-op command records no entry and preserves the redo branch', () {
+    final doc0 = seed();
+    final stack = CommandStack(doc0);
+
+    final doc1 = stack.run(const RenameDocumentCommand('one'));
+    stack.undo(); // back at doc0, with doc1 waiting on the redo branch
+    expect(stack.current, same(doc0));
+    expect(stack.canRedo, isTrue);
+    expect(stack.canUndo, isFalse);
+
+    // An idempotent op that changes nothing returns the *same* instance. This
+    // must not push a phantom undo entry, and — the sharper bug — must not let
+    // `_push` clear the live redo branch (`_push` both records and drops redo).
+    final after = stack.run(const _NoopCommand());
+    expect(after, same(doc0), reason: 'a no-op leaves the document untouched');
+    expect(stack.canUndo, isFalse,
+        reason: 'no phantom entry for an unchanged document');
+    expect(stack.canRedo, isTrue,
+        reason: 'a no-op must not destroy a reachable future');
+    expect(stack.redo()!.document, same(doc1),
+        reason: 'the redo the no-op almost ate is still there');
+
+    // A command that DOES change the document still behaves normally: one entry,
+    // redo branch dropped.
+    final doc2 = stack.run(const RenameDocumentCommand('two'));
+    expect(stack.current, same(doc2));
+    expect(stack.canUndo, isTrue);
+    expect(stack.canRedo, isFalse, reason: 'a real edit drops the future');
   });
 
   test('depth caps at 100 — the 101st push drops the oldest', () {

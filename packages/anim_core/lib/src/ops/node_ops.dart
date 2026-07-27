@@ -424,6 +424,48 @@ abstract final class NodeOps {
     );
   }
 
+  /// Set [n]'s authored `PathTrim` — the inspector's Trim fields (F8.1,
+  /// AC-8.1.1).
+  ///
+  /// Writes **one `PathNode`'s own** `trim`. The evaluator's `applyTrim` (stage
+  /// 7) reads it and reveals the geometry per frame (docs/v3/01 §5); this op only
+  /// replaces the field, and there is no derived "effective trim" stored anywhere
+  /// to desync (docs/v3/08 §4).
+  ///
+  /// Each of `start`/`end`/`offset` is clamped to `0..1` **here, at the
+  /// mutation** — a fraction of total arc length outside `[0,1]` is a bad
+  /// authored write, the same lesson [setOpacity] and `PaintOps.setStrokeWidth`
+  /// learn — while a *sampled* track value the evaluator handles separately.
+  /// `end <= start` is left as authored: it is not out of range, it renders
+  /// nothing (docs/v3/01 §5), and clamping it would silently rewrite the user's
+  /// window. Idempotent: writing the trim a node already holds returns the same
+  /// document.
+  ///
+  /// Throws [ArgumentError] on an unknown node, on a **non-`PathNode`** (only a
+  /// `PathNode` has a `trim` — a group or the root has nothing to reveal, and
+  /// AC-8.1.10 is per-`PathNode`), and on an [UnknownNode] whose trim lives in
+  /// raw JSON and would be dropped by a typed write (as [setOpacity] does).
+  static Document setTrim(Document d, NodeId n, PathTrim trim) {
+    final node = d.nodeIndex[n];
+    if (node == null) {
+      throw ArgumentError.value(n.v, 'n', 'no such node');
+    }
+    if (node is! PathNode) {
+      throw ArgumentError.value(
+          n.v, 'n', 'only a PathNode has a trim (AC-8.1.10 is per-PathNode)');
+    }
+    final next = PathTrim(
+      start: trim.start.clamp(0.0, 1.0).toDouble(),
+      end: trim.end.clamp(0.0, 1.0).toDouble(),
+      offset: trim.offset.clamp(0.0, 1.0).toDouble(),
+    );
+    if (node.trim == next) return d; // idempotent no-op
+    return d.copyWith(
+      root:
+          _replaceNode(d.root, n, (x) => (x as PathNode).copyWith(trim: next)),
+    );
+  }
+
   /// Set [n]'s authored `locked` flag — the layers-panel lock toggle (F2.2,
   /// docs/v3/05 §2, AC-2.2.6).
   ///

@@ -203,6 +203,30 @@ final class SetTransformCommand implements Command {
   Document apply(Document d) => NodeOps.setTransform(d, node, transform);
 }
 
+/// Author a `PathNode`'s own [PathTrim] — the inspector's draw-on/reveal fields
+/// (F8.1, AC-8.1.1).
+///
+/// The static-pose half of trim authoring: the panel builds the whole next
+/// `PathTrim` (with the one edited channel replaced) and hands it here, one field
+/// edit → one command → one undo entry. Range clamping of each `start`/`end`/
+/// `offset` to `0..1` lives in [NodeOps.setTrim], at the mutation, for the reason
+/// [SetOpacityCommand] documents: an authored out-of-range fraction is a bad
+/// write, while a *sampled* track value is the evaluator's to clamp. Keying a
+/// trim channel is a `ScalarTrack` edit and routes through [KeyframeAtCommand]
+/// instead — this command is only the untracked write.
+final class SetTrimCommand implements Command {
+  const SetTrimCommand(this.node, this.trim);
+
+  final NodeId node;
+  final PathTrim trim;
+
+  @override
+  String get label => 'Trim';
+
+  @override
+  Document apply(Document d) => NodeOps.setTrim(d, node, trim);
+}
+
 /// Move one anchor — the pose edit of docs/v3/01 §12.
 ///
 /// [atT] `null` edits the node's rest pose; non-null writes the pose into the
@@ -784,6 +808,81 @@ final class SetStrokeVisibleCommand implements Command {
   @override
   Document apply(Document d) =>
       PaintOps.setStrokeVisible(d, node, stroke, visible);
+}
+
+// ---------------------------------------------------------------------------
+// Transport — F9.1 (docs/v3/03). `LoopMode` and `durationSeconds` are the two
+// PERSISTED time-model fields on `Animation` (docs/v3/01 §10), so editing either
+// is a Document edit and ONE undo entry — unlike `playing` and the playhead,
+// which are ephemeral and never reach a command at all. Both are thin
+// `copyWith`es over the ONE named animation; there is no `anim_core` op, because
+// the only invariant is a positive duration (the seconds display divides by it),
+// and that is clamped at the mutation below.
+// ---------------------------------------------------------------------------
+
+/// Set the loop mode of [animation] (AC-9.1.2).
+///
+/// `LoopMode` lives on the `Animation`, so this is a document edit that survives
+/// a reload. `normalizedTime` — which lives OUTSIDE the evaluator (docs/v3/01
+/// §10) — then reads the stored mode and yields clamp / wrap / triangle; the
+/// transport never reimplements that curve.
+final class SetLoopModeCommand implements Command {
+  const SetLoopModeCommand(this.animation, this.loop);
+
+  final AnimationId animation;
+  final LoopMode loop;
+
+  @override
+  String get label => 'Loop mode';
+
+  @override
+  Document apply(Document d) => d.copyWith(
+        animations: [
+          for (final a in d.animations)
+            a.id == animation ? a.copyWith(loop: loop) : a,
+        ],
+      );
+}
+
+/// Retime the whole animation by setting [animation]'s `durationSeconds`
+/// (AC-9.1.5).
+///
+/// **Re-authors NO keyframe.** Every key stores a normalized fraction `t`; only
+/// the seconds *display* is `t · durationSeconds`, so changing the duration
+/// retimes everything proportionally and touches not one stored `t`. That is the
+/// whole reason the format stores fractions — the legacy file full of `0.769`
+/// magic numbers could never be retimed at all.
+///
+/// Clamped to a positive floor here, **at the mutation** (as [SetOpacityCommand]
+/// clamps its authored value): a 0 or negative duration is authorable by hand in
+/// a stored file, and it would divide-by-zero the seconds display and hand
+/// `normalizedTime` a duration it already refuses.
+final class SetDurationCommand implements Command {
+  const SetDurationCommand(this.animation, this.durationSeconds);
+
+  final AnimationId animation;
+  final double durationSeconds;
+
+  /// The smallest duration the seconds display can divide by and still mean
+  /// something. Not zero — a zero-length animation has no timeline.
+  static const double minDurationSeconds = 0.01;
+
+  @override
+  Document apply(Document d) {
+    final safe =
+        !durationSeconds.isFinite || durationSeconds < minDurationSeconds
+            ? minDurationSeconds
+            : durationSeconds;
+    return d.copyWith(
+      animations: [
+        for (final a in d.animations)
+          a.id == animation ? a.copyWith(durationSeconds: safe) : a,
+      ],
+    );
+  }
+
+  @override
+  String get label => 'Duration';
 }
 
 /// Rename the document itself.

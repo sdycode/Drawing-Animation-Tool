@@ -29,6 +29,10 @@ bool get kUsesFirebase => kBackend == 'firestore';
 Future<void> initBackend() async {
   if (!kUsesFirebase) return;
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Offline persistence (AC-10.3.2): set once here, before any store read/write,
+  // so edits made offline queue and flush on reconnect. Assigning `settings` is
+  // the modern, non-deprecated replacement for `enablePersistence()`.
+  configureFirestorePersistence();
   // Before runApp: the auth gate reads the stream on the first frame, and the
   // restored session must already be on its way by then.
   await configureAuthPersistence();

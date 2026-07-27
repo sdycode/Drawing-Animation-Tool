@@ -190,7 +190,10 @@ void main() {
     final before = await store.load(doc.id);
     await drawTriangle(tester);
 
-    expect(find.text(StoreFailure.readOnly.message), findsOneWidget);
+    // The refusal is visible through the persistent save indicator (AC-10.3.4),
+    // not a modal — a refusal you only meet by dragging and reading a toast is a
+    // trap. The edit never reaches the store.
+    expect(find.byKey(const Key('save-indicator-error')), findsOneWidget);
     expect(await store.load(doc.id), before,
         reason: 'a v4 client must not reload its own document with the '
             'semantics stripped out');
@@ -205,7 +208,9 @@ void main() {
     store.failNext = StoreFailure.network;
     await drawTriangle(tester);
 
-    expect(find.text(StoreFailure.network.message), findsOneWidget);
+    // AC-10.3.4: the edit is retained on screen with an error indicator; there is
+    // no modal and no unhandled error. Disk is untouched because the write failed.
+    expect(find.byKey(const Key('save-indicator-error')), findsOneWidget);
     expect(tester.takeException(), isNull);
     // The document on disk is untouched; the editor is still usable.
     expect((await reload(id)).root.children, isEmpty);

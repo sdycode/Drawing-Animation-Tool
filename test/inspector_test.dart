@@ -465,20 +465,20 @@ void main() {
         reloaded.nodeIndex[const NodeId('kid')]!.opacity, closeTo(0.5, 1e-12));
   });
 
-  // --- The not-yet-built editors read as English, not as roadmap codes ------
+  // --- The panel names things in English, and every seam is now real --------
 
   testWidgets(
-      'the seam rows name themselves in plain language — no milestone codes '
-      '(docs/v3/00 §5)', (tester) async {
+      'the last "not yet available" seam is gone — Draw-on trim SHIPPED and no '
+      'milestone codes leak (docs/v3/00 §5, F8.1)', (tester) async {
     await open(tester);
 
-    // The seams sit below the transform, appearance, paint and shape rows, so
-    // scroll them into the viewport first — a `ListView` builds only what is
-    // visible. `scrollUntilVisible` rather than a fixed drag: M3 added the fill
-    // and stroke sections between the two, and a hard-coded 300 px stopped
-    // reaching the rows this test is about.
+    // The trim section sits below the transform, appearance, paint and shape
+    // rows, so scroll it into the viewport first — a `ListView` builds only what
+    // is visible. `scrollUntilVisible` rather than a fixed drag: the sections
+    // above keep shifting as features land, and a hard-coded offset would stop
+    // reaching the row this test is about.
     await tester.scrollUntilVisible(
-      find.byKey(const Key('inspector-seams')),
+      find.byKey(const Key('inspector-trim')),
       100,
       scrollable: find
           .descendant(
@@ -489,19 +489,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // "Fill / M3" tells the stranger who runs the ship gate nothing: is the
-    // tool broken, or is the editor unfinished? The row has to say.
-    expect(find.byKey(const Key('inspector-seams')), findsOneWidget);
-    expect(find.textContaining('not yet available'), findsWidgets);
+    // Draw-on trim was the last "not yet available" seam; M6 makes it real, so
+    // there is now none of that copy left anywhere in the panel, and no roadmap
+    // code ever leaks to the ship-gate stranger.
+    expect(find.byKey(const Key('inspector-trim')), findsOneWidget);
+    expect(find.byKey(const Key('inspector-seams')), findsNothing);
+    expect(find.textContaining('not yet available'), findsNothing);
     expect(find.text('M3'), findsNothing);
     expect(find.text('M4'), findsNothing);
-
-    // They stay non-interactive: no stub command hides behind them.
-    expect(
-        find.descendant(
-            of: find.byKey(const Key('inspector-transform')),
-            matching: find.byType(IconButton)),
-        findsNothing);
   });
 
   testWidgets(
@@ -545,33 +540,33 @@ void main() {
   // --- docs/v3/04 §6, docs/v3/08 §1 — a failed undo surfaces, never vanishes -
 
   testWidgets(
-      'an undo whose save fails shows a message and raises NO unhandled async '
+      'an undo whose save fails flags an error and raises NO unhandled async '
       'error (docs/v3/04 §6, docs/v3/08 §1)', (tester) async {
     final t = await open(tester);
+    final initialX = transformOf(t.c, t.id, 'sq').position.x;
 
     // One committed edit, so there is history to undo. This save succeeds.
     await commitField(tester, 'inspector-position-x', '77');
     expect(transformOf(t.c, t.id, 'sq').position.x, 77);
 
-    // The NEXT store write fails — the outage undo's re-save (docs/v3/04 §6) can
-    // hit. `DocumentController.undo` rolls the stack back and RETHROWS, so the
-    // shell must catch it: before this fix the rejected future was an unhandled
-    // async error with no snackbar, the one edit path that stayed silent while
-    // run / group / duplicate / the inspector all reported (docs/v3/08 §1).
+    // The NEXT store write fails — the outage the undo's re-save (docs/v3/04 §6)
+    // can hit. Under AC-10.3.4 the undo still takes effect and is retained; the
+    // failure surfaces through the error indicator, not a modal, and — the point
+    // of docs/v3/08 §1 — nothing escapes as an unhandled async error.
     t.store.failNext = StoreFailure.network;
 
     await tester.tap(find.byKey(const Key('editor-undo')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(SnackBar), findsOneWidget,
-        reason: 'a rejected undo says why, like every other write');
-    expect(find.text(StoreFailure.network.message), findsOneWidget);
+    expect(find.byKey(const Key('save-indicator-error')), findsOneWidget,
+        reason: 'a rejected save says so through the indicator');
     expect(tester.takeException(), isNull,
         reason: 'the failure was caught, not left to escape as an async error');
 
-    // The edit is still on screen: the failed save rolled the undo back, so the
-    // document the user sees still matches what is on disk.
-    expect(transformOf(t.c, t.id, 'sq').position.x, 77);
+    // The undo took effect and is retained on screen (it is not rolled back);
+    // a later successful write will persist it.
+    expect(transformOf(t.c, t.id, 'sq').position.x, initialX,
+        reason: 'the undo reverted the edit and is retained');
   });
 
   // --- F6.2 / AC-6.2.6 — the per-property keyframe diamond ------------------

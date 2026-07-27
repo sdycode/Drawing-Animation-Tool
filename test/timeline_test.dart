@@ -543,11 +543,17 @@ void main() {
     await tester.pumpWidget(shell(retimed.id));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('/ 2.60 s'), findsOneWidget);
+    // Scoped to the TimelineBar: the transport bar (M6) now shows its own
+    // seconds↔t readout in the same shell, so a bare `findsOneWidget` on the
+    // text would find both. This test is about the timeline's readout.
+    Finder inTimeline(String text) => find.descendant(
+        of: find.byType(TimelineBar), matching: find.textContaining(text));
+
+    expect(inTimeline('/ 2.60 s'), findsOneWidget);
     await tester.drag(find.byKey(const Key('timeline')), const Offset(2000, 0));
     await tester.pumpAndSettle();
-    expect(find.textContaining('2.60 s / 2.60 s'), findsOneWidget);
-    expect(find.textContaining('t = 1.000'), findsOneWidget);
+    expect(inTimeline('2.60 s / 2.60 s'), findsOneWidget);
+    expect(inTimeline('t = 1.000'), findsOneWidget);
   });
 
   testWidgets('the playhead never reaches the saved JSON (AC-2.2.7)',

@@ -7,6 +7,7 @@ import 'app/common/theme.dart';
 import 'app/data/prefs_theme_store.dart';
 import 'app/data/providers.dart';
 import 'app/features/tools/registry.dart';
+import 'app/state/save_state.dart';
 import 'app/state/tool_controller.dart';
 
 Future<void> main() async {
@@ -50,6 +51,12 @@ Future<void> main() async {
       overrides: [
         themeStoreProvider.overrideWithValue(PrefsThemeStore()),
         toolResolverProvider.overrideWithValue(toolRegistry()),
+        // The real editor debounces autosave (AC-10.3.1): one write after edits
+        // settle. The provider defaults to a zero window (eager save), so tests
+        // persist synchronously without an override; production opts into the
+        // settle window here.
+        autosaveDebounceProvider
+            .overrideWithValue(const Duration(milliseconds: 600)),
       ],
       child: const DrawingAnimationToolApp(),
     ),

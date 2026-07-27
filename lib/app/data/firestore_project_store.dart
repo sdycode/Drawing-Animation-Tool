@@ -5,6 +5,44 @@ import 'package:flutter/foundation.dart';
 
 import 'project_store.dart';
 
+/// Whether [configureFirestorePersistence] has already run. Firestore rejects a
+/// second `settings` assignment once the instance has served a read or write,
+/// so the flag turns a repeat call — a hot restart, a re-`initBackend()`, a
+/// test — into a no-op instead of a throw.
+bool _persistenceConfigured = false;
+
+/// Enable Firestore **offline persistence** (AC-10.3.2): edits made while
+/// offline are queued in the local cache and flush to the server on reconnect.
+///
+/// cloud_firestore 5.x (pinned 5.6.12 here) deprecated `enablePersistence()` in
+/// favour of [Settings.persistenceEnabled] — its own deprecation notice says
+/// "Use Settings.persistenceEnabled instead." On web that flag selects the
+/// modern IndexedDB-backed `persistentLocalCache`, so assigning `settings` is
+/// the one web-safe path (the deprecated future would otherwise be the only
+/// alternative). It is synchronous and must run exactly once, before the first
+/// store read/write — hence the call site in `initBackend()` immediately after
+/// `Firebase.initializeApp`, ahead of any [FirestoreProjectStore] use. The
+/// memory backend never calls it, so it is a no-op there and in tests.
+///
+/// [applySettings] is a seam for tests, which cannot build a real
+/// [FirebaseFirestore] without a live Firebase app; production leaves it null
+/// and the settings land on [FirebaseFirestore.instance].
+void configureFirestorePersistence({
+  void Function(Settings settings)? applySettings,
+}) {
+  if (_persistenceConfigured) return;
+  _persistenceConfigured = true;
+  const settings = Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
+  (applySettings ?? (s) => FirebaseFirestore.instance.settings = s)(settings);
+}
+
+/// Resets the once-guard so a test can exercise the idempotency path.
+@visibleForTesting
+void debugResetFirestorePersistence() => _persistenceConfigured = false;
+
 /// Firestore-backed [ProjectStore] — the v1 implementation.
 ///
 /// Layout (docs/v3/02 §9):
