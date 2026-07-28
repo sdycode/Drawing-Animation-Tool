@@ -34,6 +34,12 @@ dependencies:
   # to the one other thing that touches storage).
   shared_preferences: ^2.2.0
 
+  # Browser save-as for JSON export (F11.1). Web-only Blob/anchor interop, so it
+  # is imported ONLY through the conditional export in
+  # features/export/download_json.dart — the VM/test path links the stub, never
+  # package:web. Previously transitive; declared here now that app code uses it.
+  web: ^1.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -73,6 +73,24 @@ const fixtures = <String, String>{
 File fixtureFile(String name) =>
     File('${Directory.current.path}/test/fixtures/$name');
 
+/// The 8 legacy sample files (docs/v3/02 §8) — the importer's input, at the repo
+/// root. They are NOT `test/fixtures/` v3 documents (the "no ninth" guard above
+/// is scoped to that directory); the 8 documents they IMPORT to join this gate
+/// as cases 9–16 in-code, per docs/v3/04 §7 (no third gate).
+const legacyFiles = <String>[
+  'HomeMenu.json',
+  'MultiPolygon.json',
+  'PlayPause.json',
+  'PlayPause1.json',
+  'Squares.json',
+  'circlebounce.json',
+  'circlebounce2.json',
+  'circlebounce3.json',
+];
+
+File legacyFile(String name) =>
+    File('${Directory.current.path}/../../assets/library/$name');
+
 void main() {
   late List<String> warnings;
   late DecodeWarning previousHandler;
@@ -140,6 +158,30 @@ void main() {
       });
     });
   });
+
+  // Cases 9–16: the imported legacy documents round-trip too (docs/v3/02 §8).
+  // An importer output is a v3 Document like any other; if it does not survive
+  // decode → encode → decode, the sample it produced cannot be saved and
+  // reopened, which is the same defect this gate exists to catch.
+  for (final name in legacyFiles) {
+    test('$name imports to a document that round-trips to a fixed point', () {
+      final legacy = jsonDecode(legacyFile(name).readAsStringSync())
+          as Map<String, Object?>;
+      final imported = LegacyImporter.import(legacy);
+      expect(imported.schemaVersion, 3);
+
+      final encodedOnce = jsonEncode(imported.toJson());
+      final decoded =
+          Document.fromJson(jsonDecode(encodedOnce) as Map<String, Object?>);
+      final encodedTwice = jsonEncode(decoded.toJson());
+
+      expect(encodedTwice, encodedOnce,
+          reason: 'the imported document does not survive a save/reload');
+      expect(digest(decoded), digest(imported));
+      expect(warnings, isEmpty,
+          reason: 'importing must not produce a document the decoder degrades');
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

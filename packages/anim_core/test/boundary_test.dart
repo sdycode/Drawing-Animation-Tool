@@ -83,6 +83,12 @@ void main() {
         'lib/src/shape_geometry.dart', // recipe → geometry (AC-4.1.4)
         'lib/src/ops/path_ops.dart', // pose + recipe regeneration
         'lib/src/ops/node_ops.dart', // duplicateSubtree's id remap
+        // External data → v3 geometry, the same kind of route as `fromJson`: the
+        // one-way legacy importer builds the base topology of each sample from
+        // its foreign `points` (docs/v3/02 §8, F11.3). It lives in ops/ because
+        // topology construction does; it reads foreign JSON and emits a fresh
+        // Document, and never rewrites a tracked node's geometry.
+        'lib/src/ops/legacy_importer.dart',
       };
       const trusted = <String>{
         'lib/src/path.dart',

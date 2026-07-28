@@ -6,6 +6,13 @@ description: >-
 version: 0.1.0
 publish_to: none
 
+# Publish-readiness metadata only. Actual publishing is a release action (out of
+# M8 scope): publish anim_core to pub.dev first, then version-dep it here — the
+# `anim_core: { path: ../anim_core }` dep below must stay a path dep until then,
+# or the local build breaks (anim_core is not yet on pub.dev).
+repository: https://github.com/sdycode/Drawing-Animation-Tool
+homepage: https://github.com/sdycode/Drawing-Animation-Tool
+
 environment:
   sdk: ">=3.3.0 <4.0.0"   # 3.3 is where extension types (NodeId, AnchorId) went stable
   flutter: ">=3.10.0"

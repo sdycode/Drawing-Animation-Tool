@@ -24,6 +24,7 @@ export 'src/geom/arc_length.dart';
 export 'src/json.dart' show d, i;
 export 'src/node.dart';
 export 'src/ops/keyframe_ops.dart';
+export 'src/ops/legacy_importer.dart';
 export 'src/ops/node_ops.dart';
 export 'src/ops/paint_ops.dart';
 export 'src/ops/path_ops.dart';

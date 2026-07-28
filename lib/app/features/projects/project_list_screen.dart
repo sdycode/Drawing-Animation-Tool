@@ -53,6 +53,39 @@ Future<String?> _askProjectName(BuildContext context) async {
   return (name == null || name.isEmpty) ? null : name;
 }
 
+/// Opens a bundled [sample] (F11.4, AC-11.4.2): load its asset, import it to a
+/// fresh v3 `Document`, save THAT as a new project under the signed-in user's
+/// namespace, then open the new project.
+///
+/// `onOpen` routes to the **new** project's id — never the sample — so the
+/// editor plays and edits a copy, and the bundled asset (read once by
+/// [loadSample], written never) stays the golden fixture it ships as. A save
+/// failure — or a bad asset read / decode — surfaces inline exactly like
+/// [_NewProjectDialog]'s create path, rather than crashing the list or escaping
+/// as an unhandled async error (docs/v3/08 §1).
+Future<void> _openSample(
+  BuildContext context,
+  WidgetRef ref,
+  BundledSample sample,
+  void Function(String projectId) onOpen,
+) async {
+  try {
+    final doc = await loadSample(sample);
+    final id = await ref.read(projectActionsProvider).createFrom(doc);
+    onOpen(id);
+  } on StoreException catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(e.failure.message)));
+  } on Object {
+    // The 8 bundled samples are known-good and the importer is total, so this is
+    // a defensive net (a missing asset, a decode failure) — not an expected path.
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open that sample.')));
+  }
+}
+
 /// Stateful purely to own the controller's lifetime.
 ///
 /// Disposing it in a `.then()` on `showDialog` looks equivalent and is not: the
@@ -156,57 +189,86 @@ class ProjectListScreen extends ConsumerWidget {
           const SizedBox(width: 8),
         ],
       ),
-      body: projects.when(
-        loading: () => const Center(
-          child: SizedBox(
-            height: 20,
-            width: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-        // A store failure must not take the screen down — the user is signed
-        // in and can still retry (docs/v3/08 §2, last row).
-        error: (e, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cloud_off, size: 28, color: muted),
-              const SizedBox(height: 12),
-              Text(
-                e is StoreException
-                    ? e.failure.message
-                    : 'Could not load projects.',
-                style: TextStyle(fontSize: 12, color: muted),
-              ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () => ref.invalidate(projectListProvider),
-                child: const Text('Retry'),
+      // Samples first, then the user's own projects. The gallery is always on
+      // screen — even for the first-time user whose project list is empty — so
+      // AC-11.4.1's "listed and play in-app without assistance" holds before
+      // anything is created.
+      body: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(child: _SamplesSection(onOpen: onOpen)),
+          const SliverToBoxAdapter(child: _SectionHeader('Your projects')),
+          ...projects.when(
+            loading: () => const [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(
+                    child: SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ),
               ),
             ],
-          ),
-        ),
-        data: (list) => list.isEmpty
-            ? const _EmptyState()
-            : ListView.builder(
-                itemCount: list.length,
-                itemBuilder: (context, i) {
-                  final p = list[i];
-                  return ListTile(
-                    leading: const Icon(Icons.movie_outlined, size: 20),
-                    title: Text(p.name),
-                    subtitle: Text('rev ${p.rev}',
-                        style: const TextStyle(fontSize: 11)),
-                    onTap: () => onOpen(p.id),
-                    trailing: IconButton(
-                      tooltip: 'Delete',
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      onPressed: () =>
-                          ref.read(projectActionsProvider).delete(p.id),
+            // A store failure must not take the screen down — the user is signed
+            // in, the samples still work, and the list can be retried
+            // (docs/v3/08 §2, last row).
+            error: (e, _) => [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 32),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.cloud_off, size: 28, color: muted),
+                        const SizedBox(height: 12),
+                        Text(
+                          e is StoreException
+                              ? e.failure.message
+                              : 'Could not load projects.',
+                          style: TextStyle(fontSize: 12, color: muted),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: () => ref.invalidate(projectListProvider),
+                          child: const Text('Retry'),
+                        ),
+                      ],
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
+            ],
+            data: (list) => list.isEmpty
+                ? const [SliverToBoxAdapter(child: _EmptyState())]
+                : [
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, i) {
+                          final p = list[i];
+                          return ListTile(
+                            leading: const Icon(Icons.movie_outlined, size: 20),
+                            title: Text(p.name),
+                            subtitle: Text('rev ${p.rev}',
+                                style: const TextStyle(fontSize: 11)),
+                            onTap: () => onOpen(p.id),
+                            trailing: IconButton(
+                              tooltip: 'Delete',
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                              onPressed: () =>
+                                  ref.read(projectActionsProvider).delete(p.id),
+                            ),
+                          );
+                        },
+                        childCount: list.length,
+                      ),
+                    ),
+                  ],
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('new-project'),
@@ -234,18 +296,143 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.brush_outlined, size: 32, color: scheme.outlineVariant),
-          const SizedBox(height: 12),
-          Text('No projects yet',
-              style: TextStyle(fontSize: 14, color: scheme.onSurface)),
-          const SizedBox(height: 4),
-          Text('Create one — the editor to draw in it arrives at M2.',
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
-        ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.brush_outlined, size: 32, color: scheme.outlineVariant),
+            const SizedBox(height: 12),
+            Text('No projects yet',
+                style: TextStyle(fontSize: 14, color: scheme.onSurface)),
+            const SizedBox(height: 4),
+            // The samples above are the zero-assistance on-ramp (AC-11.4.1):
+            // open one to play and edit it as a project of your own.
+            Text('Open a sample above, or create a project of your own.',
+                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A small all-caps rail label above a list section.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.8,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// The bundled-sample gallery (F11.4, AC-11.4.1).
+///
+/// A horizontal strip of every bundled fixture. The strip is a [Row] rather than
+/// a lazy horizontal list on purpose: all 8 cards are built even when the last
+/// ones are scrolled off the right edge, so the gallery genuinely *lists* all 8
+/// (and a test can assert as much) instead of only the ones in view.
+class _SamplesSection extends StatelessWidget {
+  const _SamplesSection({required this.onOpen});
+
+  final void Function(String projectId) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader('Samples'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Text(
+            'Open one to play it — it saves as a new project you can edit.',
+            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+          ),
+        ),
+        SizedBox(
+          height: 132,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                for (final sample in bundledSamples)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: _SampleCard(
+                      key: Key('sample-${sample.asset}'),
+                      sample: sample,
+                      onOpen: onOpen,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One tappable card in the sample gallery. Opening it imports the fixture and
+/// hands the new project's id to [onOpen] (see [_openSample]).
+class _SampleCard extends ConsumerWidget {
+  const _SampleCard({
+    required this.sample,
+    required this.onOpen,
+    super.key,
+  });
+
+  final BundledSample sample;
+  final void Function(String projectId) onOpen;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 148,
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _openSample(context, ref, sample, onOpen),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.play_circle_outline, size: 30, color: scheme.primary),
+                const Spacer(),
+                Text(
+                  sample.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

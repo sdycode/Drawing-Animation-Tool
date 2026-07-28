@@ -9,6 +9,12 @@ version: 0.1.0
 # which reads the legacy format and cannot read a v3 document (docs/v3/07 ADR-004).
 publish_to: none
 
+# Publish-readiness metadata only. Actual publishing is a release action (out of
+# M8 scope): publish anim_core to pub.dev first, then version-dep it from
+# anim_render. `publish_to: none` stays set until that release.
+repository: https://github.com/sdycode/Drawing-Animation-Tool
+homepage: https://github.com/sdycode/Drawing-Animation-Tool
+
 environment:
   sdk: ">=3.3.0 <4.0.0"   # 3.3 is where extension types (NodeId, AnchorId) went stable
 

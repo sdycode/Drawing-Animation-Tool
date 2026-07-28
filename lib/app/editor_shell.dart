@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +9,7 @@ import 'common/theme.dart';
 import 'data/project_store.dart';
 import 'features/canvas/commands.dart';
 import 'features/canvas/widgets/canvas_view.dart';
+import 'features/export/providers.dart';
 import 'features/inspector/widgets/inspector_panel.dart';
 import 'features/layers/commands.dart';
 import 'features/layers/providers.dart';
@@ -135,15 +138,15 @@ class _EditorShellState extends ConsumerState<EditorShell> {
 /// than reaching into `EditorController` itself, keeping the two peers
 /// uncoupled; the viewport is never restored — undo does not move the camera.
 ///
-/// **A rejected undo surfaces; it does not vanish.** `DocumentController.undo`
-/// re-saves the restored snapshot (docs/v3/04 §6) and **rethrows** a save
-/// failure — a read-only document, a Firestore hiccup — so the future this
-/// awaits can reject. With no catch, that rejection was an unhandled async
-/// error and the *only* edit path that stayed silent while `run`, group,
-/// duplicate and the inspector all showed a snackbar (docs/v3/08 §1). It now
-/// shows the same `StoreFailure.message` every other write does. The messenger
-/// is captured **before** the await because a `BuildContext` may not be used
-/// across an async gap, exactly as [_reportShortcut] captures it.
+/// **A save failure surfaces on the indicator, not here.** Since M7 the autosave
+/// is debounced and a failed write is *retained in memory* with the chrome's
+/// error indicator (AC-10.3.4); `DocumentController.undo` no longer re-saves the
+/// snapshot synchronously and no longer rethrows a store failure. The `catch`
+/// below is therefore a defensive net — it does not fire on an ordinary save
+/// failure, only on an *unexpected* rejection, so that even then nothing escapes
+/// as an unhandled async error (docs/v3/08 §1). The messenger is captured
+/// **before** the await because a `BuildContext` may not be used across an async
+/// gap, exactly as [_reportShortcut] captures it.
 Future<void> _undo(
     BuildContext context, WidgetRef ref, String projectId) async {
   final messenger = ScaffoldMessenger.of(context);
@@ -160,7 +163,8 @@ Future<void> _undo(
   }
 }
 
-/// The mirror of [_undo], and it surfaces a save failure for the same reason.
+/// The mirror of [_undo]; its `catch` is the same defensive net, not the
+/// ordinary save-failure path (which is the indicator).
 Future<void> _redo(
     BuildContext context, WidgetRef ref, String projectId) async {
   final messenger = ScaffoldMessenger.of(context);
@@ -175,6 +179,49 @@ Future<void> _redo(
   } on StoreException catch (e) {
     messenger.showSnackBar(SnackBar(content: Text(e.failure.message)));
   }
+}
+
+/// `Export .json` — download the current document as native v3 JSON (F11.1,
+/// docs/v3/05 §4.10).
+///
+/// **One serializer, no parallel path (AC-11.1.3).** The bytes are exactly
+/// `jsonEncode(doc.toJson())` — the same `Document.toJson` persistence writes —
+/// so an exported file re-opens identically (AC-11.1.2) and `schemaVersion`
+/// rides along for free (AC-11.1.1). Native JSON only; SVG/Lottie are v2 and are
+/// not even stubbed (AC-11.1.4).
+///
+/// A pending autosave is flushed first (docs/v3/05 §4.10 step 1) so the file the
+/// user gets is the file that will be on disk, not one debounce behind. The
+/// actual save-as is reached through [downloadJsonProvider] rather than called
+/// directly: that seam keeps this logic testable on the VM (a test overrides it
+/// to capture the bytes) and confines `package:web` to the web build. The
+/// messenger is captured before the await because a `BuildContext` may not cross
+/// an async gap, exactly as [_undo] captures it.
+Future<void> _export(
+    BuildContext context, WidgetRef ref, String projectId) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final download = ref.read(downloadJsonProvider);
+  try {
+    // Flush any debounced edit so the export matches what persistence will hold.
+    await ref
+        .read(documentControllerProvider(projectId).notifier)
+        .flushNow();
+    final doc = ref.read(documentControllerProvider(projectId)).valueOrNull;
+    if (doc == null) return;
+    final name = doc.name.trim();
+    final base = name.isEmpty ? doc.id : name;
+    download('${_safeFileStem(base)}.json', jsonEncode(doc.toJson()));
+  } on StoreException catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(e.failure.message)));
+  }
+}
+
+/// Reduce a display name to something a browser will accept as a file stem:
+/// path separators and control characters become `-`. Not identity — two
+/// projects may share a name (see [Document.name]) — just a safe download label.
+String _safeFileStem(String name) {
+  final cleaned = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '-').trim();
+  return cleaned.isEmpty ? 'document' : cleaned;
 }
 
 /// The project name in the app bar. Its own `.select`, so a rev bump alone does
@@ -241,6 +288,15 @@ class _ChromeActions extends ConsumerWidget {
               style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
             ),
           ),
+        ),
+        // docs/v3/05 §2's `[Export .json]` chrome (AC-11.1.1). Enabled whenever a
+        // document is loaded — which, inside this widget, it always is (the
+        // `doc == null` guard above returned early).
+        TextButton.icon(
+          key: const Key('editor-export'),
+          onPressed: () => _export(context, ref, projectId),
+          icon: const Icon(Icons.download, size: 18),
+          label: const Text('Export .json'),
         ),
       ],
     );
