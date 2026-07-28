@@ -62,7 +62,8 @@
 | | **F11.3 Legacy importer** — `LegacyImporter` (in `ops/`) turns all 8 samples into clean v3 docs: sorted-by-`framePosition` (AC-11.3.4), ε-nudged coincident keys (AC-11.3.3), case-insensitive ARGB, capital-S keys mapped away (AC-11.3.6), arc-length vertex-count repair backstop (AC-11.3.5), fresh UUIDs; the 8 imported docs join CI Gate 1 as round-trip cases 9–16 (no third gate) | 🟢 |
 | | **F11.4 Sample gallery** — 8 samples listed to a first-timer; opening one imports → **new project** under the user's namespace (fresh UUID, bundled asset unmodified, AC-11.4.2) and plays in-app | 🟢 |
 | | Audited by 6 lenses — **5 NO-FINDINGS** (fidelity, export/round-trip, gallery, purity/replay, isolation); AC-4.3.6 verified on all 8 imports; fixed: a `_resample` divide-by-zero on a malformed 0-point frame (MEDIUM), and widened `_openSample`'s catch | 🟢 |
-| **M9** | Ship gate — all 9 of `v3/00` §5 on the URL | ⚪ |
+| **M9** | Ship gate — all 9 of `v3/00` §5 on the URL | 🟡 |
+| | **Pre-flight verified 🟢** — email/password sign-up/sign-in wired, only provider (AC-12.1.2); Firestore rules uid-scope `appData/v3/users/{uid}` server-side (AC-10.0.6); web-only (`android/` gitignored, AC-12.1.5); `firebase.json` hosting ready (`build/web`, SPA rewrites, cache headers); **both release gates green and block `Build web`** (AC-12.1.4). Remaining = operational (owner): `firebase deploy` (hosting + `--only firestore:rules`), enable Email/Password in the Firebase console, then verify all 9 §5 criteria on the URL with a stranger (AC-12.1.1/12.1.3). | 🟡 |
 | 🚧 | **V1 SHIP GATE — nothing below starts before this** | |
 | M10-14 | Go service · Postgres · `BACKEND=api` · `rev` concurrency · history | ⚪ |
 
