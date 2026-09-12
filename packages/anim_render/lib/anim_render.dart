@@ -16,6 +16,7 @@ library;
 
 export 'package:anim_core/anim_core.dart' show kSchemaVersion;
 
+export 'src/anim_player.dart';
 export 'src/artboard_painter.dart';
 export 'src/background_painter.dart';
 export 'src/draft_path.dart';

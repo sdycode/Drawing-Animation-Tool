@@ -576,6 +576,12 @@ final List<_Chapter> _chapters = <_Chapter>[
               'it saves, so re-opening the file gives you exactly this project '
               'back.'
         ),
+        (
+          'Player code',
+          'The </> button beside Export downloads the playback code as plain '
+              'Dart source, so an exported .json runs in any Flutter app with '
+              'nothing to install. The last chapter walks through it.'
+        ),
       ]),
     ],
   ),
@@ -620,11 +626,172 @@ final List<_Chapter> _chapters = <_Chapter>[
       ]),
     ],
   ),
+
+  // Last on purpose. Everything before this is about making the animation;
+  // this is the only chapter about what happens after you leave the editor,
+  // and it is the question the export button raises and does not answer.
+  (
+    title: 'Use it in your app',
+    icon: Icons.integration_instructions_outlined,
+    blurb: 'Export the animation, download the player, drop both into any '
+        'Flutter app. There is no package to install and no dependency to add.',
+    build: (context) => [
+      const _Steps([
+        'Click Export .json in the top bar. That file is your animation.',
+        'Click the </> button beside it. That downloads anim_player.zip — the '
+            'playback code, as plain Dart source.',
+        'Unzip it into your app\'s lib/ folder, so you get lib/anim_player/.',
+        'Keep the .json wherever suits you: a Flutter asset, a string in your '
+            'code, a network response. It is just text.',
+      ]),
+      const SizedBox(height: 4),
+      const _Code('''import 'package:flutter/material.dart';
+import 'anim_player/anim_player.dart';
+
+class Spinner extends StatelessWidget {
+  const Spinner({super.key, required this.json});
+
+  final String json; // the exported .json, as a string
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 96,
+        height: 96,
+        child: AnimPlayer.fromJson(json),
+      );
+}'''),
+      const SizedBox(height: 20),
+      _sectionLabel(context, 'Loading it from an asset'),
+      const SizedBox(height: 8),
+      const _Code('''FutureBuilder<String>(
+  future: DefaultAssetBundle.of(context).loadString('assets/icon.json'),
+  builder: (context, snap) => snap.hasData
+      ? AnimPlayer.fromJson(snap.data!)
+      : const SizedBox.shrink(),
+)'''),
+      const SizedBox(height: 20),
+      _sectionLabel(context, 'What you can pass it'),
+      const SizedBox(height: 10),
+      const _Bullets([
+        (
+          'animationId',
+          'Which animation to play. Leave it out and it plays the '
+              'document\'s default.'
+        ),
+        (
+          'playing',
+          'false holds the current frame. It pauses rather than stops, so '
+              'setting it back to true carries on from where it was.'
+        ),
+        ('speed', 'A multiplier on wall-clock time. 2.0 plays twice as fast.'),
+        (
+          'drawBackground',
+          'Fills the artboard with the background you authored. A transparent '
+              'background draws nothing, which is how an icon sits on a '
+              'coloured surface without punching a hole in it.'
+        ),
+        (
+          'clipToArtboard',
+          'Clips at the board edge, the way the export preview does. Turn it '
+              'off and off-board geometry spills into your layout.'
+        ),
+        (
+          'onCompleted',
+          'Fires once when a once animation reaches the end. Loop and '
+              'ping-pong never end, so it never fires for them.'
+        ),
+        (
+          'errorBuilder',
+          'Shown if the JSON will not decode. The default is an empty box: a '
+              'malformed icon should leave a hole in your layout, not take '
+              'your screen down.'
+        ),
+      ]),
+      const SizedBox(height: 4),
+      const _Callout(
+        icon: Icons.straighten_outlined,
+        title: 'It sizes itself like any other box',
+        body: 'The player fills the space it is given and letterboxes the '
+            'artboard inside it. In a Column or a ListView, where height is '
+            'unbounded, it falls back to the artboard size you authored — so '
+            'it is safe to drop in without wrapping it in a SizedBox.',
+      ),
+      const SizedBox(height: 14),
+      const _Callout(
+        icon: Icons.verified_outlined,
+        title: 'It is the same code you are watching right now',
+        body: 'The zip is generated from this editor\'s own source — the same '
+            'evaluator, the same painter, the same easing and loop maths. It '
+            'is not a second implementation that can drift, which is why the '
+            'preview above the timeline and your app agree about every frame. '
+            'The editing tools are stripped out; only playback ships.',
+      ),
+      const SizedBox(height: 14),
+      const _Callout(
+        icon: Icons.folder_zip_outlined,
+        title: 'Re-download it when you update the editor',
+        body: 'The player travels with the file format. If you export from a '
+            'newer build of this editor, take a fresh copy of the player too '
+            'and replace the folder — it is generated source, so there is '
+            'nothing of yours in there to lose.',
+      ),
+    ],
+  ),
 ];
+
+/// A heading inside a chapter, for the two places one chapter carries more than
+/// one idea. Deliberately not a widget class: it is a `Text` with a style, and
+/// a class for that is a class to read past.
+Widget _sectionLabel(BuildContext context, String text) => Text(
+      text,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: Theme.of(context).colorScheme.onSurface,
+      ),
+    );
 
 // ---------------------------------------------------------------------------
 // Content blocks
 // ---------------------------------------------------------------------------
+
+/// A copy-ready snippet.
+///
+/// Scrolls sideways rather than wrapping: wrapped Dart reads as broken Dart,
+/// and the person reading this is about to retype it. `SelectableText` because
+/// the alternative is asking them to transcribe an import path by eye.
+class _Code extends StatelessWidget {
+  const _Code(this.source);
+
+  final String source;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SelectableText(
+          source,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontFamilyFallback: const ['Menlo', 'Consolas', 'Courier New'],
+            fontSize: 11.5,
+            height: 1.55,
+            color: scheme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// A numbered instruction list — the shape every "how do I…" answer takes.
 class _Steps extends StatelessWidget {

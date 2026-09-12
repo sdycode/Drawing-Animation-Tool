@@ -14,6 +14,7 @@ import 'common/ui_prefs.dart';
 import 'data/project_store.dart';
 import 'features/canvas/commands.dart';
 import 'features/canvas/widgets/canvas_view.dart';
+import 'features/export/player_bundle.dart';
 import 'features/export/providers.dart';
 import 'features/guide/widgets/guide_dialog.dart';
 import 'features/inspector/widgets/inspector_panel.dart';
@@ -279,6 +280,30 @@ Future<void> _export(
   }
 }
 
+/// `Player code` — download the standalone player as `anim_player.zip` (F11.2).
+///
+/// The archive is the generated bundle from `tool/build_player.dart`: the same
+/// evaluator and painter the editor is running, with the editing commands and
+/// the overlay layers stripped. A consuming app unzips it into `lib/` and
+/// imports one file — there is no package to publish and none to add, which is
+/// the whole point of shipping source rather than a dependency.
+///
+/// Reached through [downloadBytesProvider] for the same reason [_export] uses
+/// its JSON twin: the seam is what keeps this testable on the VM and confines
+/// `package:web` to the web build. The messenger is captured before the await
+/// because a `BuildContext` may not cross an async gap.
+Future<void> _exportPlayer(BuildContext context, WidgetRef ref) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final bundle = DefaultAssetBundle.of(context);
+  final download = ref.read(downloadBytesProvider);
+  try {
+    final files = await loadPlayerBundle(bundle);
+    download('anim_player.zip', buildPlayerZip(files), 'application/zip');
+  } on PlayerBundleException catch (e) {
+    showEditorToast(messenger, e.message);
+  }
+}
+
 /// Reduce a display name to something a browser will accept as a file stem:
 /// path separators and control characters become `-`. Not identity — two
 /// projects may share a name (see [Document.name]) — just a safe download label.
@@ -360,6 +385,20 @@ class _ChromeActions extends ConsumerWidget {
           onPressed: () => _export(context, ref, projectId),
           icon: const Icon(Icons.download, size: 18),
           label: const Text('Export .json'),
+        ),
+        // The other half of export (F11.2): the JSON is useless to a consuming
+        // app without something that plays it, and the answer to "how do I use
+        // this file" should not be "add a package".
+        //
+        // Icon-only, deliberately. A second labelled button overflows this
+        // AppBar by 11px at 800pt — the row was already at its limit — and an
+        // overflow that only appears on a narrow window is exactly the kind of
+        // regression a widget test catches once and then nobody re-checks.
+        IconButton(
+          key: const Key('editor-export-player'),
+          onPressed: () => _exportPlayer(context, ref),
+          icon: const Icon(Icons.code, size: 18),
+          tooltip: 'Player code (.zip) — drop into any Flutter app',
         ),
       ],
     );

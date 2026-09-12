@@ -117,11 +117,11 @@ void main() {
       await tester.tap(find.byKey(const Key('guide-chapter-3')));
       await tester.pumpAndSettle();
       expect(find.text('Your first keyframe'), findsWidgets);
-      expect(find.text('4 of 8'), findsOneWidget);
+      expect(find.text('4 of 9'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('guide-next')));
       await tester.pumpAndSettle();
-      expect(find.text('5 of 8'), findsOneWidget);
+      expect(find.text('5 of 9'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('editor-guide-close')));
       await tester.pumpAndSettle();
@@ -162,10 +162,10 @@ void main() {
 
       // Walk the whole guide. A content block that overflows or throws in an
       // unvisited chapter is invisible to a test that only opens the first one.
-      for (var i = 1; i <= 7; i++) {
+      for (var i = 1; i <= 8; i++) {
         await tester.tap(find.byKey(const Key('guide-next')));
         await tester.pumpAndSettle();
-        expect(find.text('${i + 1} of 8'), findsOneWidget);
+        expect(find.text('${i + 1} of 9'), findsOneWidget);
         expect(tester.takeException(), isNull, reason: 'chapter ${i + 1}');
       }
 

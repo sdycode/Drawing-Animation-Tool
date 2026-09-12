@@ -10,10 +10,27 @@
 /// `downloadJsonProvider`, overridden in tests and swapped for the web impl in
 /// the browser build), so an actual call here means a wiring mistake worth
 /// surfacing, not swallowing.
+library;
+
+import 'dart:typed_data';
+
 void downloadJson(String filename, String contents) {
   throw UnsupportedError(
     'downloadJson requires a browser (dart:js_interop). Off-web the download '
     'seam is provided by downloadJsonProvider — override it in a test or ship '
+    'the web build, which links download_json_web.dart.',
+  );
+}
+
+/// Same seam, arbitrary bytes — the player bundle is a `.zip`, not text.
+///
+/// Throws for the same reason [downloadJson] does: reaching it off-web means a
+/// wiring mistake, and a silent no-op would present as "the button does
+/// nothing" with no thread to pull.
+void downloadBytes(String filename, Uint8List bytes, String mimeType) {
+  throw UnsupportedError(
+    'downloadBytes requires a browser (dart:js_interop). Off-web the download '
+    'seam is provided by downloadBytesProvider — override it in a test or ship '
     'the web build, which links download_json_web.dart.',
   );
 }

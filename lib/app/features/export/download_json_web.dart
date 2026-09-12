@@ -10,14 +10,26 @@
 library;
 
 import 'dart:js_interop';
+import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
 void downloadJson(String filename, String contents) {
-  final blob = web.Blob(
-    <JSAny>[contents.toJS].toJS,
-    web.BlobPropertyBag(type: 'application/json'),
-  );
+  _save(filename, web.Blob(<JSAny>[contents.toJS].toJS,
+      web.BlobPropertyBag(type: 'application/json')));
+}
+
+/// Same Blob/object-URL/anchor mechanism as [downloadJson], for binary bytes.
+///
+/// Factored through [_save] rather than duplicated: the object URL must be
+/// revoked on every path, and two copies of that cleanup is one copy that
+/// eventually loses its revoke and leaks a blob per click.
+void downloadBytes(String filename, Uint8List bytes, String mimeType) {
+  _save(filename, web.Blob(<JSAny>[bytes.toJS].toJS,
+      web.BlobPropertyBag(type: mimeType)));
+}
+
+void _save(String filename, web.Blob blob) {
   final url = web.URL.createObjectURL(blob);
   final anchor = web.document.createElement('a') as web.HTMLAnchorElement
     ..href = url

@@ -52,3 +52,10 @@ flutter:
     # The 8 legacy projects. Golden fixtures for the one-way importer and the
     # round-trip CI gate (docs/v3/02 §8), not a supported migration path.
     - assets/library/
+
+    # The copy-in player, as one JSON manifest of {path: contents}, written by
+    # `dart run tool/build_player.dart`. A manifest rather than a directory
+    # because asset declarations do not recurse: a folder here would need a new
+    # line every time the generator adds a file, and the failure mode of
+    # forgetting one is a download that is silently missing a source file.
+    - assets/player_bundle.json

@@ -54,3 +54,9 @@ app.*.map.json
 /macos/
 /linux/
 /windows/
+
+# `dart run tool/build_player.dart` regenerates this from the real packages on
+# every run, and its bytes are already committed as assets/player_bundle.json
+# (which pubspec declares and the download button reads). Tracking both is two
+# copies of one generated artifact that can disagree.
+/dist/
