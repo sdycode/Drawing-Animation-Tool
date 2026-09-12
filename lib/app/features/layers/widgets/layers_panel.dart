@@ -438,6 +438,9 @@ class _LayerTileState extends State<_LayerTile> {
     // A locked row rejects every authored edit, and a rename is one — the lock
     // would otherwise protect the child list and leave the name wide open.
     if (widget.row.locked) return;
+    // Belt and braces: a previous rename's pair is normally already detached by
+    // [_releaseRenameControllers], but overwriting a live one would leak it.
+    _releaseRenameControllers();
     _nameController = TextEditingController(text: widget.row.name);
     final focus = FocusNode(debugLabel: 'layer-rename');
     _nameFocus = focus;
@@ -459,19 +462,50 @@ class _LayerTileState extends State<_LayerTile> {
       widget.onRename(text);
     }
     if (releaseFocus) focus?.unfocus();
-    _disposeRenameControllers();
+    _releaseRenameControllers();
   }
 
-  void _disposeRenameControllers() {
-    _nameController?.dispose();
+  /// Detach the rename controllers now and dispose them **after this frame**.
+  ///
+  /// Disposing inline is wrong on both paths into [_commitRename], and it fails
+  /// differently on each:
+  ///
+  ///  * **Focus loss** arrives from the node's OWN listener — that is, from
+  ///    inside `FocusNode.notifyListeners()`. Disposing there mutates the
+  ///    listener list while it is being iterated, and Flutter asserts on it by
+  ///    name: *"dispose() … was called during the call to notifyListeners()"*.
+  ///  * **Enter / `onSubmitted`** unwinds cleanly, but the `TextField` in
+  ///    [_nameEditor] still holds this node and this controller until the
+  ///    `setState(_editing = false)` rebuild lands. Disposing before that
+  ///    trades the first crash for *"a FocusNode was used after being
+  ///    disposed"* on the next build.
+  ///
+  /// A post-frame callback is past both: the notification has unwound and the
+  /// rebuild has dropped the field. The objects are captured as locals and
+  /// detached from the state first, so nothing can reach them in between and
+  /// the disposal still happens if this row unmounts before the frame ends.
+  void _releaseRenameControllers() {
+    final controller = _nameController;
+    final focus = _nameFocus;
     _nameController = null;
-    _nameFocus?.dispose();
     _nameFocus = null;
+    if (controller == null && focus == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller?.dispose();
+      focus?.dispose();
+    });
   }
 
   @override
   void dispose() {
-    _disposeRenameControllers();
+    // Unmounting is the one case that must NOT defer: no later frame belongs to
+    // this row, so a post-frame callback would be the last reference to a node
+    // nobody disposes. Nothing is iterating the listener list here and the
+    // TextField is going away with us, so inline is both safe and required.
+    _nameController?.dispose();
+    _nameController = null;
+    _nameFocus?.dispose();
+    _nameFocus = null;
     super.dispose();
   }
 

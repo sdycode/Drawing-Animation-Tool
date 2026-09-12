@@ -1124,6 +1124,61 @@ void main() {
         reason: 'the text field owns the key while it has focus');
   });
 
+  testWidgets(
+      'a rename that ends by LOSING FOCUS commits without disposing a node '
+      'mid-notification', (tester) async {
+    // The regression: the rename FocusNode's own listener called
+    // `_commitRename`, which disposed that same node — from inside
+    // `FocusNode.notifyListeners()`. Flutter asserts on it
+    // ("dispose() ... was called during the call to notifyListeners()"), and it
+    // only fires on the focus-loss path, so every test that renamed with Enter
+    // stayed green while clicking away threw.
+    final s = seed([square('sq', Vec2.zero, 30), square('two', Vec2.zero, 30)]);
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    await tapRow(tester, 'sq');
+    await tapRow(tester, 'sq');
+    expect(find.byKey(const Key('layer-rename-sq')), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('layer-rename-sq')), 'renamed');
+    await tester.pump();
+
+    // Pull focus away WITHOUT Enter — the path the assert lived on.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull,
+        reason: 'disposal must wait until the notification has unwound');
+    expect(docOf(c, s.id).nodeIndex[const NodeId('sq')]?.name, 'renamed',
+        reason: 'losing focus still commits the rename');
+    expect(find.byKey(const Key('layer-rename-sq')), findsNothing);
+  });
+
+  testWidgets('a row unmounted mid-rename disposes its controllers inline',
+      (tester) async {
+    // The other half of the fix: deferring disposal to a post-frame callback is
+    // right for a commit, and wrong for an unmount — no later frame belongs to
+    // a row that is gone, so `dispose()` must still release inline. A leaked
+    // FocusNode surfaces as a flutter_test "was not disposed" failure.
+    final s = seed([square('sq', Vec2.zero, 30)]);
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    await tapRow(tester, 'sq');
+    await tapRow(tester, 'sq');
+    expect(find.byKey(const Key('layer-rename-sq')), findsOneWidget);
+
+    // Tear the whole tree down with the editor still open.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   // --- The panel does not rebuild on a geometry-only edit (AC-13.3) ---------
 
   testWidgets(
