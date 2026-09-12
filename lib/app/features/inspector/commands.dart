@@ -14,6 +14,8 @@
 /// exactly as `PaintOps` does.
 library;
 
+import 'dart:async';
+
 import 'package:anim_core/anim_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -40,6 +42,43 @@ final class InspectorCommands {
   /// which the snapshot reads as "carried none" rather than "clear it".
   KeyframeRef? get _selectedKeyframe =>
       _ref.read(editorControllerProvider).selectedKeyframe;
+
+  // --- Stepper coalescing --------------------------------------------------
+  //
+  // A press-and-hold on a field's ▲▼ emits a nudge every ~70 ms. Left alone that
+  // is one undo entry and one dirty-mark per nudge — a two-second hold would
+  // take thirty presses of `Cmd+Z` to reverse, and the stack's depth-100 budget
+  // would hold about three such holds. So a press opens the **same coalescing
+  // span a drag opens** (docs/v3/04 §6): everything between the two calls
+  // collapses into one entry and one save, while the intermediate documents are
+  // still shown live — which is the whole point of holding the button.
+
+  /// Open the span for a stepper press. `beginGesture` captures the editing
+  /// keyframe with the snapshot, exactly like every other undoable edit here.
+  void beginStep() {
+    // Fire-and-forget with the error explicitly dropped: the call is enqueued in
+    // order behind the nudges it brackets, and a failure to *open* a span costs
+    // only the coalescing — every nudge still applies, each as its own entry.
+    // There is no message for the user to act on, so there is nothing to report.
+    _controller
+        .beginGesture(label: 'Step value', keyframe: _selectedKeyframe)
+        .ignore();
+  }
+
+  /// Close it. A press that changed nothing (held at a bound) records no entry
+  /// and writes nothing — `CommandStack.commit` returns null for an empty span.
+  void endStep() => _controller.commitGesture('Step value').ignore();
+
+  /// The same latch for a **colour picker drag**, which emits a colour per
+  /// pointer frame — a second across the saturation square is ~60 writes, and
+  /// left uncoalesced it would both bury the undo stack and fire a save per
+  /// frame. Separately labelled so the entry reads "Pick colour" rather than
+  /// borrowing the stepper's name.
+  void beginPick() => _controller
+      .beginGesture(label: 'Pick colour', keyframe: _selectedKeyframe)
+      .ignore();
+
+  void endPick() => _controller.commitGesture('Pick colour').ignore();
 
   /// Overwrite the selected node's `Transform2` (F3.1, AC-3.1.1).
   ///

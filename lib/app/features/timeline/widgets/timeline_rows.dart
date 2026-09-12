@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart' hide Easing;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../common/editor_toast.dart';
 import '../../../state/editor_controller.dart';
 import '../commands.dart';
 import '../providers.dart';
@@ -206,8 +207,7 @@ class _PropertyRowState extends ConsumerState<_PropertyRow> {
   /// [_report] so [_pickEasing] — which must capture the messenger *before* its
   /// menu await — can reuse it.
   void _reportVia(ScaffoldMessengerState messenger, Future<String?> pending) {
-    void show(String message) =>
-        messenger.showSnackBar(SnackBar(content: Text(message)));
+    void show(String message) => showEditorToast(messenger, message);
     pending.then(
       (message) {
         if (message != null) show(message);

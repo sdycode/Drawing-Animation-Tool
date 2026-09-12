@@ -8,6 +8,7 @@ import 'package:flutter/material.dart' hide StrokeCap, StrokeJoin;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../common/color_field.dart';
+import '../../../common/editor_toast.dart';
 import '../../../common/number_field.dart';
 import '../../../state/editor_controller.dart';
 import '../commands.dart';
@@ -139,8 +140,12 @@ class InspectorPanel extends ConsumerWidget {
     Widget diamond(PropertyKey property, Object? authored) => _KeyframeDiamond(
           keyName: 'kf-${property.wire}',
           keyTimes: tracks[property],
-          onKey: () => _report(context,
-              cmds.keyCurrent(view.id, property, _playheadT(ref), authored)),
+          onKey: () => _reportKeyed(
+              context,
+              cmds.keyCurrent(view.id, property, _playheadT(ref), authored),
+              // The one moment worth interrupting for: the property just became
+              // animated, and the next step is the one nobody guesses.
+              first: tracks[property] == null),
           onRemoveAt: (index) =>
               _report(context, cmds.removeKeyAt(view.id, property, index)),
         );
@@ -155,6 +160,16 @@ class InspectorPanel extends ConsumerWidget {
                 fontWeight: FontWeight.w600,
                 color: scheme.onSurface)),
         const SizedBox(height: 4),
+        const SizedBox(height: 8),
+        // **The missing half of edit-at-keyframe.** The diamonds and the
+        // WYSIWYG fields were both built, but nothing on screen said what the
+        // *second* keyframe costs — so the flow read as "I keyed it, now what?"
+        // This says it in the panel the user is already looking at, and names
+        // the time the playhead is on so "at another moment" is a thing they
+        // can see rather than infer.
+        _AnimationHint(
+            projectId: projectId, animated: tracks.keyTimes.isNotEmpty),
+        const SizedBox(height: 12),
         Text('Transform',
             style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
         const SizedBox(height: 8),
@@ -169,6 +184,8 @@ class InspectorPanel extends ConsumerWidget {
           xField: _numberField(
             projectId: projectId,
             fieldKey: 'inspector-position-x',
+            step: 1.0,
+            span: cmds,
             label: 'X',
             tracked: tracked(_kPosition),
             property: _kPosition,
@@ -185,6 +202,8 @@ class InspectorPanel extends ConsumerWidget {
           yField: _numberField(
             projectId: projectId,
             fieldKey: 'inspector-position-y',
+            step: 1.0,
+            span: cmds,
             label: 'Y',
             tracked: tracked(_kPosition),
             property: _kPosition,
@@ -205,6 +224,8 @@ class InspectorPanel extends ConsumerWidget {
           xField: _numberField(
             projectId: projectId,
             fieldKey: 'inspector-scale-x',
+            step: 0.01,
+            span: cmds,
             label: 'X',
             tracked: tracked(_kScale),
             property: _kScale,
@@ -220,6 +241,8 @@ class InspectorPanel extends ConsumerWidget {
           yField: _numberField(
             projectId: projectId,
             fieldKey: 'inspector-scale-y',
+            step: 0.01,
+            span: cmds,
             label: 'Y',
             tracked: tracked(_kScale),
             property: _kScale,
@@ -244,12 +267,21 @@ class InspectorPanel extends ConsumerWidget {
             key: const Key('inspector-pivot-x'),
             label: 'X',
             value: t.pivot.x,
+            // One artboard unit per nudge, like position: the pivot is a point
+            // in the same space, and watching the shape swing around it while
+            // the button is held is the fastest way to place one.
+            step: 1.0,
+            onStepStart: cmds.beginStep,
+            onStepEnd: cmds.endStep,
             onCommit: (v) => commit(t.copyWith(pivot: Vec2(v, t.pivot.y))),
           ),
           yField: CommittedNumberField(
             key: const Key('inspector-pivot-y'),
             label: 'Y',
             value: t.pivot.y,
+            step: 1.0,
+            onStepStart: cmds.beginStep,
+            onStepEnd: cmds.endStep,
             onCommit: (v) => commit(t.copyWith(pivot: Vec2(t.pivot.x, v))),
           ),
         ),
@@ -259,6 +291,8 @@ class InspectorPanel extends ConsumerWidget {
           field: _numberField(
             projectId: projectId,
             fieldKey: 'inspector-rotation',
+            step: 1.0,
+            span: cmds,
             tracked: tracked(_kRotation),
             property: _kRotation,
             staticDisplay: t.rotation * _radToDeg,
@@ -278,6 +312,8 @@ class InspectorPanel extends ConsumerWidget {
           field: _numberField(
             projectId: projectId,
             fieldKey: 'inspector-skewx',
+            step: 1.0,
+            span: cmds,
             tracked: tracked(_kSkewX),
             property: _kSkewX,
             staticDisplay: t.skewX * _radToDeg,
@@ -309,6 +345,10 @@ class InspectorPanel extends ConsumerWidget {
           field: _numberField(
             projectId: projectId,
             fieldKey: 'inspector-opacity',
+            step: 1.0,
+            min: 0.0,
+            max: 100.0,
+            span: cmds,
             tracked: tracked(_kOpacity),
             property: _kOpacity,
             staticDisplay: view.opacity * 100,
@@ -466,10 +506,51 @@ class InspectorPanel extends ConsumerWidget {
 /// Top-level and shared by every section in this file, so a new control cannot
 /// be wired up with a bare `unawaited(...)` that loses the refusal — which is
 /// the only way a user would ever learn that an edit did not take.
+/// What the app says the first time a property becomes animated.
+///
+/// One sentence, once per property, at the only moment it is actionable — the
+/// user has just clicked the ◇ and is looking at the result. A permanent label
+/// saying this would be noise on the ninety-ninth keyframe; a guide chapter
+/// saying it is read before it means anything.
+const String kNextKeyframeHint =
+    'Keyframe added. Now move the playhead and change this value — that writes '
+    'the next keyframe.';
+
+/// The geometry channel's version: a `PathPose` has no field, so the next step
+/// is on the canvas (F4.2).
+const String kNextPathKeyHint =
+    'Shape keyframe added. Now move the playhead and drag anchors with Direct '
+    'select — each edit lands on a keyframe at that time.';
+
+/// [_report], plus one line of coaching when this was the property's **first**
+/// key. A refusal still wins: a failed edit reports the failure and nothing
+/// else, because there is no next step to take.
+void _reportKeyed(
+  BuildContext context,
+  Future<String?> pending, {
+  required bool first,
+  String next = kNextKeyframeHint,
+}) {
+  final messenger = ScaffoldMessenger.of(context);
+  pending.then(
+    (message) {
+      if (message != null) {
+        showEditorToast(messenger, message);
+      } else if (first) {
+        // A **tip**, not an alert: this follows a successful click, and dressing
+        // a success in the failure colour is how a user learns to dread the
+        // control that just worked.
+        showEditorToast(messenger, next, kind: ToastKind.tip);
+      }
+    },
+    onError: (Object _, StackTrace __) =>
+        showEditorToast(messenger, kRejectedInspectorEditMessage),
+  );
+}
+
 void _report(BuildContext context, Future<String?> pending) {
   final messenger = ScaffoldMessenger.of(context);
-  void show(String message) =>
-      messenger.showSnackBar(SnackBar(content: Text(message)));
+  void show(String message) => showEditorToast(messenger, message);
   pending.then(
     (message) {
       if (message != null) show(message);
@@ -513,6 +594,12 @@ Object? _sampleTrack(Track? track, double t) => switch (track) {
 /// the sample to the display unit with [toDisplay] (radians→degrees, 0..1→%),
 /// falling back to [staticDisplay] when the sample is unavailable. [onCommit]
 /// still writes absolutely to the playhead's key.
+///
+/// [step] turns on the ▲▼ nudge buttons, in the field's **display** unit — 1°
+/// of rotation, 1 % of opacity — and [span] is the command gate a whole
+/// press-and-hold coalesces through, so a held button is one undo entry rather
+/// than thirty. [min]/[max] bound the *stepper* only; a typed value still
+/// commits and is clamped by the op, which is the layer that owns the range.
 Widget _numberField({
   required String projectId,
   required String fieldKey,
@@ -522,12 +609,21 @@ Widget _numberField({
   required double Function(Object sampled) toDisplay,
   required ValueChanged<double> onCommit,
   String? label,
+  double? step,
+  double? min,
+  double? max,
+  InspectorCommands? span,
 }) {
   if (!tracked) {
     return CommittedNumberField(
         key: Key(fieldKey),
         label: label,
         value: staticDisplay,
+        step: step,
+        min: min,
+        max: max,
+        onStepStart: span?.beginStep,
+        onStepEnd: span?.endStep,
         onCommit: onCommit);
   }
   return _SampledValue<double>(
@@ -536,11 +632,22 @@ Widget _numberField({
     fallback: staticDisplay,
     project: toDisplay,
     builder: (value) => CommittedNumberField(
-        key: Key(fieldKey), label: label, value: value, onCommit: onCommit),
+        key: Key(fieldKey),
+        label: label,
+        value: value,
+        step: step,
+        min: min,
+        max: max,
+        onStepStart: span?.beginStep,
+        onStepEnd: span?.endStep,
+        onCommit: onCommit),
   );
 }
 
 /// The colour twin of [_numberField]: WYSIWYG at the playhead when tracked.
+///
+/// [span] brackets a picker drag into one undo entry, exactly as it does for a
+/// number field's stepper — the picker writes a colour per pointer frame.
 Widget _colorField({
   required String projectId,
   required String fieldKey,
@@ -548,10 +655,15 @@ Widget _colorField({
   required PropertyKey property,
   required Rgba staticColor,
   required ValueChanged<Rgba> onCommit,
+  InspectorCommands? span,
 }) {
   if (!tracked) {
     return CommittedColorField(
-        key: Key(fieldKey), value: staticColor, onCommit: onCommit);
+        key: Key(fieldKey),
+        value: staticColor,
+        onPickStart: span?.beginPick,
+        onPickEnd: span?.endPick,
+        onCommit: onCommit);
   }
   return _SampledValue<Rgba>(
     projectId: projectId,
@@ -559,7 +671,11 @@ Widget _colorField({
     fallback: staticColor,
     project: (s) => s is Rgba ? s : staticColor,
     builder: (value) => CommittedColorField(
-        key: Key(fieldKey), value: value, onCommit: onCommit),
+        key: Key(fieldKey),
+        value: value,
+        onPickStart: span?.beginPick,
+        onPickEnd: span?.endPick,
+        onCommit: onCommit),
   );
 }
 
@@ -597,6 +713,112 @@ class _SampledValue<T> extends ConsumerWidget {
         final sampled = _sampleTrack(track, t);
         return builder(sampled == null ? fallback : project(sampled));
       },
+    );
+  }
+}
+
+/// **Where you are editing, and what will happen if you type.**
+///
+/// Two states, because the panel has two:
+///   * nothing keyed → what the ◇ is *for*. The diamond is an After Effects
+///     convention and an unlabelled 11-px glyph; a user who does not already
+///     know it cannot deduce it from the panel.
+///   * keyed → the live playhead time, and the sentence that closes the loop:
+///     move it, change a value, that is the next keyframe. This is the step the
+///     product never said out loud — the diamond made key 1 discoverable and
+///     key 2 was left to inference.
+///
+/// **A leaf, like the diamond.** It watches the playhead notifier inside a
+/// `ValueListenableBuilder`, so a scrub repaints this strip and nothing else
+/// (AC-13.3); `animated` comes from the panel's existing tracks slice, which
+/// does not change on a scrub.
+class _AnimationHint extends ConsumerWidget {
+  const _AnimationHint({required this.projectId, required this.animated});
+
+  final String projectId;
+  final bool animated;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final duration = ref.watch(inspectorDurationProvider(projectId));
+    final playhead = ref.watch(playheadProvider);
+
+    if (!animated) {
+      return Container(
+        key: const Key('inspector-animate-hint'),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CustomPaint(
+              size: const Size(10, 10),
+              painter: _DiamondPainter(
+                state: _DiamondState.empty,
+                on: scheme.primary,
+                idle: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Not animated. Click a ◇ to key that property at the playhead.',
+                style: TextStyle(
+                    fontSize: 10, height: 1.4, color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      key: const Key('inspector-animating'),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ValueListenableBuilder<double>(
+            valueListenable: playhead,
+            builder: (context, raw, _) {
+              final t = raw.isNaN ? 0.0 : raw.clamp(0.0, 1.0).toDouble();
+              return Row(
+                children: [
+                  Icon(Icons.fiber_manual_record,
+                      size: 10, color: scheme.onPrimaryContainer),
+                  const SizedBox(width: 6),
+                  Text(
+                    // Seconds are derived for display only (AC-9.1.5).
+                    'Editing at ${(t * duration).toStringAsFixed(2)} s',
+                    key: const Key('inspector-playhead-readout'),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: scheme.onPrimaryContainer,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Move the playhead, then change a value — it becomes a keyframe at '
+            'that time.',
+            style: TextStyle(
+                fontSize: 10, height: 1.4, color: scheme.onPrimaryContainer),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -642,8 +864,9 @@ class _PathSection extends ConsumerWidget {
               keyTimes: tracks[_kPath],
               // The diamond keys a hold (or the first key) with `keyPose`, which
               // owns both cases; a filled one removes the key under the playhead.
-              onKey: () => _report(
-                  context, commands.keyPath(view.node, _playheadT(ref))),
+              onKey: () => _reportKeyed(
+                  context, commands.keyPath(view.node, _playheadT(ref)),
+                  first: tracks[_kPath] == null, next: kNextPathKeyHint),
               onRemoveAt: (index) => _report(
                   context, commands.removeKeyAt(view.node, _kPath, index)),
             ),
@@ -712,8 +935,9 @@ class _TrimSection extends ConsumerWidget {
     Widget diamond(PropertyKey property, double authored) => _KeyframeDiamond(
           keyName: 'kf-${property.wire}',
           keyTimes: tracks[property],
-          onKey: () => _report(context,
-              commands.keyCurrent(node, property, _playheadT(ref), authored)),
+          onKey: () => _reportKeyed(context,
+              commands.keyCurrent(node, property, _playheadT(ref), authored),
+              first: tracks[property] == null),
           onRemoveAt: (index) =>
               _report(context, commands.removeKeyAt(node, property, index)),
         );
@@ -736,6 +960,13 @@ class _TrimSection extends ConsumerWidget {
           property: property,
           staticDisplay: stored * 100,
           toDisplay: (s) => s is double ? s * 100 : stored * 100,
+          // A percentage of the outline's length: one point per nudge, and the
+          // stepper stops at the ends rather than emitting values the op would
+          // only clamp back.
+          step: 1.0,
+          min: 0.0,
+          max: 100.0,
+          span: commands,
           onCommit: tracks[property] != null
               ? (percent) => _report(
                   context,
@@ -838,10 +1069,11 @@ class _PaintSection extends ConsumerWidget {
       _KeyframeDiamond(
         keyName: 'kf-${property.wire}',
         keyTimes: tracks[property],
-        onKey: () => _report(
+        onKey: () => _reportKeyed(
             context,
             _commands(ref)
-                .keyCurrent(node, property, _playheadT(ref), authored)),
+                .keyCurrent(node, property, _playheadT(ref), authored),
+            first: tracks[property] == null),
         onRemoveAt: (index) =>
             _report(context, _commands(ref).removeKeyAt(node, property, index)),
       );
@@ -882,6 +1114,7 @@ class _PaintSection extends ConsumerWidget {
                 child: _colorField(
                   projectId: projectId,
                   fieldKey: 'inspector-fill-color',
+                  span: commands,
                   tracked: tracks[colorKey] != null,
                   property: colorKey,
                   staticColor: color,
@@ -902,6 +1135,10 @@ class _PaintSection extends ConsumerWidget {
           _numberField(
             projectId: projectId,
             fieldKey: 'inspector-fill-opacity',
+            step: 1.0,
+            min: 0.0,
+            max: 100.0,
+            span: commands,
             tracked: tracks[opacityKey] != null,
             property: opacityKey,
             staticDisplay: fill.opacity * 100,
@@ -982,6 +1219,7 @@ class _PaintSection extends ConsumerWidget {
                 child: _colorField(
                   projectId: projectId,
                   fieldKey: 'inspector-stroke-color',
+                  span: commands,
                   tracked: tracks[colorKey] != null,
                   property: colorKey,
                   staticColor: color,
@@ -1002,6 +1240,9 @@ class _PaintSection extends ConsumerWidget {
           _numberField(
             projectId: projectId,
             fieldKey: 'inspector-stroke-width',
+            step: 0.5,
+            min: 0.0,
+            span: commands,
             tracked: tracks[widthKey] != null,
             property: widthKey,
             staticDisplay: stroke.width,
@@ -1049,6 +1290,13 @@ class _PaintSection extends ConsumerWidget {
           CommittedNumberField(
             key: const Key('inspector-stroke-miter'),
             value: stroke.miterLimit,
+            // A ratio, so half-steps are the useful grain — and the stepper
+            // stops at 1 where the op's clamp already is, rather than walking
+            // into a range the document cannot hold.
+            step: 0.5,
+            min: 1.0,
+            onStepStart: commands.beginStep,
+            onStepEnd: commands.endStep,
             onCommit: (limit) => _report(context,
                 commands.setStrokeMiterLimit(view.node, stroke.id, limit)),
           ),
@@ -1058,6 +1306,10 @@ class _PaintSection extends ConsumerWidget {
           _numberField(
             projectId: projectId,
             fieldKey: 'inspector-stroke-opacity',
+            step: 1.0,
+            min: 0.0,
+            max: 100.0,
+            span: commands,
             tracked: tracks[opacityKey] != null,
             property: opacityKey,
             staticDisplay: stroke.opacity * 100,
@@ -1210,10 +1462,9 @@ class _ShapeSection extends ConsumerWidget {
     // for the M5 erase-on-degenerate defect: a `w = 0` / `sides = 2` recipe whose
     // `toPath()` is empty would, on a path-TRACKED node, retopologize every
     // keyframe onto nothing and silently wipe the animation.
+    final commands = InspectorCommands(ref, projectId);
     void commit(ShapeRecipe next) => _report(
-        context,
-        InspectorCommands(ref, projectId)
-            .regenerateRecipe(view.node, _clampShapeRecipe(next)));
+        context, commands.regenerateRecipe(view.node, _clampShapeRecipe(next)));
 
     return Column(
       key: const Key('inspector-shape'),
@@ -1228,7 +1479,7 @@ class _ShapeSection extends ConsumerWidget {
             child: Text(view.refusal!,
                 style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
           ),
-        ..._fields(view.recipe, enabled, commit),
+        ..._fields(view.recipe, enabled, commit, commands),
       ],
     );
   }
@@ -1237,8 +1488,8 @@ class _ShapeSection extends ConsumerWidget {
   /// a fourth shape added in v2 must fall through to "no fields", not stop this
   /// panel compiling. An `UnknownRecipe` has no readable parameters at all, so
   /// the section above it is the whole answer.
-  List<Widget> _fields(
-      ShapeRecipe recipe, bool enabled, ValueChanged<ShapeRecipe> commit) {
+  List<Widget> _fields(ShapeRecipe recipe, bool enabled,
+      ValueChanged<ShapeRecipe> commit, InspectorCommands span) {
     if (recipe is RectRecipe) {
       return [
         _number(
@@ -1247,29 +1498,32 @@ class _ShapeSection extends ConsumerWidget {
             recipe.w,
             enabled,
             (v) => commit(RectRecipe(
-                w: v, h: recipe.h, cornerRadius: recipe.cornerRadius))),
+                w: v, h: recipe.h, cornerRadius: recipe.cornerRadius)),
+            span),
         _number(
             'Height',
             'inspector-shape-h',
             recipe.h,
             enabled,
             (v) => commit(RectRecipe(
-                w: recipe.w, h: v, cornerRadius: recipe.cornerRadius))),
+                w: recipe.w, h: v, cornerRadius: recipe.cornerRadius)),
+            span),
         _number(
             'Corner radius',
             'inspector-shape-corner',
             recipe.cornerRadius,
             enabled,
             (v) =>
-                commit(RectRecipe(w: recipe.w, h: recipe.h, cornerRadius: v))),
+                commit(RectRecipe(w: recipe.w, h: recipe.h, cornerRadius: v)),
+            span),
       ];
     }
     if (recipe is EllipseRecipe) {
       return [
         _number('Radius X', 'inspector-shape-rx', recipe.rx, enabled,
-            (v) => commit(EllipseRecipe(rx: v, ry: recipe.ry))),
+            (v) => commit(EllipseRecipe(rx: v, ry: recipe.ry)), span),
         _number('Radius Y', 'inspector-shape-ry', recipe.ry, enabled,
-            (v) => commit(EllipseRecipe(rx: recipe.rx, ry: v))),
+            (v) => commit(EllipseRecipe(rx: recipe.rx, ry: v)), span),
       ];
     }
     if (recipe is PolygonRecipe) {
@@ -1293,9 +1547,13 @@ class _ShapeSection extends ConsumerWidget {
             'inspector-shape-sides',
             recipe.sides.toDouble(),
             enabled,
-            (v) => commit(next(sides: v.isFinite ? v.round() : recipe.sides))),
+            (v) => commit(next(sides: v.isFinite ? v.round() : recipe.sides)),
+            span,
+            // Whole sides only, and 3 is the floor the recipe clamps to — a
+            // stepper that could reach 2 would offer a shape with no geometry.
+            min: 3.0),
         _number('Radius', 'inspector-shape-radius', recipe.radius, enabled,
-            (v) => commit(next(radius: v))),
+            (v) => commit(next(radius: v)), span),
         _toggleRow(
           label: 'Star',
           keyName: 'inspector-shape-star',
@@ -1303,20 +1561,34 @@ class _ShapeSection extends ConsumerWidget {
           onChanged: enabled ? (v) => commit(next(star: v)) : null,
         ),
         _number('Inner ratio', 'inspector-shape-inner', recipe.innerRatio,
-            enabled, (v) => commit(next(inner: v))),
+            enabled, (v) => commit(next(inner: v)), span,
+            // A fraction of the outer radius: hundredths are too fine to see
+            // and tenths skip the useful star shapes.
+            step: 0.05,
+            max: 1.0),
       ];
     }
     return const <Widget>[];
   }
 
+  /// A shape parameter. Every one of them has a floor — a rectangle with a
+  /// negative width, a polygon with two sides — so [min] defaults to 0 and the
+  /// stepper simply stops there instead of walking into the degenerate recipes
+  /// `_clampShapeRecipe` exists to catch.
   Widget _number(String label, String keyName, double value, bool enabled,
-          ValueChanged<double> onCommit) =>
+          ValueChanged<double> onCommit, InspectorCommands span,
+          {double step = 1.0, double? min = 0.0, double? max}) =>
       _labelled(
         label,
         CommittedNumberField(
           key: Key(keyName),
           value: value,
           enabled: enabled,
+          step: step,
+          min: min,
+          max: max,
+          onStepStart: span.beginStep,
+          onStepEnd: span.endStep,
           onCommit: onCommit,
         ),
       );
@@ -1436,18 +1708,33 @@ class _KeyframeDiamond extends ConsumerWidget {
           tap = onKey;
         }
 
-        return InkWell(
-          key: Key(keyName),
-          onTap: tap,
-          customBorder: const CircleBorder(),
-          child: Padding(
-            padding: const EdgeInsets.all(3),
-            child: CustomPaint(
-              size: const Size(11, 11),
-              painter: _DiamondPainter(
-                state: state,
-                on: scheme.primary,
-                idle: scheme.onSurfaceVariant,
+        // The glyph is a convention, not a label — so it says what it does on
+        // hover. Three states, three different actions, and the destructive one
+        // (a click that DELETES a key) is the one a user most needs told.
+        final tooltip = switch (state) {
+          _DiamondState.empty =>
+            'Animate this — writes the first keyframe at the playhead',
+          _DiamondState.between =>
+            'Add a keyframe here, holding the current value',
+          _DiamondState.onKey => 'Delete the keyframe at the playhead',
+        };
+
+        return Tooltip(
+          message: tooltip,
+          waitDuration: const Duration(milliseconds: 400),
+          child: InkWell(
+            key: Key(keyName),
+            onTap: tap,
+            customBorder: const CircleBorder(),
+            child: Padding(
+              padding: const EdgeInsets.all(3),
+              child: CustomPaint(
+                size: const Size(11, 11),
+                painter: _DiamondPainter(
+                  state: state,
+                  on: scheme.primary,
+                  idle: scheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),

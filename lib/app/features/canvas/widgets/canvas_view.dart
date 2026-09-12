@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../common/editor_toast.dart';
+
 import '../../../state/command.dart';
 import '../../../state/editor_controller.dart';
 import '../../../state/tool_controller.dart';
@@ -266,8 +268,7 @@ class _CanvasViewState extends ConsumerState<CanvasView> {
 
   void _report(String? message) {
     if (message == null || !mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    showEditorToast(ScaffoldMessenger.of(context), message);
   }
 
   // --- Keyboard: pan arming, zoom shortcuts, Esc/Enter ---------------------

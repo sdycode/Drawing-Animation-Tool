@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:anim_core/anim_core.dart' hide Animation;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../common/editor_toast.dart';
 import '../../../state/editor_controller.dart';
 import '../commands.dart';
 import '../providers.dart';
@@ -43,7 +46,16 @@ class TimelineBar extends ConsumerStatefulWidget {
 class _TimelineBarState extends ConsumerState<TimelineBar> {
   final FocusNode _keyFocus = FocusNode(debugLabel: 'timeline-shortcuts');
 
-  static const double _rulerHeight = 18.0;
+  /// Tall enough for the **grab handle**, the second labels and the ticks
+  /// (docs/v3/05 §4.6). It was 18 px and a bare 1-px line: the playhead read as
+  /// decoration rather than as the thing you drag, and with no scale on the
+  /// ruler there was nothing on screen that answered "*which* moment am I
+  /// looking at?" — the question every keyframe flow starts from.
+  static const double _rulerHeight = 32.0;
+
+  /// The handle's band, measured from the top of the ruler. The line starts
+  /// where it ends.
+  static const double _handleHeight = 15.0;
 
   @override
   void dispose() {
@@ -72,8 +84,7 @@ class _TimelineBarState extends ConsumerState<TimelineBar> {
   /// instead of a snackbar.
   void _report(Future<String?> pending) {
     final messenger = ScaffoldMessenger.of(context);
-    void show(String message) =>
-        messenger.showSnackBar(SnackBar(content: Text(message)));
+    void show(String message) => showEditorToast(messenger, message);
     pending.then(
       (message) {
         if (message != null) show(message);
@@ -233,7 +244,7 @@ class _TimelineBarState extends ConsumerState<TimelineBar> {
                 children: [
                   Column(
                     children: [
-                      _ruler(playhead, scheme),
+                      _ruler(playhead, scheme, duration),
                       Expanded(
                         // Clicking in the rows focuses the timeline so its
                         // shortcuts go live — kept OFF the ruler so the scrub
@@ -262,7 +273,12 @@ class _TimelineBarState extends ConsumerState<TimelineBar> {
                     child: IgnorePointer(
                       child: CustomPaint(
                         painter: _PlayheadPainter(
-                            playhead: playhead, color: scheme.primary),
+                          playhead: playhead,
+                          color: scheme.primary,
+                          onColor: scheme.onPrimary,
+                          duration: duration,
+                          handleHeight: _handleHeight,
+                        ),
                       ),
                     ),
                   ),
@@ -275,7 +291,8 @@ class _TimelineBarState extends ConsumerState<TimelineBar> {
     );
   }
 
-  Widget _ruler(ValueNotifier<double> playhead, ColorScheme scheme) {
+  Widget _ruler(
+      ValueNotifier<double> playhead, ColorScheme scheme, double duration) {
     return SizedBox(
       height: _rulerHeight,
       child: Row(
@@ -294,19 +311,31 @@ class _TimelineBarState extends ConsumerState<TimelineBar> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final width = constraints.maxWidth;
-                return GestureDetector(
-                  key: const Key('timeline'),
-                  behavior: HitTestBehavior.opaque,
-                  onTapDown: (d) => _scrub(playhead, d.localPosition.dx, width),
-                  onHorizontalDragStart: (d) =>
-                      _scrub(playhead, d.localPosition.dx, width),
-                  onHorizontalDragUpdate: (d) =>
-                      _scrub(playhead, d.localPosition.dx, width),
-                  onHorizontalDragEnd: (_) =>
-                      _commands.commitScrub(playhead.value),
-                  child: CustomPaint(
-                    size: Size(width, _rulerHeight),
-                    painter: _RulerPainter(rail: scheme.outlineVariant),
+                // The whole ruler is the scrub target — the handle drawn on top
+                // of it is `IgnorePointer`, so grabbing the handle and clicking
+                // the rail are the same gesture and there is no way to "miss"
+                // the thing that looks grabbable.
+                return MouseRegion(
+                  cursor: SystemMouseCursors.resizeLeftRight,
+                  child: GestureDetector(
+                    key: const Key('timeline'),
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: (d) =>
+                        _scrub(playhead, d.localPosition.dx, width),
+                    onHorizontalDragStart: (d) =>
+                        _scrub(playhead, d.localPosition.dx, width),
+                    onHorizontalDragUpdate: (d) =>
+                        _scrub(playhead, d.localPosition.dx, width),
+                    onHorizontalDragEnd: (_) =>
+                        _commands.commitScrub(playhead.value),
+                    child: CustomPaint(
+                      size: Size(width, _rulerHeight),
+                      painter: _RulerPainter(
+                        rail: scheme.outlineVariant,
+                        label: scheme.onSurfaceVariant,
+                        duration: duration,
+                      ),
+                    ),
                   ),
                 );
               },
@@ -353,50 +382,142 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// The ruler baseline plus end ticks. Nothing mutable.
+/// The time scale: a baseline, a tick every tenth, and a **seconds label** on
+/// the quarters.
+///
+/// Seconds are derived for display and never stored (AC-9.1.5) — the ruler is
+/// drawn from the unitless `t` and multiplied by [duration] only here, so
+/// retiming the animation relabels the ruler and moves no keyframe. Nothing
+/// mutable; it repaints when the duration or the theme changes.
 class _RulerPainter extends CustomPainter {
-  _RulerPainter({required this.rail});
+  _RulerPainter({
+    required this.rail,
+    required this.label,
+    required this.duration,
+  });
 
   final Color rail;
+  final Color label;
+  final double duration;
+
+  /// Where the scale sits inside the ruler: the top band belongs to the
+  /// playhead handle, which is painted by the overlay above this one.
+  static const double _labelTop = 16.0;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final y = size.height - 3;
-    final p = Paint()
+    final baseline = size.height - 1;
+    final rule = Paint()
       ..color = rail
       ..strokeWidth = 1;
-    canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
-    canvas.drawLine(Offset(0, y - 4), Offset(0, y), p);
     canvas.drawLine(
-        Offset(size.width - 1, y - 4), Offset(size.width - 1, y), p);
+        Offset(0, baseline), Offset(size.width, baseline), rule);
+
+    for (var i = 0; i <= 20; i++) {
+      final t = i / 20;
+      // The last tick is pulled a pixel inside so it is not clipped away at the
+      // rail's right edge.
+      final x = i == 20 ? size.width - 1 : t * size.width;
+      final major = i % 5 == 0;
+      canvas.drawLine(
+          Offset(x, baseline - (major ? 6 : 3)), Offset(x, baseline), rule);
+      if (!major) continue;
+
+      final seconds = (t * duration).toStringAsFixed(2);
+      final text = TextPainter(
+        text: TextSpan(
+          text: '${seconds}s',
+          style: TextStyle(fontSize: 9, color: label),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      // Nudged inward at both ends so the first and last labels stay whole.
+      final left = (x - text.width / 2)
+          .clamp(0.0, math.max(0.0, size.width - text.width))
+          .toDouble();
+      text.paint(canvas, Offset(left, _labelTop));
+      text.dispose();
+    }
   }
 
   @override
-  bool shouldRepaint(_RulerPainter old) => old.rail != rail;
+  bool shouldRepaint(_RulerPainter old) =>
+      old.rail != rail || old.label != label || old.duration != duration;
 }
 
-/// The playhead line, repainted from the notifier without a build.
+/// The playhead: a **grab handle** carrying the current time, and the line it
+/// drops. Repainted from the notifier without a build, so a scrub costs one
+/// paint and no rebuild (AC-9.1.3).
+///
+/// The handle exists because a 1-px line is not an affordance: nothing about it
+/// says "drag me", and with the time only in a readout at the far right of the
+/// panel, *where the playhead is* and *what time that is* were two separate
+/// lookups. Reading the time off the thing you are dragging is what makes
+/// "move the playhead to 0.5 s, then change the value" a single motion.
 class _PlayheadPainter extends CustomPainter {
-  _PlayheadPainter({required this.playhead, required this.color})
-      : super(repaint: playhead);
+  _PlayheadPainter({
+    required this.playhead,
+    required this.color,
+    required this.onColor,
+    required this.duration,
+    required this.handleHeight,
+  }) : super(repaint: playhead);
 
   final ValueNotifier<double> playhead;
   final Color color;
+  final Color onColor;
+  final double duration;
+  final double handleHeight;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final t = playhead.value;
-    final x = (t.isNaN ? 0.0 : t.clamp(0.0, 1.0)) * size.width;
+    final raw = playhead.value;
+    final t = raw.isNaN ? 0.0 : raw.clamp(0.0, 1.0).toDouble();
+    final x = t * size.width;
+    final paint = Paint()..color = color;
+
     canvas.drawLine(
-      Offset(x, 0),
+      Offset(x, handleHeight),
       Offset(x, size.height),
       Paint()
         ..color = color
         ..strokeWidth = 1.5,
     );
+
+    final text = TextPainter(
+      text: TextSpan(
+        text: '${(t * duration).toStringAsFixed(2)}s',
+        style: TextStyle(
+            fontSize: 9, fontWeight: FontWeight.w600, color: onColor),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final w = math.max(28.0, text.width + 12);
+    final body = handleHeight - 4;
+    // Clamped to the rail so the handle stays whole (and readable) at t = 0 and
+    // t = 1; only the pointed tip tracks the exact position.
+    final left =
+        (x - w / 2).clamp(0.0, math.max(0.0, size.width - w)).toDouble();
+
+    final flag = Path()
+      ..addRRect(RRect.fromLTRBR(
+          left, 0, left + w, body, const Radius.circular(3)))
+      ..moveTo(x - 4, body)
+      ..lineTo(x + 4, body)
+      ..lineTo(x, handleHeight)
+      ..close();
+    canvas.drawPath(flag, paint);
+    text.paint(
+        canvas, Offset(left + (w - text.width) / 2, (body - text.height) / 2));
+    text.dispose();
   }
 
   @override
   bool shouldRepaint(_PlayheadPainter old) =>
-      old.color != color || !identical(old.playhead, playhead);
+      old.color != color ||
+      old.onColor != onColor ||
+      old.duration != duration ||
+      old.handleHeight != handleHeight ||
+      !identical(old.playhead, playhead);
 }

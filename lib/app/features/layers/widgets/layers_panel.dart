@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../common/editor_toast.dart';
+
 import '../../../state/editor_controller.dart';
 import '../commands.dart';
 import '../providers.dart';
@@ -219,8 +221,7 @@ class LayersPanel extends ConsumerWidget {
   /// down with it.
   void _report(BuildContext context, Future<String?> pending) {
     final messenger = ScaffoldMessenger.of(context);
-    void show(String message) =>
-        messenger.showSnackBar(SnackBar(content: Text(message)));
+    void show(String message) => showEditorToast(messenger, message);
     pending.then(
       (message) {
         if (message != null) show(message);

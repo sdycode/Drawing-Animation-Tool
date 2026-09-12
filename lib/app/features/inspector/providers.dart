@@ -123,6 +123,28 @@ final inspectorTargetProvider =
       : InspectorTarget.node(view);
 });
 
+/// The active animation's length in seconds, for the panel's **playhead
+/// readout** — the "you are editing at 0.50 s" half of edit-at-keyframe.
+///
+/// The document stores unitless `t` and seconds exist only for display
+/// (AC-9.1.5); this multiplies, it never writes back. A small duplicate of the
+/// timeline's own duration slice rather than a cross-feature import, exactly as
+/// this file's track sampler duplicates the timeline's (docs/v3/08 §3) — the
+/// alternative is the inspector importing `features/timeline`, which is the one
+/// edge the boundary check exists to reject.
+final inspectorDurationProvider =
+    Provider.autoDispose.family<double, String>((ref, projectId) {
+  final animation = ref.watch(activeAnimationProvider(projectId));
+  return ref.watch(documentControllerProvider(projectId).select((async) {
+    final doc = async.valueOrNull;
+    if (doc == null || animation == null) return 1.0;
+    for (final a in doc.animations) {
+      if (a.id == animation) return a.durationSeconds;
+    }
+    return 1.0;
+  }));
+});
+
 // ---------------------------------------------------------------------------
 // Keyframe diamonds — F6.2, AC-6.2.6 (the edit-at-keyframe authoring surface)
 // ---------------------------------------------------------------------------

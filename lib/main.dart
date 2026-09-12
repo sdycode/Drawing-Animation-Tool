@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/app_shell.dart';
 import 'app/common/theme.dart';
+import 'app/common/ui_prefs.dart';
 import 'app/data/prefs_theme_store.dart';
+import 'app/data/prefs_ui_prefs.dart';
 import 'app/data/providers.dart';
 import 'app/features/tools/registry.dart';
 import 'app/state/save_state.dart';
@@ -50,6 +52,12 @@ Future<void> main() async {
     ProviderScope(
       overrides: [
         themeStoreProvider.overrideWithValue(PrefsThemeStore()),
+        // The same injection, for the chrome the editor remembers: whether the
+        // how-to guide has been seen, and the timeline height the user dragged
+        // to. `common/ui_prefs.dart` therefore imports no plugin, and a widget
+        // test gets the in-memory default — which reports the guide as already
+        // seen, so no test is handed a modal it did not ask for.
+        uiPrefsProvider.overrideWithValue(PrefsUiPrefs()),
         toolResolverProvider.overrideWithValue(toolRegistry()),
         // The real editor debounces autosave (AC-10.3.1): one write after edits
         // settle. The provider defaults to a zero window (eager save), so tests

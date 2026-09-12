@@ -29,26 +29,37 @@ import '../../../state/command.dart';
 import '../../../state/tool_controller.dart';
 import '../locked_nodes.dart';
 
-/// The message shown when the Select tool **declines** to move a node.
-///
-/// A node whose position / rotation / scale is driven by a track in the active
-/// animation reads its transform from that track at every `t`, so the static
-/// `Transform2` a canvas drag writes would be masked: the shape would not follow
-/// the pointer, and the release would still record an undo entry and bump `rev`
-/// for a change nobody can see.
-///
-/// A refusal, not an `assert`: a document carrying transform tracks is a legal
-/// document, and `assert(false, …)` is for programming errors, not for user data
-/// (docs/v3/08 §1). Keyframing the move at the playhead is the M4 answer
-/// (docs/v3/05 §3, Select row); until then the user gets a sentence instead of a
-/// silent no-op.
-///
-/// It lives beside the tool that raises it, not in `features/canvas`, because a
-/// feature may not import a sibling feature (docs/v3/08 §3) and this sentence is
-/// the Select tool's, not the canvas's.
-const String kAnimatedTransformMessage =
-    'This layer’s transform is animated — move it by keyframing it, not by '
-    'dragging.';
+/// The channel a node drag writes. Position is the only one a drag changes;
+/// scale, rotation and skew are the inspector's and the gizmo's.
+const PropertyKey _kPosition = PropertyKey(PropKey.position);
+
+// **A drag on an animated node keys it — it is no longer refused.**
+//
+// The old behaviour was a sentence: "this layer's transform is animated — move
+// it by keyframing it, not by dragging", raised because the static `Transform2`
+// a drag writes is masked by the track at every `t`, so the move would have been
+// invisible while still costing an undo entry and a `rev` bump. That was the
+// honest answer while the keyframe-local route did not exist — but it left the
+// tool with a rule nobody can guess: *the same value* was editable by typing in
+// the inspector (which upserts the key at the playhead) and not by dragging,
+// which is the gesture everyone reaches for first.
+//
+// The route now matches the inspector's exactly, and the fork is the same
+// **one predicate** the inspector and the canvas already use elsewhere — does
+// this channel carry a track?
+//
+//   * position UNtracked -> `SetTransformCommand`, the static pose, as before.
+//     (Tracked *scale* or *rotation* no longer blocks the drag: the evaluator
+//     composes per channel — `tracks.vec2(position) ?? pose.position` — so a
+//     static position edit on a rotation-animated node is perfectly visible.
+//     The old any-of-four test refused that move for nothing.)
+//   * position TRACKED -> `KeyframeAtCommand` at the playhead: the drag writes
+//     the key under it, or inserts one where there was none. Drag-to-pose *is*
+//     keyframing, which is what every animation tool means by auto-key.
+//
+// The drag's base position is then the **sampled** one rather than the authored
+// rest pose, or the shape would jump to the rest pose on the first pointer move
+// and land somewhere nobody aimed at.
 
 /// A node move in flight.
 ///
@@ -65,6 +76,7 @@ final class _NodeDrag {
     required this.current,
     required this.parentInverse,
     required this.startDoc,
+    required this.keyAtT,
   });
 
   final NodeId node;
@@ -96,6 +108,14 @@ final class _NodeDrag {
 
   final Vec2 startDoc;
 
+  /// The playhead this drag keys against, or **null when the node's position is
+  /// not tracked** and the drag writes the static pose instead.
+  ///
+  /// Captured at press, not read at release: it is the `t` the user was looking
+  /// at when they grabbed the shape, and the value they dragged it to belongs to
+  /// that moment.
+  final double? keyAtT;
+
   bool get moved => current.position != original.position;
 
   _NodeDrag movedTo(Vec2 docNow) => _NodeDrag(
@@ -107,6 +127,7 @@ final class _NodeDrag {
                 parentInverse.applyVector(docNow - startDoc)),
         parentInverse: parentInverse,
         startDoc: startDoc,
+        keyAtT: keyAtT,
       );
 }
 
@@ -191,18 +212,6 @@ final class SelectTool implements ToolMode {
       _effect = ToolEffect(selection: ToolSelection.replace(<ScenePath>{hit}));
     }
 
-    // A node whose transform is driven by a track: the static `Transform2` this
-    // drag writes is masked by that track at every `t`, so the move would be
-    // invisible while still costing an undo entry and a `rev` bump. Refuse it
-    // out loud (see [kAnimatedTransformMessage]); selecting it is still honest.
-    if (_hasTransformTrack(ctx.doc, hit.nodeId, ctx.animation)) {
-      _effect = ToolEffect(
-        selection: ToolSelection.replace(<ScenePath>{hit}),
-        message: kAnimatedTransformMessage,
-      );
-      return null;
-    }
-
     // parentWorld⁻¹, from the parent's EVALUATED world — never from the dragged
     // node's authored local (see [_NodeDrag.parentInverse]).
     final parentId = _parentIdOf(ctx.doc, hit.nodeId);
@@ -212,13 +221,23 @@ final class SelectTool implements ToolMode {
     final parentInverse = parent.world.invert();
     if (parentInverse == null) return null; // collapsed: nothing to grab
 
+    // Tracked position -> this drag is a keyframe edit at the playhead, and it
+    // starts from the value the canvas is *showing* (the sample), not from the
+    // rest pose the track is masking.
+    final track = _positionTrack(ctx.doc, hit.nodeId, ctx.animation);
+    final t = ctx.playhead.isNaN ? 0.0 : ctx.playhead.clamp(0.0, 1.0).toDouble();
+    final start = track == null
+        ? node.transform
+        : node.transform.copyWith(position: track.sampleAt(t));
+
     _drag = _NodeDrag(
       node: hit.nodeId,
       base: ctx.doc,
-      original: node.transform,
-      current: node.transform,
+      original: start,
+      current: start,
       parentInverse: parentInverse,
       startDoc: ctx.docPoint,
+      keyAtT: track == null ? null : t,
     );
     return null;
   }
@@ -233,9 +252,10 @@ final class SelectTool implements ToolMode {
     return null; // one command per gesture, on release
   }
 
-  /// **ONE** [SetTransformCommand] per completed drag, on release (docs/v3/04
-  /// §6). A 200-event move is one undo entry and one save, not 200 of each,
-  /// because the live transform never left this object.
+  /// **ONE** command per completed drag, on release (docs/v3/04 §6) — a
+  /// [KeyframeAtCommand] when the node's position is animated, a
+  /// [SetTransformCommand] when it is not. A 200-event move is one undo entry
+  /// and one save either way, because the live transform never left this object.
   @override
   Command? onPointerUp(PointerCtx ctx) {
     final drag = _drag;
@@ -245,6 +265,10 @@ final class SelectTool implements ToolMode {
     // A click that never moved leaves position unchanged; committing it would
     // be an empty undo entry.
     if (!drag.moved) return null;
+    final t = drag.keyAtT;
+    if (t != null) {
+      return KeyframeAtCommand(drag.node, _kPosition, t, drag.current.position);
+    }
     return SetTransformCommand(drag.node, drag.current);
   }
 
@@ -254,7 +278,14 @@ final class SelectTool implements ToolMode {
   /// landed mid-drag is the right cost, and the `assert` keeps it loud in debug.
   Document? _previewOf(_NodeDrag drag) {
     try {
-      return NodeOps.setTransform(drag.base, drag.node, drag.current);
+      final t = drag.keyAtT;
+      // The SAME op the release commits, so the moving shape cannot disagree
+      // with what lands — including on the keyed path, where writing the static
+      // pose instead would leave the preview pinned under its own track.
+      return t == null
+          ? NodeOps.setTransform(drag.base, drag.node, drag.current)
+          : KeyframeOps.keyAt(
+              drag.base, drag.node, _kPosition, t, drag.current.position);
     } on ArgumentError catch (e) {
       assert(false, 'node move preview rejected by an op: $e');
       return null;
@@ -277,26 +308,23 @@ final class SelectTool implements ToolMode {
     return null;
   }
 
-  /// Whether [node] has a **transform** track — position, scale, rotation or
-  /// skewX — in the active animation. Any of the four masks the static
-  /// `Transform2` a move writes. The typed accessors are the right test: a
-  /// malformed stored track returns null, is not evaluated either, and so does
-  /// not mask anything.
-  static bool _hasTransformTrack(
+  /// [node]'s **position** track in the active animation, or null.
+  ///
+  /// The one predicate the drag forks on. The typed accessor is the right test:
+  /// a malformed stored track returns null, is not evaluated either, and so
+  /// masks nothing — the drag then writes the static pose, which is exactly what
+  /// the user will see happen.
+  static Vec2Track? _positionTrack(
     Document doc,
     NodeId node,
     AnimationId? animation,
   ) {
     final id = animation;
-    if (id == null) return false;
+    if (id == null) return null;
     for (final anim in doc.animations) {
       if (anim.id != id) continue;
-      final tracks = anim.tracksFor(node);
-      return tracks.vec2(PropKey.position) != null ||
-          tracks.vec2(PropKey.scale) != null ||
-          tracks.scalar(PropKey.rotation) != null ||
-          tracks.scalar(PropKey.skewX) != null;
+      return anim.tracksFor(node).vec2(PropKey.position);
     }
-    return false;
+    return null;
   }
 }

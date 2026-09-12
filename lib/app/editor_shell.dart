@@ -1,15 +1,21 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:anim_core/anim_core.dart' hide Animation;
+import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'common/editor_toast.dart';
 import 'common/theme.dart';
+import 'common/ui_prefs.dart';
 import 'data/project_store.dart';
 import 'features/canvas/commands.dart';
 import 'features/canvas/widgets/canvas_view.dart';
 import 'features/export/providers.dart';
+import 'features/guide/widgets/guide_dialog.dart';
 import 'features/inspector/widgets/inspector_panel.dart';
 import 'features/layers/commands.dart';
 import 'features/layers/providers.dart';
@@ -71,7 +77,39 @@ class EditorShell extends ConsumerStatefulWidget {
   /// into the canvas as keys are added.
   static const double layersWidth = 248.0;
   static const double inspectorWidth = 260.0;
-  static const double timelineHeight = 84.0;
+
+  /// The timeline's **default** height — the ruler plus three rows, enough to
+  /// see that keys exist and where in time they sit.
+  ///
+  /// It is the one panel whose right size depends on the document rather than on
+  /// the layout: four animated layers is twenty rows, and scrolling a 84-px
+  /// window to find a key is how a timeline stops being a timeline. So it is
+  /// draggable between [timelineMinHeight] and [timelineMaxHeight] — still a
+  /// fixed constraint handed down by this parent at any instant (docs/v3/08 §2,
+  /// last row), just one the user picks. The value is remembered per browser
+  /// through [UiPrefs].
+  static const double timelineHeight = 120.0;
+
+  /// The floor: the readout, the ruler with its scale and handle, and one row.
+  /// Below this the panel can no longer show what it is for, and the drag would
+  /// silently become a hide.
+  static const double timelineMinHeight = 96.0;
+
+  /// The ceiling, further clamped by [workspaceFloor] on a short window — an
+  /// editor whose canvas has been squeezed to nothing is not recoverable by the
+  /// same drag that caused it, because the handle would be off screen.
+  static const double timelineMaxHeight = 420.0;
+
+  /// What the editor above the timeline needs before something in it starts to
+  /// overflow, and therefore the real limit on this drag.
+  ///
+  /// It is a *measured* number, not a guess: the app bar (56) plus the tool
+  /// rail's six fixed 52-px buttons and their padding (318) plus the transport
+  /// row (48), leaving a canvas still worth looking at. The rail is the binding
+  /// constraint — it is a `Column` of fixed buttons with nowhere to scroll, so
+  /// the first thing a too-tall timeline breaks is the toolbar, and it breaks
+  /// with a layout assertion rather than a scrollbar.
+  static const double workspaceFloor = 396.0;
 
   /// The TRANSPORT row (docs/v3/05 §2), between the canvas and the timeline.
   /// Fixed like the timeline, and for the same reason (docs/v3/08 §2, last row):
@@ -99,6 +137,27 @@ class _EditorShellState extends ConsumerState<EditorShell> {
       onPause: _flushPending,
       onDetach: _flushPending,
     );
+    // After the first frame, so the guide opens over a drawn editor rather than
+    // over a blank route — and so `showDialog` has a `Navigator` above it.
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => unawaited(_maybeShowGuide()));
+  }
+
+  /// Open the guide once, for someone who has never opened the editor
+  /// (docs/v3/00 §5's stranger). Every visit after that is button-only — a
+  /// modal that returns is a modal people learn to dismiss without reading.
+  ///
+  /// **Marked seen before it is shown, not after.** The alternative re-nags
+  /// anyone who closes the tab while it is open, and there is nothing in the
+  /// dialog to lose by being early. A storage failure reads as "seen" for the
+  /// same reason: a broken preference must not produce a modal on every load.
+  Future<void> _maybeShowGuide() async {
+    final prefs = ref.read(uiPrefsProvider);
+    final seen = await readPref(prefs.guideSeen, 'guideSeen') ?? true;
+    if (seen || !mounted) return;
+    await writePref(() => prefs.setGuideSeen(true), 'guideSeen');
+    if (!mounted) return;
+    await showEditorGuide(context);
   }
 
   void _flushPending() {
@@ -124,6 +183,10 @@ class _EditorShellState extends ConsumerState<EditorShell> {
         actions: [
           _SaveIndicator(projectId: projectId),
           _ChromeActions(projectId: projectId),
+          // Always enabled, and deliberately outside `_ChromeActions`: the
+          // guide needs no document, and the moment it is most wanted is the
+          // moment nothing has loaded yet.
+          const GuideButton(),
           const ThemeToggleButton(),
           const SizedBox(width: 4),
         ],
@@ -159,7 +222,7 @@ Future<void> _undo(
           .restoreKeyframe(restore.selectedKeyframe);
     }
   } on StoreException catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text(e.failure.message)));
+    showEditorToast(messenger, e.failure.message);
   }
 }
 
@@ -177,7 +240,7 @@ Future<void> _redo(
           .restoreKeyframe(restore.selectedKeyframe);
     }
   } on StoreException catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text(e.failure.message)));
+    showEditorToast(messenger, e.failure.message);
   }
 }
 
@@ -212,7 +275,7 @@ Future<void> _export(
     final base = name.isEmpty ? doc.id : name;
     download('${_safeFileStem(base)}.json', jsonEncode(doc.toJson()));
   } on StoreException catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text(e.failure.message)));
+    showEditorToast(messenger, e.failure.message);
   }
 }
 
@@ -511,6 +574,11 @@ class _EditorBody extends ConsumerWidget {
         const SingleActivator(LogicalKeyboardKey.enter): () => _togglePlay(ref),
         const SingleActivator(LogicalKeyboardKey.numpadEnter): () =>
             _togglePlay(ref),
+        // The conventional help key, and the only binding here that is safe
+        // while a text field has focus — `F1` types no character, so it needs
+        // no `_typingInAField` guard.
+        const SingleActivator(LogicalKeyboardKey.f1): () =>
+            unawaited(showEditorGuide(context)),
       },
       // **The scope that catches released focus** (docs/v3/05 §5).
       //
@@ -582,14 +650,7 @@ class _EditorBody extends ConsumerWidget {
                 ],
               ),
             ),
-            SizedBox(
-              height: EditorShell.timelineHeight,
-              // AC-13.1: the timeline gets its own raster layer, like the canvas,
-              // so a scrub — which drives both the canvas and the timeline's
-              // playhead marker via the shared notifier — repaints each in
-              // isolation and neither forces the other's whole subtree to redraw.
-              child: RepaintBoundary(child: TimelineBar(projectId: projectId)),
-            ),
+            _TimelinePane(projectId: projectId),
           ],
         ),
       ),
@@ -739,16 +800,14 @@ void _duplicate(BuildContext context, WidgetRef ref, String projectId) {
 }
 
 void _toast(BuildContext context, String message) =>
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    showEditorToast(ScaffoldMessenger.of(context), message);
 
 /// Same contract as the panel's reporter: capture the messenger before the
 /// await, and handle `onError` so a rejected edit can never escape as an
 /// unhandled async error (docs/v3/08 §1).
 void _reportShortcut(BuildContext context, Future<String?> pending) {
   final messenger = ScaffoldMessenger.of(context);
-  void show(String message) =>
-      messenger.showSnackBar(SnackBar(content: Text(message)));
+  void show(String message) => showEditorToast(messenger, message);
   pending.then(
     (message) {
       if (message != null) show(message);
@@ -777,6 +836,195 @@ class _ReadOnlyBanner extends StatelessWidget {
         'Edits will not be saved.',
         key: const Key('editor-readonly'),
         style: TextStyle(fontSize: 11, color: scheme.onTertiaryContainer),
+      ),
+    );
+  }
+}
+
+/// The timeline, with the **drag handle that sets its height**.
+///
+/// Its own widget for the reason everything else in this file is: the height is
+/// live state, and a `setState` at the shell level would rebuild the canvas, the
+/// rails and the timeline on every pointer move of the drag — the rebuild storm
+/// [EditorShell] was restructured to remove. So the height is a
+/// `ValueNotifier` and only the `SizedBox` listens; `TimelineBar` is passed as
+/// the builder's `child`, so it keeps its identity (and its expansion state,
+/// its focus and its scroll offset) across the whole drag and is re-*laid out*
+/// rather than rebuilt.
+///
+/// The pane still hands the timeline an explicit constraint at every instant,
+/// which is what docs/v3/08 §2's last row actually asks for — an unconstrained
+/// slot is what makes the fallback `ErrorWidget` throw again during layout.
+class _TimelinePane extends ConsumerStatefulWidget {
+  const _TimelinePane({required this.projectId});
+
+  final String projectId;
+
+  @override
+  ConsumerState<_TimelinePane> createState() => _TimelinePaneState();
+}
+
+class _TimelinePaneState extends ConsumerState<_TimelinePane> {
+  final ValueNotifier<double> _height =
+      ValueNotifier<double>(EditorShell.timelineHeight);
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_restore());
+  }
+
+  @override
+  void dispose() {
+    // Back to the bottom edge: the next screen (the project list) has no
+    // timeline for a toast to clear.
+    setEditorBottomChrome(0);
+    _height.dispose();
+    super.dispose();
+  }
+
+  /// Adopt the remembered height on arrival. Starting at the default and
+  /// adopting the stored value is the same shape [ThemeModeController] uses,
+  /// and for the same reason: the editor must render before storage answers.
+  Future<void> _restore() async {
+    final prefs = ref.read(uiPrefsProvider);
+    final stored = await readPref(prefs.timelineHeight, 'timelineHeight');
+    if (!mounted || stored == null) return;
+    _height.value = _clamp(stored, _ceiling(context));
+  }
+
+  void _persist() => unawaited(writePref(
+      () => ref.read(uiPrefsProvider).setTimelineHeight(_height.value),
+      'timelineHeight'));
+
+  /// The most this window can give the timeline.
+  ///
+  /// [EditorShell.workspaceFloor] is what keeps the canvas, the transport row,
+  /// the tool rail **and the handle itself** on screen: a drag that could hide
+  /// its own handle is a one-way door, and one that overflows the rail turns a
+  /// resize into a layout assertion. On a tall window the absolute
+  /// [EditorShell.timelineMaxHeight] binds first instead — past roughly twenty
+  /// rows a taller timeline is a scroll, not a view.
+  static double _ceiling(BuildContext context) => math.max(
+        EditorShell.timelineMinHeight,
+        math.min(EditorShell.timelineMaxHeight,
+            MediaQuery.sizeOf(context).height - EditorShell.workspaceFloor),
+      );
+
+  /// Total, like every other value that reaches a constraint: a NaN out of
+  /// storage or out of a degenerate drag would propagate into `SizedBox` and
+  /// take the layout with it, and `clamp` cannot rescue a NaN because every
+  /// comparison against one is false.
+  static double _clamp(double h, double ceiling) => h.isFinite
+      ? h.clamp(EditorShell.timelineMinHeight, ceiling)
+      : EditorShell.timelineHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    // Read in `build`, so this pane depends on the window size and a browser
+    // resize re-clamps a height that no longer fits.
+    final ceiling = _ceiling(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _TimelineResizeHandle(
+          // Dragging UP grows the timeline, which is the direction the edge
+          // itself moves — the opposite mapping reads as a broken handle.
+          onDrag: (dy) => _height.value = _clamp(_height.value - dy, ceiling),
+          onDragEnd: _persist,
+          onReset: () {
+            _height.value = EditorShell.timelineHeight;
+            _persist();
+          },
+        ),
+        ValueListenableBuilder<double>(
+          valueListenable: _height,
+          // AC-13.1: the timeline gets its own raster layer, like the canvas, so
+          // a scrub — which drives both the canvas and the timeline's playhead
+          // marker via the shared notifier — repaints each in isolation and
+          // neither forces the other's whole subtree to redraw. Passed as
+          // `child` so a resize does not rebuild it at all.
+          child:
+              RepaintBoundary(child: TimelineBar(projectId: widget.projectId)),
+          builder: (context, height, child) {
+            final settled = _clamp(height, ceiling);
+            // Publish the timeline's footprint so a toast floats above it
+            // rather than over the rows the message is usually about. A
+            // write-only assignment — nothing reads it until a toast is shown,
+            // so it cannot feed back into this build.
+            setEditorBottomChrome(settled + _handleHeight);
+            return SizedBox(height: settled, child: child);
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// The grip between the transport row and the timeline.
+///
+/// It is also the divider that used to be there: 8 px of hit area around a
+/// 1-px line, which is the smallest target that can be hit without aiming and
+/// the largest that does not read as a gap. Double-click restores the default,
+/// so a drag is never a decision the user has to undo by eye.
+/// The grip's own height, and therefore part of what a toast has to clear.
+const double _handleHeight = 8.0;
+
+class _TimelineResizeHandle extends StatefulWidget {
+  const _TimelineResizeHandle({
+    required this.onDrag,
+    required this.onDragEnd,
+    required this.onReset,
+  });
+
+  final ValueChanged<double> onDrag;
+  final VoidCallback onDragEnd;
+  final VoidCallback onReset;
+
+  @override
+  State<_TimelineResizeHandle> createState() => _TimelineResizeHandleState();
+}
+
+class _TimelineResizeHandleState extends State<_TimelineResizeHandle> {
+  bool _active = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeRow,
+      onEnter: (_) => setState(() => _active = true),
+      onExit: (_) => setState(() => _active = false),
+      child: GestureDetector(
+        key: const Key('timeline-resize'),
+        behavior: HitTestBehavior.opaque,
+        // `down` so the edge tracks the pointer exactly: with the default the
+        // first 18 px of every drag are eaten by the touch slop and the handle
+        // appears to lag behind the cursor it is supposed to be under.
+        dragStartBehavior: DragStartBehavior.down,
+        onVerticalDragUpdate: (d) => widget.onDrag(d.delta.dy),
+        onVerticalDragEnd: (_) => widget.onDragEnd(),
+        onDoubleTap: widget.onReset,
+        child: Tooltip(
+          message: 'Drag to resize the timeline · double-click to reset',
+          waitDuration: const Duration(milliseconds: 600),
+          child: Container(
+            height: _handleHeight,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              border: Border(top: BorderSide(color: scheme.outlineVariant)),
+            ),
+            child: Container(
+              width: 44,
+              height: 3,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(2),
+                color: _active ? scheme.primary : scheme.outlineVariant,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

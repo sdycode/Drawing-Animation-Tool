@@ -91,19 +91,53 @@ void main() {
     return (c: c, id: s.id, store: s.store);
   }
 
+  /// Scroll [key] into the inspector's viewport and return its finder.
+  ///
+  /// The panel is a **lazy `ListView`** by design (docs/v3/08 §2): a row below
+  /// the fold is not built, so a test that types into one has to bring it on
+  /// screen first, exactly as a user would. The same helper `inspector_paint_
+  /// test.dart` uses, and the reason it exists there too — every row added above
+  /// a field (the playhead strip, in this case) pushes the lower ones out.
+  Future<Finder> reveal(WidgetTester tester, String key) async {
+    final target = find.byKey(Key(key));
+    // `.first` is the ListView's own viewport: every `TextField` already on
+    // screen contributes its own inner `Scrollable`.
+    final list = find
+        .descendant(
+          of: find.byKey(const Key('inspector-transform')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+
+    if (target.evaluate().isEmpty) {
+      await tester.drag(list, const Offset(0, 3000));
+      await tester.pumpAndSettle();
+      if (target.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(target, 90, scrollable: list);
+        await tester.pumpAndSettle();
+      }
+    }
+    await tester.ensureVisible(target);
+    await tester.pumpAndSettle();
+    return target;
+  }
+
   /// Type into a field and commit it the way a user does — Enter.
   Future<void> commitField(
       WidgetTester tester, String fieldKey, String text) async {
-    await tester.enterText(find.byKey(Key(fieldKey)), text);
+    await tester.enterText(await reveal(tester, fieldKey), text);
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
   }
 
-  EditableText editableOf(WidgetTester tester, String fieldKey) =>
-      tester.widget<EditableText>(find.descendant(
-        of: find.byKey(Key(fieldKey)),
-        matching: find.byType(EditableText),
-      ));
+  Future<EditableText> editableOf(
+      WidgetTester tester, String fieldKey) async {
+    await reveal(tester, fieldKey);
+    return tester.widget<EditableText>(find.descendant(
+      of: find.byKey(Key(fieldKey)),
+      matching: find.byType(EditableText),
+    ));
+  }
 
   // --- AC-3.1.1 — every transform channel authors ---------------------------
 
@@ -162,7 +196,7 @@ void main() {
         reason: 'two full turns must not collapse into [0, 2π)');
 
     // The field reads the stored value back as degrees, still unwrapped.
-    expect(editableOf(tester, 'inspector-rotation').controller.text, '720');
+    expect((await editableOf(tester, 'inspector-rotation')).controller.text, '720');
 
     // And the negative multi-turn case — legacy is 13.3's -12.5664.
     await commitField(tester, 'inspector-rotation', '-720');
@@ -238,7 +272,7 @@ void main() {
         reason: 'the edit was a single entry — Enter must not commit twice');
 
     // The field follows the document back.
-    expect(editableOf(tester, 'inspector-position-x').controller.text, '0');
+    expect((await editableOf(tester, 'inspector-position-x')).controller.text, '0');
   });
 
   testWidgets('committing an unchanged value writes no undo entry',
@@ -262,14 +296,14 @@ void main() {
     await tester.enterText(find.byKey(const Key('inspector-position-x')), '55');
     await tester.pump();
     expect(
-        editableOf(tester, 'inspector-position-x').focusNode.hasFocus, isTrue,
+        (await editableOf(tester, 'inspector-position-x')).focusNode.hasFocus, isTrue,
         reason: 'typing focuses the field');
 
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
     expect(
-        editableOf(tester, 'inspector-position-x').focusNode.hasFocus, isFalse,
+        (await editableOf(tester, 'inspector-position-x')).focusNode.hasFocus, isFalse,
         reason: 'a focused DOM input would swallow the next Cmd/Ctrl+Z');
     expect(transformOf(t.c, t.id, 'sq').position.x, 55);
   });
@@ -297,7 +331,7 @@ void main() {
     final scale = transformOf(t.c, t.id, 'sq').scale;
     expect(scale.x, 1.0, reason: 'the document keeps its last good value');
     expect(scale.x.isNaN, isFalse);
-    expect(editableOf(tester, 'inspector-scale-x').controller.text, '1',
+    expect((await editableOf(tester, 'inspector-scale-x')).controller.text, '1',
         reason: 'the field snaps back to what is actually in force');
     expect(t.c.read(documentControllerProvider(t.id).notifier).canUndo, isFalse,
         reason: 'a rejected entry is not an edit');
@@ -386,7 +420,7 @@ void main() {
     final t = await open(tester);
     final controller = t.c.read(documentControllerProvider(t.id).notifier);
 
-    expect(editableOf(tester, 'inspector-opacity').controller.text, '100',
+    expect((await editableOf(tester, 'inspector-opacity')).controller.text, '100',
         reason: 'a fresh node is fully opaque, shown as percent');
 
     await commitField(tester, 'inspector-opacity', '40');
@@ -401,7 +435,7 @@ void main() {
     expect(docOf(t.c, t.id).nodeIndex[const NodeId('sq')]!.opacity, 1.0);
     expect(controller.canUndo, isFalse,
         reason: 'the edit was a single entry — Enter must not commit twice');
-    expect(editableOf(tester, 'inspector-opacity').controller.text, '100',
+    expect((await editableOf(tester, 'inspector-opacity')).controller.text, '100',
         reason: 'the field follows the document back');
   });
 
@@ -442,7 +476,7 @@ void main() {
 
     editor.selectNode(const ScenePath(NodeId('kid')));
     await tester.pumpAndSettle();
-    expect(editableOf(tester, 'inspector-opacity').controller.text, '100',
+    expect((await editableOf(tester, 'inspector-opacity')).controller.text, '100',
         reason: 'the field shows the CHILD\'S OWN opacity, never an effective '
             'product — a derived value beside the authored one is the '
             'docs/v3/08 §4 desync');
@@ -508,7 +542,7 @@ void main() {
     await commitField(tester, 'inspector-position-x', '88');
     expect(transformOf(t.c, t.id, 'sq').position.x, 88);
     expect(
-        editableOf(tester, 'inspector-position-x').focusNode.hasFocus, isFalse);
+        (await editableOf(tester, 'inspector-position-x')).focusNode.hasFocus, isFalse);
 
     // No canvas click in between. `unfocus()` hands focus to the nearest
     // enclosing scope, and the shell owns one — without it the released focus
@@ -600,7 +634,7 @@ void main() {
 
     // 1. Empty diamond, playhead at 0 → keys the current rotation, creating the
     //    track (this is how a brand-new track is born from the inspector).
-    await tester.tap(find.byKey(const Key('kf-rotation')));
+    await tester.tap(await reveal(tester, 'kf-rotation'));
     await tester.pumpAndSettle();
     final keyed = rotationTrack(t.c, t.id);
     expect(keyed, isNotNull);
@@ -633,7 +667,7 @@ void main() {
     expect(twoKeys.keys[1].value, closeTo(math.pi / 2, 1e-9));
 
     // 4. The diamond is now filled (playhead on the t=0.5 key) → a tap removes it.
-    await tester.tap(find.byKey(const Key('kf-rotation')));
+    await tester.tap(await reveal(tester, 'kf-rotation'));
     await tester.pumpAndSettle();
     final afterRemove = rotationTrack(t.c, t.id);
     expect(afterRemove, isNotNull);
@@ -651,7 +685,7 @@ void main() {
     await commitField(tester, 'inspector-rotation', '30');
     final revBefore = docOf(t.c, t.id).rev;
 
-    await tester.tap(find.byKey(const Key('kf-rotation')));
+    await tester.tap(await reveal(tester, 'kf-rotation'));
     await tester.pumpAndSettle();
 
     // Persisted: reload the RAW bytes from the store and decode.
@@ -690,7 +724,7 @@ void main() {
     final t = await open(tester);
 
     // Key position at t=0 (value (0,0)), then work at t=1.0.
-    await tester.tap(find.byKey(const Key('kf-position')));
+    await tester.tap(await reveal(tester, 'kf-position'));
     await tester.pumpAndSettle();
     expect(positionTrack(t.c, t.id)!.keyCount, 1);
 

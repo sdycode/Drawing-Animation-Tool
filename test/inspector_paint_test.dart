@@ -291,7 +291,9 @@ void main() {
     expect(pathOf(t.c, t.id).fills, isEmpty);
     expect((await reloaded(t.store, t.id)).nodeIndex[sq],
         isA<PathNode>().having((n) => n.fills, 'saved fills', isEmpty));
-    expect(find.byKey(const Key('inspector-add-fill')), findsOneWidget,
+    // Revealed, not merely found: removing the fill shortens the list, so the
+    // row that replaces it can land below the fold of the lazy panel.
+    expect(await reveal(tester, 'inspector-add-fill'), findsOneWidget,
         reason: 'the section offers to add one again');
 
     await ctrlZ(tester);
@@ -908,6 +910,147 @@ void main() {
     // the document just because the display is quantized.
     await commitField(tester, 'inspector-fill-color', '#FF8000');
     expect(ctrl(t.c, t.id).canUndo, isFalse);
+  });
+
+  // --- AC-5.1.1 — picking, not typing ---------------------------------------
+  //
+  // The hex field proves a colour can be *stated*; these prove one can be
+  // *picked*. The properties that matter are the same ones every other control
+  // owes: one gesture is one undo entry (a drag emits a colour per pointer
+  // frame, so this is the coalescing span or nothing), the picked colour is the
+  // one the document ends up holding, and the popover cannot outlive its field.
+
+  Finder swatchOf(String fieldKey) => find.descendant(
+        of: find.byKey(Key(fieldKey)),
+        matching: find.byKey(const Key('color-swatch')),
+      );
+
+  Future<void> openPicker(WidgetTester tester, String fieldKey) async {
+    await reveal(tester, fieldKey);
+    await tester.tap(swatchOf(fieldKey));
+    await tester.pumpAndSettle();
+  }
+
+  /// Drag across a rail from its left edge to [toFraction] of its width, as a
+  /// real pointer does: down, several moves, up.
+  Future<void> dragRail(
+      WidgetTester tester, String railKey, double toFraction) async {
+    final rect = tester.getRect(find.byKey(Key(railKey)));
+    final y = rect.center.dy;
+    final gesture = await tester.startGesture(Offset(rect.left + 2, y));
+    await tester.pump();
+    for (var i = 1; i <= 4; i++) {
+      await gesture
+          .moveTo(Offset(rect.left + rect.width * toFraction * i / 4, y));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets(
+      'the swatch opens a picker, and a whole hue drag is ONE undo entry that '
+      'Ctrl+Z reverts (AC-5.1.1)', (tester) async {
+    const red = Rgba(1, 0, 0);
+    final t = await open(tester, [
+      square('sq', fills: [solidFill('f', red)])
+    ]);
+
+    expect(find.byKey(const Key('color-picker')), findsNothing);
+    await openPicker(tester, 'inspector-fill-color');
+    expect(find.byKey(const Key('color-picker')), findsOneWidget);
+
+    // Half way along the hue rail is cyan — green and blue up, red gone. The
+    // drag emits a colour per pointer move; the span is what makes it one entry.
+    await dragRail(tester, 'color-picker-hue', 0.5);
+
+    final picked = (pathOf(t.c, t.id).fills.single.paint as SolidPaint).color;
+    expect(picked.r, lessThan(0.5));
+    expect(picked.b, greaterThan(0.5));
+    expect(picked.a, closeTo(1.0, 1e-9), reason: 'a hue drag leaves alpha be');
+    expect(ctrl(t.c, t.id).undoLabel, 'Pick colour');
+
+    // The hex field is the picker's readout, not a second source of truth.
+    expect(editableOf(tester, 'inspector-fill-color').controller.text,
+        startsWith('#'));
+
+    await ctrlZ(tester);
+    expect((pathOf(t.c, t.id).fills.single.paint as SolidPaint).color, red);
+    expect(ctrl(t.c, t.id).canUndo, isFalse,
+        reason: 'a ~5-event drag coalesced into a single entry');
+  });
+
+  testWidgets('the alpha rail authors translucency and the picked colour saves',
+      (tester) async {
+    final t = await open(tester, [
+      square('sq', fills: [solidFill('f', const Rgba(1, 0, 0))])
+    ]);
+
+    await openPicker(tester, 'inspector-fill-color');
+    await dragRail(tester, 'color-picker-alpha', 0.5);
+
+    final picked = (pathOf(t.c, t.id).fills.single.paint as SolidPaint).color;
+    expect(picked.a, closeTo(0.5, 0.05));
+    expect(picked.r, closeTo(1.0, 1e-9), reason: 'alpha only moved alpha');
+
+    final onDisk = await reloaded(t.store, t.id);
+    final saved =
+        ((onDisk.nodeIndex[sq]! as PathNode).fills.single.paint as SolidPaint)
+            .color;
+    expect(saved.a, closeTo(0.5, 0.05),
+        reason: 'the span writes ONE save, and it is the settled colour');
+  });
+
+  testWidgets(
+      'a preset is one tap, one undo entry, and it keeps the alpha in force',
+      (tester) async {
+    const translucentRed = Rgba(1, 0, 0, 0.4);
+    final t = await open(tester, [
+      square('sq', fills: [solidFill('f', translucentRed)])
+    ]);
+
+    await openPicker(tester, 'inspector-fill-color');
+    // `color-preset-11` is the blue one (0xFF1E88E5).
+    await tester.tap(find.byKey(const Key('color-preset-11')));
+    await tester.pumpAndSettle();
+
+    final picked = (pathOf(t.c, t.id).fills.single.paint as SolidPaint).color;
+    expect(picked.r, closeTo(0x1E / 255, 1 / 255));
+    expect(picked.g, closeTo(0x88 / 255, 1 / 255));
+    expect(picked.b, closeTo(0xE5 / 255, 1 / 255));
+    expect(picked.a, closeTo(0.4, 1e-9),
+        reason: 'a preset is a hue, not a licence to re-opaque the fill');
+    expect(ctrl(t.c, t.id).undoLabel, 'Pick colour');
+
+    await ctrlZ(tester);
+    expect((pathOf(t.c, t.id).fills.single.paint as SolidPaint).color,
+        translucentRed);
+    expect(ctrl(t.c, t.id).canUndo, isFalse);
+  });
+
+  testWidgets(
+      'the picker closes on an outside tap and never outlives its field',
+      (tester) async {
+    final t = await open(tester, [
+      square('sq', fills: [solidFill('f', const Rgba(1, 0, 0))])
+    ]);
+
+    await openPicker(tester, 'inspector-fill-color');
+    expect(find.byKey(const Key('color-picker')), findsOneWidget);
+
+    // A tap anywhere off the card dismisses it — the barrier's whole job.
+    await tester.tapAt(const Offset(20, 300));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('color-picker')), findsNothing);
+
+    // And a field torn down with the picker open takes the popover with it:
+    // deselecting removes the paint section entirely.
+    await openPicker(tester, 'inspector-fill-color');
+    expect(find.byKey(const Key('color-picker')), findsOneWidget);
+    t.c.read(editorControllerProvider.notifier).clearSelection();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('color-picker')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   // --- The panel stays calm for the things it does not author --------------

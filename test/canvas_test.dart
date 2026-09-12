@@ -6,14 +6,7 @@ import 'package:anim_render/anim_render.dart';
 import 'package:drawing_animation_tool/app/data/memory_project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/editor_shell.dart';
-// The refusal moved with the behaviour that raises it: M3 dispatches every
-// pointer event through the active `ToolMode`, so declining to move a node
-// whose transform is animated is now the Select tool's decision, and the
-// sentence lives beside it. `features/canvas` may not import `features/tools`
-// (docs/v3/08 §3), which is what forced — and settled — where it belongs.
 import 'package:drawing_animation_tool/app/features/tools/registry.dart';
-import 'package:drawing_animation_tool/app/features/tools/select/select_tool.dart'
-    show kAnimatedTransformMessage;
 import 'package:drawing_animation_tool/app/state/tool_controller.dart';
 import 'package:drawing_animation_tool/app/state/document_controller.dart';
 import 'package:drawing_animation_tool/app/state/editor_controller.dart';
@@ -451,22 +444,118 @@ void main() {
     expect(after.y - grabDoc.y, closeTo(screenDelta.dy / fit.a, 0.01));
   });
 
+  /// The node's position track in the active animation, or null.
+  Vec2Track? positionTrack(ProviderContainer c, String id) {
+    final doc = c.read(documentControllerProvider(id)).requireValue;
+    for (final a in doc.animations) {
+      if (a.id != doc.defaultAnimationId) continue;
+      return a.tracksFor(const NodeId('sq')).vec2(PropKey.position);
+    }
+    return null;
+  }
+
+  /// A document whose square's POSITION is animated: `0,0` at t=0 and `60,20`
+  /// at t=1. No M2 UI authors this, but it is legal, decodable v3 — and from M4
+  /// on it is what the inspector's ◇ writes.
+  ({MemoryProjectStore store, String id}) seedAnimated() => seed(
+        [square('sq', const Vec2(100, 60), 60)],
+        tracks: {
+          const NodeId('sq'): TrackSet({
+            const PropertyKey(PropKey.position): Vec2Track([
+              const Keyframe(t: 0.0, value: Vec2.zero),
+              const Keyframe(t: 1.0, value: Vec2(60, 20)),
+            ]),
+          }),
+        },
+      );
+
   testWidgets(
-      'a node whose transform is animated refuses the drag and says so — '
-      'no silent overwrite, no undo entry, no rev bump', (tester) async {
-    // No M2 UI authors transform tracks, so this document comes from elsewhere
-    // — and it is legal, decodable v3. The static `Transform2` a canvas drag
-    // writes is masked by the track at every `t`, so committing it would record
-    // an undo entry and bump `rev` for a change nobody can see. The refusal
-    // used to be an `assert` on a legal document property: it threw out of
-    // `_onPanEnd` in debug and silently overwrote in release.
+      'dragging an ANIMATED node writes the keyframe under the playhead, not '
+      'the rest pose (auto-key)', (tester) async {
+    // The drag used to be REFUSED here, with a sentence telling the user to
+    // "keyframe it, not drag it" — while the same value stayed editable by
+    // typing in the inspector, which keys at the playhead. Dragging is the
+    // gesture everyone reaches for first, so it now takes the same route.
+    final s = seedAnimated();
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    final doc = c.read(documentControllerProvider(s.id).notifier);
+    final revBefore = c.read(documentControllerProvider(s.id)).requireValue.rev;
+
+    final box = canvasRect(tester);
+    final fit = artboardFit(artboard, box.size);
+    const screenDelta = Offset(40, 25);
+    // The playhead sits at t = 0, where the key holds `0,0`, so the square is
+    // drawn at its authored geometry and its centre is (130, 90).
+    await tester.dragFrom(toScreen(const Vec2(130, 90), box), screenDelta);
+    await tester.pumpAndSettle();
+
+    final track = positionTrack(c, s.id)!;
+    expect(track.keyCount, 2, reason: 'the key under the playhead was EDITED');
+    expect(track.keys.first.t, 0.0);
+    expect(track.keys.first.value.x, closeTo(screenDelta.dx / fit.a, 0.01));
+    expect(track.keys.first.value.y, closeTo(screenDelta.dy / fit.a, 0.01));
+    expect(track.keys.last.value, const Vec2(60, 20),
+        reason: 'the other key is untouched');
+
+    final node = c
+        .read(documentControllerProvider(s.id))
+        .requireValue
+        .nodeIndex[const NodeId('sq')]!;
+    expect(node.transform.position, Vec2.zero,
+        reason: 'edit-at-keyframe: the static pose is not what moved');
+
+    expect(doc.canUndo, isTrue, reason: 'ONE entry for the whole drag');
+    expect(c.read(documentControllerProvider(s.id)).requireValue.rev,
+        greaterThan(revBefore));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dragging BETWEEN keys inserts a new one at the playhead',
+      (tester) async {
+    final s = seedAnimated();
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    // Half way: the track evaluates to (30, 10), so the square is drawn there
+    // and that is where the user grabs it.
+    c.read(playheadProvider).value = 0.5;
+    await tester.pumpAndSettle();
+
+    final box = canvasRect(tester);
+    final fit = artboardFit(artboard, box.size);
+    const screenDelta = Offset(-30, 20);
+    await tester.dragFrom(toScreen(const Vec2(160, 100), box), screenDelta);
+    await tester.pumpAndSettle();
+
+    final track = positionTrack(c, s.id)!;
+    expect(track.keyCount, 3, reason: 'a third key, where the playhead was');
+    final inserted = track.keys[1];
+    expect(inserted.t, closeTo(0.5, 1e-9));
+    expect(inserted.value.x, closeTo(30 + screenDelta.dx / fit.a, 0.05),
+        reason: 'the drag starts from the SAMPLED value, not the rest pose');
+    expect(inserted.value.y, closeTo(10 + screenDelta.dy / fit.a, 0.05));
+  });
+
+  testWidgets(
+      'a node animated on another channel still drags its static position',
+      (tester) async {
+    // The old guard refused a drag when ANY of position/scale/rotation/skew was
+    // tracked. The evaluator composes per channel, so a static position edit on
+    // a rotation-animated node is perfectly visible — refusing it cost the user
+    // a move for nothing.
     final s = seed(
       [square('sq', const Vec2(100, 60), 60)],
       tracks: {
         const NodeId('sq'): TrackSet({
-          const PropertyKey(PropKey.position): Vec2Track([
-            const Keyframe(t: 0.0, value: Vec2.zero),
-            const Keyframe(t: 1.0, value: Vec2(60, 20)),
+          const PropertyKey(PropKey.rotation): ScalarTrack([
+            const Keyframe(t: 0.0, value: 0.0),
+            const Keyframe(t: 1.0, value: 1.0),
           ]),
         }),
       },
@@ -476,25 +565,20 @@ void main() {
     await tester.pumpWidget(harness(c, s.id));
     await tester.pumpAndSettle();
 
-    final doc = c.read(documentControllerProvider(s.id).notifier);
-    final revBefore = c.read(documentControllerProvider(s.id)).requireValue.rev;
-    final diskBefore = (await s.store.load(s.id))!;
-
     final box = canvasRect(tester);
-    await tester.dragFrom(
-        toScreen(const Vec2(130, 90), box), const Offset(40, 25));
+    final fit = artboardFit(artboard, box.size);
+    const screenDelta = Offset(35, -20);
+    await tester.dragFrom(toScreen(const Vec2(130, 90), box), screenDelta);
     await tester.pumpAndSettle();
 
-    expect(find.text(kAnimatedTransformMessage), findsOneWidget,
-        reason: 'a refusal the user can read, not a silent no-op');
-    expect(editorOf(c).selectedNodes, {const ScenePath(NodeId('sq'))},
-        reason: 'selecting it is still honest');
-    expect(doc.canUndo, isFalse, reason: 'nothing was committed');
-    expect(
-        c.read(documentControllerProvider(s.id)).requireValue.rev, revBefore);
-    expect(await s.store.load(s.id), diskBefore);
-    expect(tester.takeException(), isNull,
-        reason: 'a legal document property is never an assert');
+    final node = c
+        .read(documentControllerProvider(s.id))
+        .requireValue
+        .nodeIndex[const NodeId('sq')]!;
+    expect(node.transform.position.x, closeTo(screenDelta.dx / fit.a, 0.01));
+    expect(node.transform.position.y, closeTo(screenDelta.dy / fit.a, 0.01));
+    expect(positionTrack(c, s.id), isNull,
+        reason: 'an untracked channel stays untracked — no surprise keyframe');
   });
 
   testWidgets(

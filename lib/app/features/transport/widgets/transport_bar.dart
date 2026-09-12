@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../common/editor_toast.dart';
 import '../../../common/number_field.dart';
 import '../../../state/editor_controller.dart';
 import '../commands.dart';
@@ -137,8 +138,7 @@ class _TransportBarState extends ConsumerState<TransportBar>
   /// snackbar rather than an unhandled async error (docs/v3/08 §1).
   void _report(Future<String?> pending) {
     final messenger = ScaffoldMessenger.of(context);
-    void show(String message) =>
-        messenger.showSnackBar(SnackBar(content: Text(message)));
+    void show(String message) => showEditorToast(messenger, message);
     pending.then(
       (message) {
         if (message != null) show(message);
