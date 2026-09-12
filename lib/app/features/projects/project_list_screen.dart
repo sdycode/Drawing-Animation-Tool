@@ -45,6 +45,89 @@ Future<bool> _confirmSignOut(BuildContext context) async {
 /// Asks for a name, because rename does not exist yet and a list of
 /// indistinguishable "Untitled" rows cannot demonstrate that save and reload
 /// actually worked.
+/// Delete a project — **only** after an explicit confirmation (F11.1).
+///
+/// **This is the one destructive action in the app with nothing behind it.**
+/// Every other delete — a layer, an anchor, a keyframe — is a `Command` on the
+/// undo stack, so a mis-click costs one `Cmd/Ctrl+Z`. This one reaches straight
+/// past the stack to `ProjectStore.delete`, which unlinks the bytes: there is no
+/// command, no snapshot, no trash to restore from, and on Firestore no local
+/// copy either. One stray click on an 18 px icon, sitting on the same row as
+/// "open this project", destroyed a project permanently and silently. The
+/// dialog is the whole safety mechanism, which is why it names the project
+/// rather than asking "are you sure?" — the question worth answering is *which
+/// one*, and a generic prompt is one people learn to dismiss without reading.
+///
+/// **Cancel holds the focus**, not Delete, so a stray `Enter` on an autofocused
+/// destructive button cannot do the thing the dialog exists to prevent.
+/// Dismissing the barrier or pressing `Esc` returns null, which is the same
+/// answer as Cancel.
+///
+/// The `StoreException` catch is not incidental. The call this replaced dropped
+/// its future entirely — a delete that failed (offline, permissions, a
+/// concurrent delete) surfaced as an unhandled async error while the row simply
+/// stayed put, telling the user nothing. `create` two blocks below always
+/// handled it; this now does too, through a messenger captured *before* the
+/// dialog's async gap rather than a `BuildContext` used across it.
+Future<void> _deleteProject(
+    BuildContext context, WidgetRef ref, ProjectSummary project) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (_) => _DeleteProjectDialog(name: project.name),
+  );
+  if (confirmed != true) return;
+  try {
+    await ref.read(projectActionsProvider).delete(project.id);
+  } on StoreException catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(e.failure.message)));
+  }
+}
+
+/// The confirmation itself. Pops `true` only from the Delete button; every
+/// other exit — Cancel, `Esc`, a tap on the barrier — pops null.
+class _DeleteProjectDialog extends StatelessWidget {
+  const _DeleteProjectDialog({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AlertDialog(
+      key: const Key('delete-project-dialog'),
+      icon: Icon(Icons.delete_forever_outlined, color: scheme.error),
+      title: Text(
+        // An empty name would render as `Delete ""?`, so fall back to the same
+        // word the list itself shows for an unnamed project.
+        'Delete "${name.trim().isEmpty ? 'Untitled' : name.trim()}"?',
+      ),
+      content: const Text(
+        'This deletes the project and every frame in it, for good. '
+        'It cannot be undone.',
+        style: TextStyle(fontSize: 13),
+      ),
+      actions: [
+        TextButton(
+          key: const Key('delete-project-cancel'),
+          autofocus: true,
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('delete-project-confirm'),
+          style: FilledButton.styleFrom(
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
+          ),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Delete'),
+        ),
+      ],
+    );
+  }
+}
+
 Future<String?> _askProjectName(BuildContext context) async {
   final name = await showDialog<String>(
     context: context,
@@ -256,10 +339,10 @@ class ProjectListScreen extends ConsumerWidget {
                                 style: const TextStyle(fontSize: 11)),
                             onTap: () => onOpen(p.id),
                             trailing: IconButton(
+                              key: Key('delete-project-${p.id}'),
                               tooltip: 'Delete',
                               icon: const Icon(Icons.delete_outline, size: 18),
-                              onPressed: () =>
-                                  ref.read(projectActionsProvider).delete(p.id),
+                              onPressed: () => _deleteProject(context, ref, p),
                             ),
                           );
                         },

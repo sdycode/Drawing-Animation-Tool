@@ -7,6 +7,7 @@ import 'package:drawing_animation_tool/app/data/project_store.dart';
 import 'package:drawing_animation_tool/app/data/providers.dart';
 import 'package:drawing_animation_tool/app/features/projects/project_list_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -46,6 +47,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), name);
     await tester.tap(find.byKey(const Key('new-project-confirm')));
+    await tester.pumpAndSettle();
+  }
+
+  /// Open the delete confirmation for the only project on screen.
+  Future<void> tapDelete(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Delete'));
     await tester.pumpAndSettle();
   }
 
@@ -100,16 +107,106 @@ void main() {
     expect(opened, [(await store.list()).single.id]);
   });
 
-  testWidgets('deleting returns the list to empty', (tester) async {
+  // --- Deleting a project is confirmed first (it has NO undo) --------------
+
+  testWidgets('deleting asks first, then returns the list to empty',
+      (tester) async {
     await tester.pumpWidget(harness());
     await tester.pumpAndSettle();
     await createProject(tester, 'Doomed');
 
-    await tester.tap(find.byTooltip('Delete'));
+    await tapDelete(tester);
+
+    // The trash alone does NOT delete. Every other delete in the app is one
+    // Cmd/Ctrl+Z away; this one unlinks the bytes with nothing behind it, so
+    // the dialog is the whole safety mechanism.
+    expect(find.byKey(const Key('delete-project-dialog')), findsOneWidget);
+    expect(await store.list(), hasLength(1),
+        reason: 'nothing is destroyed before the user confirms');
+
+    await tester.tap(find.byKey(const Key('delete-project-confirm')));
     await tester.pumpAndSettle();
 
     expect(find.text('No projects yet'), findsOneWidget);
     expect(await store.list(), isEmpty);
+  });
+
+  testWidgets('the dialog NAMES the project, so "which one" is answerable',
+      (tester) async {
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+    await createProject(tester, 'Signature Reveal');
+
+    await tapDelete(tester);
+
+    // Not "Are you sure?" — a generic prompt is one people learn to dismiss
+    // without reading, and the question actually worth answering is which
+    // project is about to go.
+    expect(find.text('Delete "Signature Reveal"?'), findsOneWidget);
+    expect(find.textContaining('cannot be undone'), findsOneWidget);
+  });
+
+  testWidgets('Cancel keeps the project', (tester) async {
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+    await createProject(tester, 'Spared');
+
+    await tapDelete(tester);
+    await tester.tap(find.byKey(const Key('delete-project-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('delete-project-dialog')), findsNothing);
+    expect(find.text('Spared'), findsOneWidget);
+    expect(await store.list(), hasLength(1));
+  });
+
+  testWidgets('dismissing the dialog with Esc keeps the project',
+      (tester) async {
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+    await createProject(tester, 'Spared');
+
+    await tapDelete(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('delete-project-dialog')), findsNothing);
+    expect(await store.list(), hasLength(1),
+        reason: 'every exit that is not the Delete button means "no"');
+  });
+
+  testWidgets('a stray Enter on the open dialog does NOT delete',
+      (tester) async {
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+    await createProject(tester, 'Spared');
+
+    await tapDelete(tester);
+    // Cancel holds the focus, never Delete — an autofocused destructive button
+    // would let the keyboard do the one thing this dialog exists to prevent.
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(await store.list(), hasLength(1));
+  });
+
+  testWidgets('a store failure on delete surfaces inline, not as a crash',
+      (tester) async {
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+    await createProject(tester, 'Stubborn');
+
+    await tapDelete(tester);
+    store.failNext = StoreFailure.network;
+    await tester.tap(find.byKey(const Key('delete-project-confirm')));
+    await tester.pumpAndSettle();
+
+    // The call this replaced dropped its future: a failed delete was an
+    // unhandled async error and the row just stayed put, saying nothing.
+    expect(find.text(StoreFailure.network.message), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(find.text('Stubborn'), findsOneWidget,
+        reason: 'the project is still there, and the list still shows it');
   });
 
   testWidgets('a store failure on save surfaces inline, not as a crash',
