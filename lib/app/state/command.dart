@@ -93,6 +93,31 @@ final class DuplicateSubtreeCommand implements Command {
   Document apply(Document d) => NodeOps.duplicateSubtree(d, node);
 }
 
+/// Delete whole layers — the layers-panel trash and `Del` (F2.1, F2.2).
+///
+/// **One command for the whole selection, and therefore one undo entry**, which
+/// is why it carries a list rather than being run once per row: deleting three
+/// selected layers is one gesture, and making the user undo it three times to
+/// get them back would be the same defect a per-id `DuplicateSubtreeCommand`
+/// would have. `NodeOps.deleteNodes` also prunes every `Animation` track keyed
+/// by a removed node, inside that same single `Document`, so the keyframes come
+/// back with the layers on undo instead of lingering as orphans in the save.
+///
+/// Distinct from [DeleteAnchorCommand], which removes a *point* from one path
+/// and leaves the node standing. Both are bound to `Del`; the shell picks
+/// between them by tool and selection, never both at once.
+final class DeleteNodesCommand implements Command {
+  const DeleteNodesCommand(this.nodes);
+
+  final List<NodeId> nodes;
+
+  @override
+  String get label => nodes.length == 1 ? 'Delete layer' : 'Delete layers';
+
+  @override
+  Document apply(Document d) => NodeOps.deleteNodes(d, nodes);
+}
+
 /// Rename a node in the tree — the layers-panel rename (F2.2).
 ///
 /// Distinct from [RenameDocumentCommand]: this touches one node's `name`, that

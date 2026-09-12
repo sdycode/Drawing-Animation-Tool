@@ -910,6 +910,220 @@ void main() {
     expect(c.read(documentControllerProvider(s.id).notifier).canUndo, isFalse);
   });
 
+  // --- Delete (F2.2) --------------------------------------------------------
+
+  testWidgets(
+      'the row trash deletes that layer, its descendants and its keyframes — '
+      'and ONE Ctrl+Z brings all three back', (tester) async {
+    final s = seed(nestedTree());
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    // Key the group that is about to be deleted, and one node outside it, so
+    // the prune has something to remove AND something it must not touch.
+    final controller = c.read(documentControllerProvider(s.id).notifier);
+    await controller.run(const SetOpacityCommand(NodeId('leaf'), 0.5));
+    final animId = docOf(c, s.id).defaultAnimation?.id;
+
+    final idsBefore = docOf(c, s.id).walk().map((n) => n.id.v).toSet();
+    expect(idsBefore, containsAll(<String>['outer', 'inner', 'leaf', 'mid']));
+
+    await tester.tap(find.byKey(const Key('layer-delete-outer')));
+    await tester.pumpAndSettle();
+
+    final after = docOf(c, s.id);
+    expect(after.root.children.map((n) => n.id.v), ['back'],
+        reason: 'the group went');
+    for (final gone in const ['outer', 'inner', 'leaf', 'mid']) {
+      expect(after.nodeIndex[NodeId(gone)], isNull,
+          reason: '$gone was inside the deleted group');
+    }
+    if (animId != null) {
+      for (final a in after.animations) {
+        expect(a.tracks.keys.map((k) => k.v), isNot(contains('leaf')),
+            reason: 'a descendant\'s tracks go with it — no orphans in the save');
+      }
+    }
+    expect(tester.takeException(), isNull);
+
+    // ONE undo entry for the whole subtree.
+    await pressCtrl(tester, LogicalKeyboardKey.keyZ);
+    expect(docOf(c, s.id).walk().map((n) => n.id.v).toSet(), idsBefore,
+        reason: 'tree and tracks return together, in one entry');
+    expect(controller.canUndo, isTrue,
+        reason: 'the opacity edit is still behind it, so the delete was one');
+  });
+
+  testWidgets('deleting a selected layer narrows the selection to survivors',
+      (tester) async {
+    final s = seed(nestedTree());
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    // `leaf` is INSIDE `outer`; `back` is not. Deleting `outer` must drop the
+    // first and keep the second — the reason the check is an ancestor walk and
+    // not `removed.contains`.
+    c.read(editorControllerProvider.notifier)
+      ..selectNode(const ScenePath(NodeId('leaf')))
+      ..addToSelection(const ScenePath(NodeId('back')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('layer-delete-outer')));
+    await tester.pumpAndSettle();
+
+    expect(c.read(editorControllerProvider).selectedNodes,
+        {const ScenePath(NodeId('back'))},
+        reason: 'the descendant died with its group; the sibling survived');
+  });
+
+  testWidgets('a LOCKED row offers a disabled trash, and stays in the document',
+      (tester) async {
+    final s = seed([
+      square('open', Vec2.zero, 30),
+      square('shut', const Vec2(60, 0), 30, locked: true),
+    ]);
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('layer-delete-shut')))
+            .onPressed,
+        isNull,
+        reason: 'delete is the most destructive authored edit a lock protects '
+            'against (AC-2.2.6)');
+    expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('layer-delete-open')))
+            .onPressed,
+        isNotNull);
+
+    await tester.tap(find.byKey(const Key('layer-delete-shut')));
+    await tester.pumpAndSettle();
+    expect(docOf(c, s.id).root.children.map((n) => n.id.v), ['open', 'shut']);
+  });
+
+  testWidgets('an UnknownNode has no eye and no lock, but IS deletable',
+      (tester) async {
+    final s = seed([square('real', Vec2.zero, 30), mystery('future')]);
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    // The typed toggles are refused by NodeOps, so the row shows a badge.
+    expect(find.byKey(const Key('layer-visible-future')), findsNothing);
+    expect(find.byKey(const Key('layer-lock-future')), findsNothing);
+    // Delete writes no typed field — it removes the raw blob whole.
+    await tester.tap(find.byKey(const Key('layer-delete-future')));
+    await tester.pumpAndSettle();
+
+    expect(docOf(c, s.id).root.children.map((n) => n.id.v), ['real']);
+    expect(tester.takeException(), isNull);
+
+    // And it round-trips: the save holds exactly what the screen shows.
+    final reloaded = await reload(s.store, s.id);
+    expect(reloaded.root.children.map((n) => n.id.v), ['real']);
+  });
+
+  testWidgets(
+      'the header button deletes the WHOLE multi-selection as one entry, and '
+      'Del does the same (docs/v3/05 §5)', (tester) async {
+    final s = seed(nestedTree());
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    // Two rows in DIFFERENT parents — delete has no common-parent rule,
+    // because it moves nothing.
+    c.read(editorControllerProvider.notifier)
+      ..selectNode(const ScenePath(NodeId('back')))
+      ..addToSelection(const ScenePath(NodeId('mid')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('layers-delete')));
+    await tester.pumpAndSettle();
+
+    expect(docOf(c, s.id).nodeIndex[const NodeId('back')], isNull);
+    expect(docOf(c, s.id).nodeIndex[const NodeId('mid')], isNull);
+    expect(docOf(c, s.id).nodeIndex[const NodeId('leaf')], isNotNull,
+        reason: 'nothing else was selected');
+
+    // ONE undo returns both.
+    await pressCtrl(tester, LogicalKeyboardKey.keyZ);
+    expect(docOf(c, s.id).nodeIndex[const NodeId('back')], isNotNull);
+    expect(docOf(c, s.id).nodeIndex[const NodeId('mid')], isNotNull);
+
+    // The same gesture from the keyboard, with the selection restored.
+    c.read(editorControllerProvider.notifier)
+        .selectNode(const ScenePath(NodeId('back')));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pumpAndSettle();
+    expect(docOf(c, s.id).nodeIndex[const NodeId('back')], isNull,
+        reason: 'Del is bound to the node-level delete too');
+  });
+
+  testWidgets('a blocked Del SAYS WHY, except on an empty selection',
+      (tester) async {
+    final s = seed([square('shut', Vec2.zero, 30, locked: true)]);
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    // Nothing selected: a miss, not a refusal. No toast.
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing,
+        reason: 'toasting at every stray Del would be noise');
+
+    // Selected but locked: a refusal, and it must say so.
+    c.read(editorControllerProvider.notifier)
+        .selectNode(const ScenePath(NodeId('shut')));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsOneWidget,
+        reason: 'a shortcut that silently does nothing reads as unbound');
+    expect(docOf(c, s.id).root.children, hasLength(1));
+    expect(tester.takeException(), isNull);
+    expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('layers-delete')))
+            .onPressed,
+        isNull,
+        reason: 'the header button and the key refuse for the same reason');
+  });
+
+  testWidgets('Backspace inside a layer rename edits the NAME, not the tree',
+      (tester) async {
+    final s = seed([square('sq', Vec2.zero, 30)]);
+    final c = containerFor(s.store);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(harness(c, s.id));
+    await tester.pumpAndSettle();
+
+    await tapRow(tester, 'sq');
+    // Second tap inside the double-click window opens the rename editor.
+    await tapRow(tester, 'sq');
+    expect(find.byKey(const Key('layer-rename-sq')), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+    await tester.pumpAndSettle();
+
+    expect(docOf(c, s.id).nodeIndex[const NodeId('sq')], isNotNull,
+        reason: 'the text field owns the key while it has focus');
+  });
+
   // --- The panel does not rebuild on a geometry-only edit (AC-13.3) ---------
 
   testWidgets(

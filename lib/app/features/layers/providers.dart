@@ -186,8 +186,8 @@ final layersViewProvider =
   }));
 });
 
-/// Whether **group** and **duplicate** can run on the current selection, and if
-/// not, the sentence to show the user.
+/// Whether **group**, **duplicate** and **delete** can run on the current
+/// selection, and if not, the sentence to show the user.
 ///
 /// This exists because "the button does nothing and says nothing" is the worst
 /// of the three possible behaviours: `CreateGroupCommand` and
@@ -210,6 +210,8 @@ final class LayersActions {
     required this.groupBlockedReason,
     required this.duplicateTarget,
     required this.duplicateBlockedReason,
+    required this.deleteTargets,
+    required this.deleteBlockedReason,
   });
 
   static const unavailable = LayersActions(
@@ -217,6 +219,8 @@ final class LayersActions {
     groupBlockedReason: 'This project is still opening.',
     duplicateTarget: null,
     duplicateBlockedReason: 'This project is still opening.',
+    deleteTargets: <NodeId>[],
+    deleteBlockedReason: 'This project is still opening.',
   );
 
   /// The selection, ordered by child index so the value is stable across
@@ -230,8 +234,19 @@ final class LayersActions {
   final NodeId? duplicateTarget;
   final String? duplicateBlockedReason;
 
+  /// Every selected subtree to remove, in child order — **one**
+  /// [DeleteNodesCommand] takes all of them, so this is a list and not a single
+  /// target the way [duplicateTarget] is.
+  ///
+  /// Unlike group and duplicate, delete has no arity rule: any non-empty,
+  /// resolvable, unlocked selection can go, across as many parents as it spans.
+  /// Nothing is moved, so there is no common-parent frame to preserve.
+  final List<NodeId> deleteTargets;
+  final String? deleteBlockedReason;
+
   bool get canGroup => groupBlockedReason == null;
   bool get canDuplicate => duplicateBlockedReason == null;
+  bool get canDelete => deleteBlockedReason == null;
 
   /// What the panel and the `Cmd/Ctrl+G` binding both read.
   factory LayersActions.of(Document? doc, Set<NodeId> selection) {
@@ -239,16 +254,21 @@ final class LayersActions {
 
     final parentOf = <NodeId, NodeId>{};
     final indexOf = <NodeId, int>{};
-    void walk(GroupNode g) {
+    // Effective lock, inherited down the tree exactly as [LayerRow.locked] and
+    // the canvas hit-test gate compute it — one rule, three surfaces.
+    final lockedIds = <NodeId>{};
+    void walk(GroupNode g, bool inherited) {
       for (var i = 0; i < g.children.length; i++) {
         final c = g.children[i];
         parentOf[c.id] = g.id;
         indexOf[c.id] = i;
-        if (c is GroupNode) walk(c);
+        final locked = inherited || c.locked;
+        if (locked) lockedIds.add(c.id);
+        if (c is GroupNode) walk(c, locked);
       }
     }
 
-    walk(doc.root);
+    walk(doc.root, false);
 
     final resolved = <NodeId>[
       for (final id in selection)
@@ -277,11 +297,32 @@ final class LayersActions {
       duplicateReason = null;
     }
 
+    // Delete refuses a locked row for the same reason reorder and rename do
+    // (AC-2.2.6, docs/v3/05 §4.5): it is an authored, persisted edit, and it is
+    // the most destructive one the panel offers — a lock that stopped a drag but
+    // not a delete would protect nothing worth protecting.
+    final String? deleteReason;
+    if (selection.isEmpty) {
+      deleteReason = 'Select a layer to delete.';
+    } else if (resolved.length != selection.length) {
+      deleteReason = 'Some of the selected layers are no longer in this '
+          'project.';
+    } else if (resolved.any(lockedIds.contains)) {
+      deleteReason = resolved.length == 1
+          ? 'That layer is locked — unlock it to delete it.'
+          : 'Some of those layers are locked — unlock them to delete them.';
+    } else {
+      deleteReason = null;
+    }
+
     return LayersActions(
       groupMembers: List<NodeId>.unmodifiable(resolved),
       groupBlockedReason: groupReason,
       duplicateTarget: duplicateReason == null ? resolved.single : null,
       duplicateBlockedReason: duplicateReason,
+      deleteTargets:
+          deleteReason == null ? List<NodeId>.unmodifiable(resolved) : const [],
+      deleteBlockedReason: deleteReason,
     );
   }
 
@@ -291,14 +332,21 @@ final class LayersActions {
       listEquals(other.groupMembers, groupMembers) &&
       other.groupBlockedReason == groupBlockedReason &&
       other.duplicateTarget == duplicateTarget &&
-      other.duplicateBlockedReason == duplicateBlockedReason;
+      other.duplicateBlockedReason == duplicateBlockedReason &&
+      listEquals(other.deleteTargets, deleteTargets) &&
+      other.deleteBlockedReason == deleteBlockedReason;
 
   @override
-  int get hashCode => Object.hash(Object.hashAll(groupMembers),
-      groupBlockedReason, duplicateTarget, duplicateBlockedReason);
+  int get hashCode => Object.hash(
+      Object.hashAll(groupMembers),
+      groupBlockedReason,
+      duplicateTarget,
+      duplicateBlockedReason,
+      Object.hashAll(deleteTargets),
+      deleteBlockedReason);
 }
 
-/// The group/duplicate gate as a **named slice** — value-projected, so a
+/// The group/duplicate/delete gate as a **named slice** — value-projected, so a
 /// document emission that changes neither the selection's parents nor its
 /// membership rebuilds nothing.
 final layersActionsProvider =
@@ -321,3 +369,36 @@ final layersSelectionProvider = Provider.autoDispose<Set<NodeId>>((ref) {
       ref.watch(editorControllerProvider.select((s) => s.selectedNodes));
   return <NodeId>{for (final p in paths) p.nodeId};
 });
+
+/// Narrow the node selection to what survived a delete of [removed].
+///
+/// **Not a correctness repair, and deliberately not part of the op.** Selection
+/// is stored-never-checked (docs/v3/08 §2) and a dangling `ScenePath` is
+/// filtered at every read site, so nothing breaks if this never runs — which is
+/// precisely why it lives in the editor layer and not inside
+/// `NodeOps.deleteNodes`, where it would grow `anim_core` the dependency on
+/// editor types that docs/v3/04 §1 exists to forbid. It is the same courtesy the
+/// shell's anchor delete does: the delete is the one moment we *know* the ids
+/// are gone, and an inspector still pointed at a layer that left the screen
+/// reads as a bug even when nothing is actually wrong.
+///
+/// [view] must be the tree as it was **before** the delete — after it, the
+/// ancestor walk has nothing left to walk. A descendant of a deleted group is
+/// deleted too, so the test is that full walk and not `removed.contains`.
+///
+/// One function, called by both the panel's trash and the shell's `Del`, because
+/// a rule with two implementations is a rule with two behaviours.
+void dropDeletedFromSelection(
+    WidgetRef ref, LayersView view, List<NodeId> removed) {
+  final selected = ref.read(editorControllerProvider).selectedNodes;
+  final survivors = <ScenePath>[
+    for (final path in selected)
+      if (!removed.any((r) => view.isSelfOrDescendantOf(path.nodeId, r))) path,
+  ];
+  if (survivors.length == selected.length) return; // nothing selected died
+  final editor = ref.read(editorControllerProvider.notifier);
+  editor.clearSelection();
+  for (final path in survivors) {
+    editor.addToSelection(path);
+  }
+}

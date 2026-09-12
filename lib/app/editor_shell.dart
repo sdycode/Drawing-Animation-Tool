@@ -555,15 +555,17 @@ class _EditorBody extends ConsumerWidget {
         for (final entry in kToolButtons.entries)
           SingleActivator(_toolKeys[entry.key] ?? LogicalKeyboardKey.keyV):
               () => _activate(ref, entry.key),
-        // docs/v3/05 §5 — `Del` / `Backspace` removes the selected anchor(s) with
-        // Direct select (AC-4.3.5). Bound here beside the other canvas keys and in
-        // the same scope; the handler refuses while a text field has focus and
-        // does nothing unless Direct select has an anchor selected — node-level
-        // Del is a separate, still-unscheduled gap (docs/v3/06 M5).
+        // docs/v3/05 §5 — `Del` / `Backspace` deletes. ONE binding, two
+        // meanings, resolved by the handler in a fixed order: the selected
+        // anchor(s) with Direct select (AC-4.3.5), otherwise the selected
+        // layer(s) (F2.2). Anchors win when both could apply, because with
+        // Direct select active and an anchor picked, the point is what the user
+        // is looking at — and deleting the whole node out from under them would
+        // be the more destructive reading of an ambiguous key.
         const SingleActivator(LogicalKeyboardKey.delete): () =>
-            _deleteAnchors(context, ref, projectId),
+            _delete(context, ref, projectId),
         const SingleActivator(LogicalKeyboardKey.backspace): () =>
-            _deleteAnchors(context, ref, projectId),
+            _delete(context, ref, projectId),
         // docs/v3/05 §5 & §"Enter is resolved by focus": `Enter` is play/pause —
         // NOT `Space`, which is pan. It reaches here only when the canvas has NOT
         // consumed it: with the canvas focused the pen owns `Enter` (its `_onKey`
@@ -723,24 +725,25 @@ bool _typingInAField() {
 /// **Refused while a text field has focus** (the same `_typingInAField` guard the
 /// tool letters use — `CallbackShortcuts` sees the key travel up from an
 /// `EditableText` before the field turns it into a delete), and **only** with
-/// Direct select active over a non-empty anchor selection. **Node-level Del —
-/// deleting a whole node — is a separate, still-unscheduled gap** and is
-/// deliberately not handled here: with no anchor selected this does nothing, so
-/// the two cannot collide.
+/// Direct select active over a non-empty anchor selection. Anything else falls
+/// through to [_deleteLayers], so the one key always means "delete what is
+/// selected" rather than doing nothing five times out of six.
 ///
 /// The anchor selection is cleared afterwards. It is resolved-not-repaired
 /// (docs/v3/08 §2) — a dangling id would be filtered at every read site anyway —
 /// but the delete is the one moment we know the id is gone, and clearing it is the
 /// same shape as the timeline's clear-on-remove (AC-4.2.3).
-void _deleteAnchors(BuildContext context, WidgetRef ref, String projectId) {
-  if (_typingInAField()) return;
-  if (ref.read(toolControllerProvider).id != ToolId.directSelect) return;
+///
+/// Returns true when it consumed the key, so the caller knows not to also delete
+/// the node the anchors belong to. A `Del` must never mean both.
+bool _deleteAnchors(BuildContext context, WidgetRef ref, String projectId) {
+  if (ref.read(toolControllerProvider).id != ToolId.directSelect) return false;
 
   final editor = ref.read(editorControllerProvider);
   final anchors = editor.selectedAnchors;
-  if (anchors.isEmpty) return;
+  if (anchors.isEmpty) return false;
   final doc = ref.read(documentControllerProvider(projectId)).valueOrNull;
-  if (doc == null) return;
+  if (doc == null) return false;
 
   final commands = CanvasCommands(ref, projectId);
   final keyframe = editor.selectedKeyframe;
@@ -755,6 +758,51 @@ void _deleteAnchors(BuildContext context, WidgetRef ref, String projectId) {
   if (acted) {
     ref.read(editorControllerProvider.notifier).selectAnchor(null);
   }
+  return acted;
+}
+
+/// `Del` / `Backspace` — the whole gesture (docs/v3/05 §5).
+///
+/// **One guard, one ordering, one place.** The text-field refusal lives here and
+/// not in either branch, so neither meaning of the key can grow its own copy of
+/// a rule that must never disagree with the other: renaming a layer to "Bird"
+/// and hitting backspace must edit the word, not remove the layer.
+void _delete(BuildContext context, WidgetRef ref, String projectId) {
+  if (_typingInAField()) return;
+  if (_deleteAnchors(context, ref, projectId)) return;
+  _deleteLayers(context, ref, projectId);
+}
+
+/// `Del` / `Backspace` with no anchor selection — delete the selected layer(s)
+/// as ONE undo entry (F2.2).
+///
+/// Reads the same [LayersActions] gate the panel's trash reads, so the key and
+/// the button refuse for the same reasons and say the same sentence — a locked
+/// row, a stale id, an empty selection. A **blocked delete says why**, for the
+/// reason `_group` does: a shortcut that silently does nothing is
+/// indistinguishable from an unbound key. The exception is the empty selection,
+/// which is silent: `Del` with nothing selected is a miss, not a refusal, and
+/// toasting at every stray keypress would be noise.
+///
+/// The surviving selection is narrowed by the panel's own helper rather than
+/// re-derived here — same rule, one implementation.
+void _deleteLayers(BuildContext context, WidgetRef ref, String projectId) {
+  final actions = ref.read(layersActionsProvider(projectId));
+  if (!actions.canDelete) {
+    if (ref.read(layersSelectionProvider).isNotEmpty) {
+      _toast(context, actions.deleteBlockedReason ?? 'Nothing to delete.');
+    }
+    return;
+  }
+  final removed = actions.deleteTargets;
+  // Captured before the command: once it applies, those rows are gone and the
+  // ancestor walk has nothing left to walk.
+  final view = ref.read(layersViewProvider(projectId));
+  _reportShortcut(
+    context,
+    LayersCommands(ref, projectId).delete(removed),
+    onSuccess: () => dropDeletedFromSelection(ref, view, removed),
+  );
 }
 
 /// The [PathNode] whose topology holds [anchor], or null. `AnchorId`s are unique
@@ -805,12 +853,17 @@ void _toast(BuildContext context, String message) =>
 /// Same contract as the panel's reporter: capture the messenger before the
 /// await, and handle `onError` so a rejected edit can never escape as an
 /// unhandled async error (docs/v3/08 §1).
-void _reportShortcut(BuildContext context, Future<String?> pending) {
+void _reportShortcut(BuildContext context, Future<String?> pending,
+    {VoidCallback? onSuccess}) {
   final messenger = ScaffoldMessenger.of(context);
   void show(String message) => showEditorToast(messenger, message);
   pending.then(
     (message) {
-      if (message != null) show(message);
+      if (message != null) {
+        show(message);
+      } else {
+        onSuccess?.call();
+      }
     },
     onError: (Object _, StackTrace __) => show(kRejectedLayerEditMessage),
   );

@@ -33,8 +33,8 @@ enum _DropZone {
   below,
 }
 
-/// The Layers panel — the tree, z-order, rename, visibility and lock (F2.2,
-/// docs/v3/05 §2).
+/// The Layers panel — the tree, z-order, rename, visibility, lock and delete
+/// (F2.2, docs/v3/05 §2).
 ///
 /// **Reads named slices only** (docs/v3/08 §2): the value-equal [LayersView],
 /// the shared selection set and the [LayersActions] gate, never the whole
@@ -106,6 +106,8 @@ class LayersPanel extends ConsumerWidget {
                             context,
                             LayersCommands(ref, projectId)
                                 .setLocked(row.id, !row.lockedSelf)),
+                        onDelete: () =>
+                            _deleteNodes(context, ref, <NodeId>[row.id]),
                         onRename: (name) => _report(
                             context,
                             LayersCommands(ref, projectId)
@@ -219,19 +221,46 @@ class LayersPanel extends ConsumerWidget {
   /// and Flutter reports an unhandled async error instead of the snackbar this
   /// method exists to show. A dropped future must not be able to take the zone
   /// down with it.
-  void _report(BuildContext context, Future<String?> pending) {
+  /// [onSuccess] runs only when the command actually applied — never on a
+  /// refusal and never on an escaped error — so a caller can do the follow-up
+  /// work (dropping a selection that just stopped existing) without having to
+  /// re-derive whether the edit landed.
+  void _report(BuildContext context, Future<String?> pending,
+      {VoidCallback? onSuccess}) {
     final messenger = ScaffoldMessenger.of(context);
     void show(String message) => showEditorToast(messenger, message);
     pending.then(
       (message) {
-        if (message != null) show(message);
+        if (message != null) {
+          show(message);
+        } else {
+          onSuccess?.call();
+        }
       },
       onError: (Object _, StackTrace __) => show(kRejectedLayerEditMessage),
     );
   }
 
-  /// The rail header, and the home of the two affordances M2's exit criterion
-  /// needs: **Group** (`Cmd/Ctrl+G`) and **Duplicate** (`Cmd/Ctrl+D`).
+  /// Delete [ids] as ONE undo entry, then drop whatever of the selection went
+  /// with them (F2.2).
+  ///
+  /// The [LayersView] is read **before** the command, because the moment it
+  /// applies those rows are gone and the ancestor walk that decides which
+  /// selected nodes died along with them would have nothing left to walk.
+  void _deleteNodes(BuildContext context, WidgetRef ref, List<NodeId> ids) {
+    if (ids.isEmpty) return;
+    final view = ref.read(layersViewProvider(projectId));
+    _report(
+      context,
+      LayersCommands(ref, projectId).delete(ids),
+      onSuccess: () => dropDeletedFromSelection(ref, view, ids),
+    );
+  }
+
+  /// The rail header, and the home of the three selection affordances:
+  /// **Group** (`Cmd/Ctrl+G`), **Duplicate** (`Cmd/Ctrl+D`) and **Delete**
+  /// (`Del`) — the first two are M2's exit criterion, the third acts on the
+  /// whole selection at once, which is what the row's own trash cannot do.
   ///
   /// Both are disabled — with the reason in the tooltip — when the selection
   /// cannot take them, rather than being enabled and silently doing nothing.
@@ -272,6 +301,18 @@ class LayersPanel extends ConsumerWidget {
                     context,
                     LayersCommands(ref, projectId)
                         .duplicate(actions.duplicateTarget!))
+                : null,
+          ),
+          _headerButton(
+            key: const Key('layers-delete'),
+            icon: Icons.delete_outline,
+            tooltip: actions.deleteBlockedReason ??
+                (actions.deleteTargets.length == 1
+                    ? 'Delete layer (Del)'
+                    : 'Delete ${actions.deleteTargets.length} layers (Del)'),
+            scheme: scheme,
+            onPressed: actions.canDelete
+                ? () => _deleteNodes(context, ref, actions.deleteTargets)
                 : null,
           ),
         ],
@@ -321,6 +362,7 @@ class _LayerTile extends StatefulWidget {
     required this.onSelect,
     required this.onToggleVisible,
     required this.onToggleLocked,
+    required this.onDelete,
     required this.onRename,
     required this.canAccept,
     required this.onDropOnto,
@@ -332,6 +374,7 @@ class _LayerTile extends StatefulWidget {
   final VoidCallback onSelect;
   final VoidCallback onToggleVisible;
   final VoidCallback onToggleLocked;
+  final VoidCallback onDelete;
   final ValueChanged<String> onRename;
   final bool Function(LayerRow dragged) canAccept;
   final void Function(LayerRow dragged, _DropZone zone) onDropOnto;
@@ -515,6 +558,29 @@ class _LayerTileState extends State<_LayerTile> {
                 scheme: scheme,
               ),
             ],
+            // **Offered on an `UnknownNode` too**, unlike the eye and the lock
+            // above it. Those write a typed field onto a node that re-emits raw
+            // JSON verbatim, so `NodeOps` refuses them and the row shows a badge
+            // instead; a delete writes nothing — it removes the raw blob whole
+            // and the save round-trips exactly what the screen shows. Hiding it
+            // here would make a layer from a newer editor permanently
+            // undeletable, which AC-1.2.4 never asked for.
+            _iconToggle(
+              key: Key('layer-delete-${row.id.v}'),
+              icon: Icons.delete_outline,
+              active: false,
+              tooltip: row.locked
+                  ? (row.lockedByAncestor
+                      ? 'Locked by a group above it — unlock that group'
+                      : 'Locked — unlock it to delete')
+                  : row.isGroup
+                      ? 'Delete group and its contents'
+                      : 'Delete',
+              // A locked row refuses every authored edit, and this is the most
+              // destructive one the panel has (AC-2.2.6).
+              onTap: row.locked ? null : widget.onDelete,
+              scheme: scheme,
+            ),
             _dragHandle(scheme, row),
           ],
         ),
@@ -653,6 +719,17 @@ class _LayerTileState extends State<_LayerTile> {
         onSubmitted: (_) => _commitRename(releaseFocus: true),
       );
 
+  /// **Density is load-bearing, not styling.** The rail is a fixed 248 px
+  /// ([EditorShell.layersWidth]) and the name is the `Expanded` that absorbs
+  /// whatever the trailing controls leave — so each button's *tap target*, not
+  /// its icon, decides how much of a layer's name the user can read. The
+  /// declared `constraints` do not decide it: `IconButton` pads out to the
+  /// density's minimum (48 px, or 40 at [VisualDensity.compact]) and a 28 px
+  /// minimum is simply satisfied by that. At `compact` the third button here
+  /// would have cut the name from 119 px to 79 — about twelve characters — and
+  /// pulled the eye under the row's own centre. `-4` is the tightest density
+  /// Material defines: a 32 px target, comfortable with a mouse in a dense
+  /// desktop panel, and three of them cost the name less than two did before.
   Widget _iconToggle({
     required Key key,
     required IconData icon,
@@ -666,7 +743,7 @@ class _LayerTileState extends State<_LayerTile> {
         tooltip: tooltip,
         icon: Icon(icon, size: 15),
         color: active ? scheme.onSurface : scheme.onSurfaceVariant,
-        visualDensity: VisualDensity.compact,
+        visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
         onPressed: onTap,

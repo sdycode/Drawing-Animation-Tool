@@ -46,6 +46,17 @@ final class LayersCommands {
   Future<String?> duplicate(NodeId node) =>
       _guard(() => _controller.run(DuplicateSubtreeCommand(node)));
 
+  /// Delete whole layers — the row's trash button, the header button and `Del`
+  /// (F2.2). Every selected subtree goes in **one** [DeleteNodesCommand], so one
+  /// `Cmd/Ctrl+Z` brings the whole selection back with its keyframes.
+  ///
+  /// Like [group], the three call sites gate on [LayersActions] first: a locked
+  /// row, a stale id and an empty selection are all refusals `NodeOps` would
+  /// throw on, and a trash button that can only ever produce an error message is
+  /// not an affordance.
+  Future<String?> delete(List<NodeId> nodes) =>
+      _guard(() => _controller.run(DeleteNodesCommand(nodes)));
+
   /// Rename a layer — `NodeId` is unchanged (AC-2.2.3).
   Future<String?> rename(NodeId node, String name) =>
       _guard(() => _controller.run(RenameNodeCommand(node, name)));

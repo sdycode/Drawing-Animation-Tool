@@ -1530,23 +1530,38 @@ void main() {
   });
 
   testWidgets(
-      'Del with only a NODE selected (Select tool) deletes no anchor — node '
-      'deletion is a separate gap', (tester) async {
+      'Del with only a NODE selected (Select tool) deletes the NODE, not an '
+      'anchor — and ONE Ctrl+Z brings it back with its tracks', (tester) async {
     final t = await openTrackedSquare(tester);
     const node = NodeId('sq');
 
     await selectByClick(tester, t.c, const Vec2(125, 100)); // Select tool
     expect(t.c.read(canvasSelectionProvider), isNotEmpty);
     expect(t.c.read(editorControllerProvider).selectedAnchors, isEmpty);
+    expect(pathTrackOf(docOf(t.c, t.id), node), isNotNull,
+        reason: 'the square is animated, so the delete has tracks to prune');
 
     await tester.sendKeyEvent(LogicalKeyboardKey.delete);
     await tester.pumpAndSettle();
 
-    expect((docOf(t.c, t.id).nodeIndex[node]! as PathNode).path.anchors,
-        hasLength(4),
-        reason: 'no anchor selected + not Direct select → nothing happens');
-    expect(docOf(t.c, t.id).root.children, hasLength(1),
-        reason: 'and the node itself is not deleted here');
+    // The one key, resolved to its node-level meaning: no anchor was selected,
+    // so this is not a DeleteAnchorCommand at all.
+    expect(docOf(t.c, t.id).root.children, isEmpty,
+        reason: 'Del with a node selected removes the node (F2.2)');
+    expect(docOf(t.c, t.id).nodeIndex[node], isNull);
+    expect(pathTrackOf(docOf(t.c, t.id), node), isNull,
+        reason: 'its tracks go with it — no orphan keyframes in the save');
+    expect(t.c.read(canvasSelectionProvider), isEmpty,
+        reason: 'the selection does not outlive the node it pointed at');
+
+    // ONE undo, because it was ONE command — tree and tracks return together.
+    await t.c.read(documentControllerProvider(t.id).notifier).undo();
+    await tester.pumpAndSettle();
+    final back = docOf(t.c, t.id);
+    expect(back.root.children, hasLength(1));
+    expect((back.nodeIndex[node]! as PathNode).path.anchors, hasLength(4));
+    expect(pathTrackOf(back, node), isNotNull,
+        reason: 'undo restores the pruned tracks, not just the tree');
   });
 
   // ==========================================================================

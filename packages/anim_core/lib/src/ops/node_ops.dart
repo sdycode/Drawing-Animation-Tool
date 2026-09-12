@@ -539,6 +539,87 @@ abstract final class NodeOps {
       }),
     );
   }
+
+  /// Remove the subtree(s) at [ns], and every track that addressed any node
+  /// inside them, as **one** `Document → Document` (F2.1 — the layers panel's
+  /// trash and the shell's `Del`).
+  ///
+  /// **Plural on purpose.** A multi-row delete is one gesture and must be one
+  /// undo entry, for the same reason [duplicateSubtree] re-mints a hundred ids
+  /// inside one op rather than being composed from a hundred small ones: N
+  /// separate commands make the user press `Cmd/Ctrl+Z` N times to get back a
+  /// selection they removed once, and the intermediate documents — a group gone
+  /// but its sibling still there — are states the user never asked to exist.
+  ///
+  /// **Tracks are pruned, not orphaned.** `Animation.tracks` is keyed by
+  /// [NodeId] (docs/v3/01 §10), so leaving the entries behind would keep every
+  /// keyframe of a deleted node alive in the save file forever — invisible,
+  /// un-undoable through the timeline (no row addresses them any more), and
+  /// resurrected onto the *wrong* node the day a future paste reuses an id. The
+  /// whole `TrackSet` goes, `unknownKeys` included: those raw entries describe
+  /// the node that is being removed, and forward-compat preservation
+  /// (docs/v3/02 §7) protects a node the user kept, not one they deleted.
+  ///
+  /// **Undo restores everything**, because the removal is one whole new
+  /// `Document` and [CommandStack] holds the previous one — the tree, the
+  /// tracks and the raw blobs all come back together (docs/v3/04 §6).
+  ///
+  /// **An [UnknownNode] IS deletable**, unlike every field write in this file.
+  /// [setName], [setVisible] and friends refuse one because a typed write onto a
+  /// node that re-emits its raw JSON verbatim would be *silently dropped on
+  /// save* — the user would see the change and lose it. Deleting has no such
+  /// gap: removing the subtree removes the raw JSON with it, the save round-trips
+  /// exactly what the screen shows, and the alternative — a node from a newer
+  /// editor that this build can never remove — is a document the user cannot
+  /// clean up in any way at all (AC-1.2.4 makes it un-*editable*, not immortal).
+  /// Its raw blob may nest ids this build cannot see, so a track keyed by one of
+  /// those survives as an orphan; that is inert (the evaluator only walks nodes
+  /// reachable from the root) and strictly better than guessing at the meaning
+  /// of a structure this build does not understand.
+  ///
+  /// Overlapping selections are fine and are **not** an error: selecting a group
+  /// and one of its own children deletes the group once, and the child goes with
+  /// it. Refusals, both [ArgumentError]:
+  /// - [ns] is empty — a delete with no target is a caller bug, not a no-op;
+  /// - any id is the root, or is unknown. Validation runs over the **original**
+  ///   document and completes before anything is removed, so a bad id in the
+  ///   list cannot leave a half-applied tree behind.
+  static Document deleteNodes(Document d, List<NodeId> ns) {
+    if (ns.isEmpty) {
+      throw ArgumentError.value(ns, 'ns', 'need at least one node to delete');
+    }
+
+    // ONE index build, and every precondition checked before the first removal.
+    final nodes = d.nodeIndex;
+    final gone = <NodeId>{};
+    for (final n in ns) {
+      if (n == d.root.id) {
+        throw ArgumentError.value(n.v, 'ns', 'the root cannot be deleted');
+      }
+      final node = nodes[n];
+      if (node == null) {
+        throw ArgumentError.value(n.v, 'ns', 'no such node');
+      }
+      gone.addAll(_subtreeIds(node));
+    }
+
+    var root = d.root;
+    for (final n in ns) {
+      // A no-op for an id already carried off inside an earlier subtree, which
+      // is why overlapping selections need no de-duplication pass.
+      root = _removeNode(root, n);
+    }
+
+    return d.copyWith(
+      root: root,
+      animations: <Animation>[
+        for (final a in d.animations) _pruneTracks(a, gone),
+      ],
+    );
+  }
+
+  /// Single-node [deleteNodes] — the row-level trash button's call.
+  static Document deleteNode(Document d, NodeId n) => deleteNodes(d, <NodeId>[n]);
 }
 
 /// The world matrix [scene] resolved for [id], or a located [ArgumentError].
@@ -1102,6 +1183,21 @@ Iterable<Node> _subtree(Node n) sync* {
 }
 
 Set<NodeId> _subtreeIds(Node n) => {for (final x in _subtree(n)) x.id};
+
+/// [animation] with every `TrackSet` whose key sits in [gone] dropped.
+///
+/// The mirror of [_cloneTracks]: duplicate copies the subtree's tracks under new
+/// ids, delete removes them under the old ones. Returns the *same* instance when
+/// nothing matched, so deleting a node that was never animated allocates nothing
+/// and leaves the animation list identical for the value comparisons upstream.
+Animation _pruneTracks(Animation animation, Set<NodeId> gone) {
+  if (!animation.tracks.keys.any(gone.contains)) return animation;
+  return animation.copyWith(
+      tracks: Map<NodeId, TrackSet>.unmodifiable(<NodeId, TrackSet>{
+    for (final e in animation.tracks.entries)
+      if (!gone.contains(e.key)) e.key: e.value,
+  }));
+}
 
 /// `NodeId` → the group that holds it as a direct child, in **one** walk.
 ///

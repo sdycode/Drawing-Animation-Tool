@@ -342,7 +342,8 @@ final List<_Chapter> _chapters = <_Chapter>[
         ('Tools', 'The left rail — pick what a drag on the canvas does.'),
         (
           'Layers',
-          'The document tree. Select, rename, reorder, group and duplicate.'
+          'The document tree. Select, rename, reorder, group, duplicate — and '
+              'hide, lock or delete any row from its own buttons.'
         ),
         (
           'Canvas',
@@ -403,7 +404,8 @@ final List<_Chapter> _chapters = <_Chapter>[
         ('V', 'Select — click a layer, drag to move it.'),
         ('A', 'Direct select — drag individual anchors and their handles.'),
         ('Alt-click', 'On an anchor with Direct select: corner ↔ smooth.'),
-        ('Del', 'Remove the selected anchor(s) with Direct select.'),
+        ('Del', 'With Direct select and an anchor picked, removes the '
+            'anchor. Otherwise deletes the selected layer(s).'),
         ('Cmd/Ctrl+D', 'Duplicate the selection as one undo step.'),
         ('Cmd/Ctrl+G', 'Group the selection.'),
         ('Cmd/Ctrl+Z', 'Undo. One edit — or one whole drag — is one step.'),
@@ -595,7 +597,8 @@ final List<_Chapter> _chapters = <_Chapter>[
         ('Cmd/Ctrl+Shift+Z', 'Redo'),
         ('Cmd/Ctrl+D', 'Duplicate'),
         ('Cmd/Ctrl+G', 'Group'),
-        ('Del / Backspace', 'Delete selected anchors (Direct select)'),
+        ('Del / Backspace',
+            'Delete selected anchors (Direct select), else selected layers'),
       ]),
       const _KeySection('View', [
         ('Space + drag', 'Pan'),

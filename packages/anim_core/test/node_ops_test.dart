@@ -639,6 +639,108 @@ void main() {
     });
   });
 
+  group('NodeOps.deleteNodes', () {
+    test('removes the subtree AND every track keyed inside it', () {
+      final d = _reparentDoc(animated: true);
+      expect(d.animations.single.tracks.keys.map((k) => k.v),
+          containsAll(<String>['leaf', 'solo']));
+
+      // `leaf` lives inside `g1`, so deleting the GROUP must take the child's
+      // tracks with it — the case a `tracks.remove(id)` would miss.
+      final out = NodeOps.deleteNodes(d, const [NodeId('g1')]);
+
+      expect(out.nodeIndex[const NodeId('g1')], isNull);
+      expect(out.nodeIndex[const NodeId('leaf')], isNull,
+          reason: 'the whole subtree goes, not just the group node');
+      expect(out.animations.single.tracks.containsKey(const NodeId('leaf')),
+          isFalse,
+          reason: 'a descendant track left behind is an invisible orphan that '
+              'survives every save and reload');
+      expect(out.animations.single.tracks.containsKey(const NodeId('solo')),
+          isTrue,
+          reason: 'an untouched node keeps every keyframe it had');
+
+      // Untouched siblings still evaluate exactly as they did.
+      final before = evaluate(d, const <AnimationMix>[]);
+      final after = evaluate(out, const <AnimationMix>[]);
+      expect(_digest(after, const NodeId('solo')),
+          _digest(before, const NodeId('solo')));
+    });
+
+    test('the ORIGINAL document is untouched — undo has something to restore',
+        () {
+      final d = _reparentDoc(animated: true);
+      NodeOps.deleteNodes(d, const [NodeId('g1')]);
+      expect(d.nodeIndex[const NodeId('leaf')], isNotNull);
+      expect(
+          d.animations.single.tracks.containsKey(const NodeId('leaf')), isTrue);
+    });
+
+    test('deleting a node with NO tracks returns the same animation instance',
+        () {
+      final d = _reparentDoc(animated: true);
+      final out = NodeOps.deleteNodes(d, const [NodeId('g2')]);
+      expect(identical(out.animations.single, d.animations.single), isTrue,
+          reason: 'nothing matched, so nothing is rebuilt');
+    });
+
+    test('an overlapping selection — a group AND its own child — is not an '
+        'error and deletes once', () {
+      final d = _reparentDoc(animated: true);
+      final out =
+          NodeOps.deleteNodes(d, const [NodeId('g1'), NodeId('leaf')]);
+      expect(out.nodeIndex[const NodeId('g1')], isNull);
+      expect(out.nodeIndex[const NodeId('leaf')], isNull);
+      expect(out.root.children.map((c) => c.id.v), ['g2', 'solo']);
+    });
+
+    test('several unrelated subtrees go in ONE call — one undo entry upstream',
+        () {
+      final d = _threeSquareDoc();
+      final out = NodeOps.deleteNodes(d, const [NodeId('A'), NodeId('C')]);
+      expect(out.root.children.map((c) => c.id.v), ['B']);
+    });
+
+    test('an UnknownNode IS deletable — it is un-editable, not immortal', () {
+      final d = Document(
+        id: 'doc',
+        name: 't',
+        artboard: const Vec2(400, 400),
+        root: GroupNode(id: const NodeId('root'), name: 'Root', children: [
+          _square('A', Vec2.zero),
+          const UnknownNode(
+              id: NodeId('future'),
+              name: 'Mesh from a newer editor',
+              rawType: 'mesh',
+              raw: <String, Object?>{'type': 'mesh', 'id': 'future'}),
+        ]),
+      );
+      final out = NodeOps.deleteNodes(d, const [NodeId('future')]);
+      expect(out.root.children.map((c) => c.id.v), ['A'],
+          reason: 'the raw blob goes with the node, so the save round-trips '
+              'exactly what the screen shows');
+    });
+
+    test('an empty list, the root, and an unknown id each throw', () {
+      final d = _threeSquareDoc();
+      expect(() => NodeOps.deleteNodes(d, const []), throwsArgumentError);
+      expect(() => NodeOps.deleteNodes(d, const [NodeId('root')]),
+          throwsArgumentError);
+      expect(() => NodeOps.deleteNodes(d, const [NodeId('nope')]),
+          throwsArgumentError);
+    });
+
+    test('a bad id in the list leaves NOTHING half-deleted', () {
+      final d = _threeSquareDoc();
+      expect(() => NodeOps.deleteNodes(d, const [NodeId('A'), NodeId('nope')]),
+          throwsArgumentError);
+      // The op is Document -> Document, so `d` cannot have been touched — the
+      // check that matters is that validation ran before the first removal and
+      // no partially-edited document was ever returned.
+      expect(d.root.children.map((c) => c.id.v), ['A', 'B', 'C']);
+    });
+  });
+
   group('NodeOps.reorderChild', () {
     test('splices the child list without touching the moved transform', () {
       final d = _threeSquareDoc(); // root children: [A, B, C]
