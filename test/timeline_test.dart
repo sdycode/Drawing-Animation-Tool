@@ -7,8 +7,10 @@ import 'package:drawing_animation_tool/app/editor_shell.dart';
 import 'package:drawing_animation_tool/app/features/canvas/widgets/canvas_view.dart';
 import 'package:drawing_animation_tool/app/features/timeline/widgets/timeline_bar.dart';
 import 'package:drawing_animation_tool/app/features/tools/registry.dart';
+import 'package:drawing_animation_tool/app/state/document_controller.dart';
 import 'package:drawing_animation_tool/app/state/editor_controller.dart';
 import 'package:drawing_animation_tool/app/state/tool_controller.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -108,6 +110,27 @@ void main() {
       find.byKey(Key('kf-${node.v}-${p.wire}-$i'));
   Finder seg(NodeId node, PropertyKey p, int i) =>
       find.byKey(Key('seg-${node.v}-${p.wire}-$i'));
+  Finder summaryDot(String id, int i) => find.byKey(Key('summary-kf-$id-$i'));
+
+  /// Park the mouse over [target] and settle, so hover feedback has run.
+  Future<TestGesture> hoverOver(WidgetTester tester, Finder target) async {
+    final gesture =
+        await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: Offset.zero);
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    await gesture.moveTo(tester.getCenter(target));
+    await tester.pumpAndSettle();
+    return gesture;
+  }
+
+  /// The fill radius the dot at [target] is currently painting itself with.
+  double dotRadius(WidgetTester tester, Finder target) {
+    final paint = tester.widget<CustomPaint>(find.descendant(
+        of: target, matching: find.byType(CustomPaint), matchRoot: false));
+    // ignore: avoid_dynamic_calls
+    return (paint.painter as dynamic).radius as double;
+  }
   Rect railRect(WidgetTester tester, NodeId node, PropertyKey p) =>
       tester.getRect(find.byKey(Key('rail-${node.v}-${p.wire}')));
 
@@ -202,6 +225,115 @@ void main() {
     expect(c.read(editorControllerProvider).playhead, closeTo(0.6, 1e-9));
     expect(c.read(playheadProvider).value, closeTo(0.6, 1e-9),
         reason: 'the live notifier snaps too, so the canvas shows that key');
+  });
+
+  testWidgets(
+      'a dot on the COLLAPSED summary row is clickable and seeks the playhead',
+      (tester) async {
+    const node = NodeId('cog');
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.2: 0.0, 0.6: 3.14}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+
+    // NOT expanded — this is the default state, and so the summary dots are the
+    // only ones most users ever see. They used to be paint inside a CustomPaint
+    // with no gesture anywhere near them, so every click on one did nothing.
+    expect(summaryDot('cog', 0), findsOneWidget);
+    expect(summaryDot('cog', 1), findsOneWidget);
+
+    await tester.tap(summaryDot('cog', 1));
+    await tester.pumpAndSettle();
+
+    final c = containerOf(tester);
+    expect(c.read(editorControllerProvider).playhead, closeTo(0.6, 1e-9));
+    expect(c.read(playheadProvider).value, closeTo(0.6, 1e-9),
+        reason: 'the live notifier moves too, so the canvas shows that frame');
+  });
+
+  testWidgets('a summary dot SEEKS but never edits — the row stays read-only',
+      (tester) async {
+    const node = NodeId('cog');
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.2: 0.0, 0.6: 3.14}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    final before = await raw(id);
+
+    // Drag a summary dot a long way: the union is many properties at one `t`,
+    // so there is no single track a drag could address and none is offered.
+    await tester.drag(summaryDot('cog', 0), const Offset(90, 0));
+    await tester.pumpAndSettle();
+
+    final c = containerOf(tester);
+    expect(keyTimesOf(c.read(documentControllerProvider(id)).requireValue, node,
+            rotation),
+        [0.2, 0.6],
+        reason: 'the collapsed row edits nothing (docs/v3/05 §2)');
+    expect(await raw(id), before, reason: 'and nothing reached disk');
+    expect(c.read(editorControllerProvider).selectedKeyframe, isNull,
+        reason: 'a union dot names no single (node, property, index)');
+  });
+
+  testWidgets('hovering a keyframe dot highlights it, and leaving un-highlights',
+      (tester) async {
+    const node = NodeId('cog');
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.2: 0.0, 0.6: 3.14}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+
+    final target = dot(node, rotation, 1);
+    final resting = dotRadius(tester, target);
+
+    final gesture = await hoverOver(tester, target);
+    expect(dotRadius(tester, target), greaterThan(resting),
+        reason: 'the dot under the pointer grows — "which one am I about to '
+            'hit" answered before the click');
+
+    // The neighbour is untouched: hover is per-dot, not per-row.
+    expect(dotRadius(tester, dot(node, rotation, 0)), resting);
+
+    await gesture.moveTo(Offset.zero);
+    await tester.pumpAndSettle();
+    expect(dotRadius(tester, target), resting,
+        reason: 'and it settles back when the pointer leaves');
+  });
+
+  testWidgets('a summary dot highlights on hover too — one rule, both rows',
+      (tester) async {
+    const node = NodeId('cog');
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.2: 0.0, 0.6: 3.14}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+
+    final target = summaryDot('cog', 1);
+    final resting = dotRadius(tester, target);
+    await hoverOver(tester, target);
+    expect(dotRadius(tester, target), greaterThan(resting));
+  });
+
+  testWidgets('hover never moves a dot — the hit box is fixed', (tester) async {
+    const node = NodeId('cog');
+    final id =
+        seed(rotate(docWith([tri('cog', 'cog')]), node, {0.2: 0.0, 0.6: 3.14}));
+
+    await tester.pumpWidget(lean(id));
+    await tester.pumpAndSettle();
+    await expand(tester, 'cog');
+
+    final target = dot(node, rotation, 1);
+    final before = tester.getRect(target);
+    await hoverOver(tester, target);
+    expect(tester.getRect(target), before,
+        reason: 'a dot that grew its own box would shove its neighbours out '
+            'from under the pointer that is aiming at them');
   });
 
   // ==========================================================================

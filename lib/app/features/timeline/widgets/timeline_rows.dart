@@ -52,6 +52,20 @@ class _TimelineRowsState extends ConsumerState<TimelineRows> {
         if (!_expanded.remove(node)) _expanded.add(node);
       });
 
+  /// Move the playhead to [t] — what clicking any keyframe dot means.
+  ///
+  /// The same live/settled pair the ruler's scrub and the bar's `Home`/`End`
+  /// keep in step: the notifier write repaints the canvas without rebuilding
+  /// anything, and `commitPlayhead` settles `EditorState` so edit-at-keyframe
+  /// reads a stable value. **This is not an edit** — the playhead is ephemeral
+  /// and never serialized — which is what lets the collapsed summary row stay
+  /// read-only (docs/v3/05 §2) while still being clickable.
+  void _seek(double t) {
+    final clamped = t.isNaN ? 0.0 : t.clamp(0.0, 1.0);
+    ref.read(playheadProvider).value = clamped;
+    ref.read(editorControllerProvider.notifier).commitPlayhead(clamped);
+  }
+
   @override
   Widget build(BuildContext context) {
     final model = ref.watch(timelineModelProvider(widget.projectId));
@@ -76,10 +90,12 @@ class _TimelineRowsState extends ConsumerState<TimelineRows> {
     for (final node in model.nodes) {
       final isExpanded = _expanded.contains(node.node);
       rows.add(_NodeHeaderRow(
+        key: ValueKey<String>('node-row-${node.node.v}'),
         node: node,
         expanded: isExpanded,
         labelWidth: widget.labelWidth,
         onToggle: () => _toggle(node.node),
+        onSeek: _seek,
       ));
       if (isExpanded) {
         for (final row in node.rows) {
@@ -103,36 +119,65 @@ class _TimelineRowsState extends ConsumerState<TimelineRows> {
 }
 
 /// A node header: the expand toggle, the name, and — while collapsed — the
-/// read-only union of the node's keys (docs/v3/05 §2).
-class _NodeHeaderRow extends StatelessWidget {
+/// union of the node's keys (docs/v3/05 §2).
+///
+/// **The summary dots are real hit targets, not paint.** They used to be circles
+/// inside a `CustomPaint` with no gesture anywhere near them — and because every
+/// node starts collapsed, those were the *only* dots most users ever saw. Every
+/// click on one did nothing, which reads as a broken timeline rather than as a
+/// deliberately read-only row.
+///
+/// Read-only still holds: a summary dot **seeks**, it does not drag. A dot here
+/// is the union of however many properties happen to key at that `t`, so there
+/// is no single track a drag could address — and moving the playhead is not a
+/// document edit at all (the playhead is ephemeral, AC-2.2.7). Editing a key
+/// still means expanding the node and using its property row.
+class _NodeHeaderRow extends StatefulWidget {
   const _NodeHeaderRow({
     required this.node,
     required this.expanded,
     required this.labelWidth,
     required this.onToggle,
+    required this.onSeek,
+    super.key,
   });
 
   final TimelineNodeModel node;
   final bool expanded;
   final double labelWidth;
   final VoidCallback onToggle;
+  final ValueChanged<double> onSeek;
+
+  @override
+  State<_NodeHeaderRow> createState() => _NodeHeaderRowState();
+}
+
+class _NodeHeaderRowState extends State<_NodeHeaderRow> {
+  /// The summary dot under the pointer, or null. Local, ephemeral, and never
+  /// read by anything else — hover is not state anyone else has a stake in.
+  int? _hovered;
+
+  void _setHovered(int? i) {
+    if (_hovered != i) setState(() => _hovered = i);
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final node = widget.node;
     return SizedBox(
       height: kTimelineRowHeight,
       child: Row(
         children: [
           SizedBox(
-            width: labelWidth,
+            width: widget.labelWidth,
             child: InkWell(
               key: Key('node-${node.node.v}'),
-              onTap: onToggle,
+              onTap: widget.onToggle,
               child: Row(
                 children: [
                   Icon(
-                    expanded ? Icons.arrow_drop_down : Icons.arrow_right,
+                    widget.expanded ? Icons.arrow_drop_down : Icons.arrow_right,
                     size: 16,
                     color: scheme.onSurfaceVariant,
                   ),
@@ -150,15 +195,32 @@ class _NodeHeaderRow extends StatelessWidget {
           ),
           Expanded(
             child: LayoutBuilder(
-              builder: (context, c) => CustomPaint(
-                size: Size(c.maxWidth, kTimelineRowHeight),
-                painter: _SummaryPainter(
-                  // The union summary is drawn only while collapsed; expanding
-                  // replaces it with the editable property rows below.
-                  times: expanded ? const <double>[] : node.summary,
-                  rail: scheme.outlineVariant,
-                  dot: scheme.onSurfaceVariant,
-                ),
+              builder: (context, c) => Stack(
+                key: Key('summary-${node.node.v}'),
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _RowRailPainter(rail: scheme.outlineVariant),
+                    ),
+                  ),
+                  // Drawn only while collapsed; expanding replaces the summary
+                  // with the editable property rows below it.
+                  if (!widget.expanded)
+                    for (var i = 0; i < node.summary.length; i++)
+                      _KeyDotHitBox(
+                        key: Key('summary-kf-${node.node.v}-$i'),
+                        dx: node.summary[i].clamp(0.0, 1.0) * c.maxWidth,
+                        radius: kTimelineSummaryDotRadius,
+                        hovered: _hovered == i,
+                        selected: false,
+                        tone: scheme.onSurfaceVariant,
+                        scheme: scheme,
+                        onEnter: () => _setHovered(i),
+                        onExit: () => _setHovered(null),
+                        onTap: () => widget.onSeek(node.summary[i]),
+                      ),
+                ],
               ),
             ),
           ),
@@ -194,6 +256,13 @@ class _PropertyRowState extends ConsumerState<_PropertyRow> {
   /// issued on release, against the index captured at drag start (AC-6.2.1).
   int? _dragIndex;
   double? _dragT;
+
+  /// The dot under the pointer, or null. Purely local like the header row's.
+  int? _hovered;
+
+  void _setHovered(int? i) {
+    if (_hovered != i) setState(() => _hovered = i);
+  }
 
   TimelineCommands get _commands => TimelineCommands(ref, widget.projectId);
 
@@ -352,52 +421,145 @@ class _PropertyRowState extends ConsumerState<_PropertyRow> {
     final isSelected = widget.selected == null
         ? false
         : widget.selected == (widget.row.node, widget.row.property, index);
-    const hit = 18.0;
+    return _KeyDotHitBox(
+      key: Key('kf-${widget.row.node.v}-${widget.row.property.wire}-$index'),
+      dx: x(t),
+      radius: kTimelineDotRadius,
+      // A dot stays lit for the whole drag: the pointer routinely leaves the
+      // 18 px box while dragging (that is the point of a drag), and letting the
+      // highlight drop out mid-gesture reads as losing the grab.
+      hovered: _hovered == index || _dragIndex == index,
+      selected: isSelected,
+      tone: scheme.tertiary,
+      scheme: scheme,
+      onEnter: () => _setHovered(index),
+      onExit: () => _setHovered(null),
+      onTap: () => _select(index),
+      // Start behaviour `down` so the drag delta is measured from the press,
+      // not from where the touch-slop was overcome — a dot dropped a known
+      // pixel distance lands on a known `t`, with no slop eaten in between.
+      onDragStart: () => setState(() {
+        _dragIndex = index;
+        _dragT = widget.row.keys[index].t;
+      }),
+      onDragUpdate: (dx) {
+        if (width <= 0) return;
+        setState(() {
+          _dragT = ((_dragT ?? 0.0) + dx / width).clamp(0.0, 1.0);
+        });
+      },
+      onDragEnd: () {
+        final target = _dragT;
+        setState(() {
+          _dragIndex = null;
+          _dragT = null;
+        });
+        if (target == null) return;
+        // ONE command, on release, against the index grabbed at drag start.
+        // A drop within minSeparation is rejected by the op and the dot
+        // springs back — the model never changed, so it re-renders at the
+        // original `t` and the refusal shows as a snackbar.
+        _report(context,
+            _commands.move(widget.row.node, widget.row.property, index, target));
+      },
+    );
+  }
+}
+
+/// One keyframe dot: its hit box, its hover reporting and its paint.
+///
+/// **Both rows use this one widget**, so the summary dot and the property dot
+/// can never drift apart in size, in what "hovered" looks like, or in how big
+/// the thing you actually have to hit is. The visual radius is [radius]; the
+/// *hit* box is [kTimelineDotHitWidth] wide regardless, because a 4.5 px circle
+/// is not a click target — that gap between what is drawn and what is clickable
+/// is why "I clicked the dot and nothing happened" is worth guarding against
+/// even on the rows that always did respond.
+///
+/// Hover is reported up rather than kept here: the parent already rebuilds for
+/// selection and drag, and a dot that owned its own hover would be a second
+/// `setState` per pointer move on a widget the parent rebuilds anyway.
+///
+/// The drag callbacks are optional. The summary row passes none — it seeks and
+/// never edits — and with them absent no drag recognizer is created at all, so
+/// the row cannot enter a gesture arena it has nothing to win.
+class _KeyDotHitBox extends StatelessWidget {
+  const _KeyDotHitBox({
+    required this.dx,
+    required this.radius,
+    required this.hovered,
+    required this.selected,
+    required this.tone,
+    required this.scheme,
+    required this.onEnter,
+    required this.onExit,
+    required this.onTap,
+    this.onDragStart,
+    this.onDragUpdate,
+    this.onDragEnd,
+    super.key,
+  });
+
+  /// The dot's centre, in pixels across the rail.
+  final double dx;
+  final double radius;
+  final bool hovered;
+  final bool selected;
+
+  /// The resting fill — the property rows' key colour, or the quieter summary
+  /// one. Selection and hover both override it.
+  final Color tone;
+  final ColorScheme scheme;
+
+  final VoidCallback onEnter;
+  final VoidCallback onExit;
+  final VoidCallback onTap;
+  final VoidCallback? onDragStart;
+  final ValueChanged<double>? onDragUpdate;
+  final VoidCallback? onDragEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final draggable = onDragStart != null;
     return Positioned(
-      left: x(t) - hit / 2,
+      left: dx - kTimelineDotHitWidth / 2,
       top: 0,
-      width: hit,
+      width: kTimelineDotHitWidth,
       height: kTimelineRowHeight,
-      child: GestureDetector(
-        key: Key('kf-${widget.row.node.v}-${widget.row.property.wire}-$index'),
-        behavior: HitTestBehavior.opaque,
-        // Start behaviour `down` so the drag delta is measured from the press,
-        // not from where the touch-slop was overcome — a dot dropped a known
-        // pixel distance lands on a known `t`, with no slop eaten in between.
-        dragStartBehavior: DragStartBehavior.down,
-        onTap: () => _select(index),
-        onHorizontalDragStart: (_) => setState(() {
-          _dragIndex = index;
-          _dragT = widget.row.keys[index].t;
-        }),
-        onHorizontalDragUpdate: (d) {
-          if (width <= 0) return;
-          setState(() {
-            _dragT = ((_dragT ?? 0.0) + d.delta.dx / width).clamp(0.0, 1.0);
-          });
-        },
-        onHorizontalDragEnd: (_) {
-          final target = _dragT;
-          setState(() {
-            _dragIndex = null;
-            _dragT = null;
-          });
-          if (target == null) return;
-          // ONE command, on release, against the index grabbed at drag start.
-          // A drop within minSeparation is rejected by the op and the dot
-          // springs back — the model never changed, so it re-renders at the
-          // original `t` and the refusal shows as a snackbar.
-          _report(
-              context,
-              _commands.move(
-                  widget.row.node, widget.row.property, index, target));
-        },
-        child: Center(
-          child: CustomPaint(
-            size: const Size(kTimelineDotRadius * 2, kTimelineDotRadius * 2),
-            painter: _DotPainter(
-              color: isSelected ? scheme.primary : scheme.tertiary,
-              ring: isSelected ? scheme.onPrimary : null,
+      child: MouseRegion(
+        // `click` on the summary (it only seeks) and the horizontal resize
+        // cursor on a property dot, which says "this one moves in time" before
+        // the user commits to the drag.
+        cursor: draggable
+            ? SystemMouseCursors.resizeLeftRight
+            : SystemMouseCursors.click,
+        onEnter: (_) => onEnter(),
+        onExit: (_) => onExit(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          dragStartBehavior: DragStartBehavior.down,
+          onTap: onTap,
+          onHorizontalDragStart: draggable ? (_) => onDragStart!() : null,
+          onHorizontalDragUpdate:
+              draggable ? (d) => onDragUpdate!(d.delta.dx) : null,
+          onHorizontalDragEnd: draggable ? (_) => onDragEnd!() : null,
+          child: Center(
+            child: CustomPaint(
+              // A FIXED box, sized for the halo, so growing the dot on hover
+              // repaints and never re-lays-out — a dot that nudged its
+              // neighbours when you pointed at it would be unclickable.
+              size: const Size.square(
+                  (kTimelineDotRadius + kTimelineDotHaloGrow) * 2),
+              painter: _DotPainter(
+                color: selected ? scheme.primary : tone,
+                ring: selected ? scheme.onPrimary : null,
+                radius: hovered ? radius + kTimelineDotHoverGrow : radius,
+                halo: hovered
+                    ? (selected ? scheme.primary : tone)
+                        .withValues(alpha: 0.24)
+                    : null,
+                haloRadius: radius + kTimelineDotHaloGrow,
+              ),
             ),
           ),
         ),
@@ -413,6 +575,24 @@ class _PropertyRowState extends ConsumerState<_PropertyRow> {
 const double kTimelineLabelWidth = 96.0;
 const double kTimelineRowHeight = 22.0;
 const double kTimelineDotRadius = 4.5;
+
+/// The quieter dot on a collapsed node's union row.
+const double kTimelineSummaryDotRadius = 3.5;
+
+/// **How wide a keyframe dot is to the pointer**, as opposed to how wide it
+/// looks. A 4.5 px circle is a 9 px target; this is the box that actually
+/// receives the click, on every row, so "click the dot" is a gesture a hand can
+/// make. Dots closer together than this overlap and the topmost wins, which is
+/// the right outcome — the alternative is a gap between them that swallows
+/// clicks.
+const double kTimelineDotHitWidth = 18.0;
+
+/// Hover feedback: the dot grows by this much, inside a soft halo this much
+/// wider again. Both are pure repaint — the hit box never changes size, so
+/// pointing at a dot cannot move it or its neighbours out from under the
+/// pointer.
+const double kTimelineDotHoverGrow = 1.5;
+const double kTimelineDotHaloGrow = 4.0;
 
 // --- Easing presets ---------------------------------------------------------
 
@@ -460,44 +640,6 @@ String _propLabel(PropertyKey p) => switch (p.prop) {
 
 // --- Painters (nothing mutable; the model is unitless `t`) -------------------
 
-class _SummaryPainter extends CustomPainter {
-  _SummaryPainter({required this.times, required this.rail, required this.dot});
-
-  final List<double> times;
-  final Color rail;
-  final Color dot;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final y = size.height / 2;
-    canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        Paint()
-          ..color = rail
-          ..strokeWidth = 1);
-    final p = Paint()..color = dot;
-    for (final t in times) {
-      if (!t.isFinite) continue;
-      canvas.drawCircle(Offset(t.clamp(0.0, 1.0) * size.width, y), 3, p);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_SummaryPainter old) =>
-      old.rail != rail ||
-      old.dot != dot ||
-      old.times.length != times.length ||
-      _differ(old.times, times);
-
-  static bool _differ(List<double> a, List<double> b) {
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return true;
-    }
-    return false;
-  }
-}
-
 class _RowRailPainter extends CustomPainter {
   _RowRailPainter({required this.rail});
 
@@ -518,21 +660,37 @@ class _RowRailPainter extends CustomPainter {
   bool shouldRepaint(_RowRailPainter old) => old.rail != rail;
 }
 
+/// A keyframe dot: an optional [halo] behind it, the fill, and an optional
+/// selection [ring] on top. [radius] is the fill's, and it varies with hover —
+/// the painter's own [size] does not, so none of this ever triggers a layout.
 class _DotPainter extends CustomPainter {
-  _DotPainter({required this.color, this.ring});
+  _DotPainter({
+    required this.color,
+    required this.radius,
+    required this.haloRadius,
+    this.ring,
+    this.halo,
+  });
 
   final Color color;
+  final double radius;
+  final double haloRadius;
   final Color? ring;
+  final Color? halo;
 
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
-    canvas.drawCircle(c, kTimelineDotRadius, Paint()..color = color);
+    final h = halo;
+    if (h != null) {
+      canvas.drawCircle(c, haloRadius, Paint()..color = h);
+    }
+    canvas.drawCircle(c, radius, Paint()..color = color);
     final r = ring;
     if (r != null) {
       canvas.drawCircle(
         c,
-        kTimelineDotRadius,
+        radius,
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5
@@ -542,5 +700,10 @@ class _DotPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DotPainter old) => old.color != color || old.ring != ring;
+  bool shouldRepaint(_DotPainter old) =>
+      old.color != color ||
+      old.ring != ring ||
+      old.halo != halo ||
+      old.radius != radius ||
+      old.haloRadius != haloRadius;
 }
